@@ -450,6 +450,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `platform_compat`, `report`, `retry`, `transcribe`
 - **Lint**: 0 ruff errors / 0 syntax issues
 
+### CI (matrix split)
+- Reworked [`.github/workflows/test.yml`](.github/workflows/test.yml) into
+  six independent jobs that can run in parallel:
+  - `lint` — ruff check + format check (≈ 15 s)
+  - `unit` — py3.11 + ubuntu, skips `integration` / `network` markers
+    (≈ 60 s) — this is the **PR feedback path**
+  - `integration` — py3.9/3.11/3.12 × ubuntu/windows, runs only on push
+    to main, tag push, manual dispatch, or nightly cron (UTC 02:00)
+  - `matrix` — full 5 py × 3 OS, runs only on tag push (release gate)
+    or develop merges
+  - `coverage` — py3.11 + ubuntu, `--cov-fail-under=60` → `=90` to
+    match the 97 % project coverage
+  - `build-docs` — soft check, non-blocking
+- Added `markers` declaration to `[tool.pytest.ini_options]`: `integration`,
+  `network`, `slow`. Tests can opt in via `@pytest.mark.integration`.
+- **PR feedback time**: from ≈ 5 min (full 5×3 matrix) to ≈ 30 s
+  (lint + unit).
+- Bumped coverage gate: `--cov-fail-under=60` → `=90`.
+
+### Release (v3.1.0 tag)
+- Initialised video2text as a standalone git repo (was a subdirectory of
+  `D:/1`). Created branch `main` with 199 files in the first commit.
+- Annotated tag `v3.1.0` pointing at the release commit.
+- New files:
+  - [GITHUB_RELEASE_v3.1.0.md](GITHUB_RELEASE_v3.1.0.md) — full Markdown
+    release description ready to paste into GitHub Releases.
+  - [PUBLISH_v3.1.0.md](PUBLISH_v3.1.0.md) — step-by-step push +
+    release guide (web UI + `gh` CLI options).
+  - [docs_site/roadmap-v3.2.md](docs_site/roadmap-v3.2.md) — 4-tier
+    v3.2.0 plan covering VAD chunking, persistent caches, profile CLI
+    透出, CI matrix split (done), WhisperX default, plugin CLI,
+    marketplace page, WebSocket progress, transcript diff, and
+    multi-engine consensus.
+- `mkdocs.yml` adds `Roadmap v3.2` to the nav.
+
 ## [2.1.0] - 2026-05-15
 
 ### Added
