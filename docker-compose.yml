@@ -1,0 +1,43 @@
+# Video2Text one-click Docker Compose.
+#
+# Usage:
+#   docker compose up -d --build
+#   docker compose logs -f
+#   docker compose down
+#
+# The Web UI is exposed on http://localhost:8000.
+# Transcripts land in ./web-workspace on the host.
+
+services:
+  web:
+    container_name: video2text-web
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: video2text:web-3.1.0
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist transcripts / downloads on the host
+      - ./web-workspace:/workspace
+      # Allow the host's clipboard / browser extension to reach us
+      # by name (used by extension/manifest.json host_permissions)
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - VIDEO2TEXT_LOG_LEVEL=info
+    restart: unless-stopped
+    # Add GPU passthrough by uncommenting on a host with nvidia-container-toolkit:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=2)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

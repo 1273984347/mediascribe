@@ -1,0 +1,88 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# Logs
+logs/
+*.log
+output/logs/
+
+# Output files
+output/
+!output/.gitkeep
+!output/transcripts/.gitkeep
+
+# Cache
+.cache/
+output/cache/
+*.tmp
+
+# Models (large files)
+models/
+*.bin
+*.pt
+*.pth
+*.onnx
+
+# OS
+Thumbs.db
+.DS_Store
+$RECYCLE.BIN/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Local config overrides
+config.local.json
+my_config.json
+*.local
+
+# Cookies (sensitive)
+cookies.txt
+*.cookies
+
+# Downloads (transient)
+output/downloads/
+!output/downloads/.gitkeep
+
+# One-click Web UI launcher state
+.one-click.pid
+.one-click.log
+web-workspace/

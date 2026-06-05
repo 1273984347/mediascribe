@@ -1,0 +1,21 @@
+{
+  "headless": true,
+  "browser_timeout": 30,
+  "max_retries": 3,
+  "retry_delay": 1.0,
+  "retry_backoff": 2.0,
+  "download_timeout": 30,
+  "max_videos": 10,
+  "max_scroll_rounds": 10,
+  "scroll_pause": 2.0,
+  "language": "zh",
+  "whisper_model": "small",
+  "output_dir": "output",
+  "keep_audio": false,
+  "workers": 1,
+  "log_level": "INFO",
+  "log_to_file": true,
+  "skip_existing": true,
+  "min_video_size_mb": 0.01,
+  "max_wait_for_media": 15
+}

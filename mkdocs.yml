@@ -1,0 +1,106 @@
+site_name: Video2Text
+site_description: Transcribe videos from 6 platforms to Markdown using Whisper
+site_url: https://example.github.io/video2text/
+repo_url: https://github.com/example/video2text
+repo_name: example/video2text
+edit_uri: edit/main/docs_site/
+
+docs_dir: docs_site
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - toc.follow
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+plugins:
+  - search
+  - autorefs
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Platforms: platforms.md
+  - Engines: engines.md
+  - Plugins: plugins.md
+  - WeChat MP: wechat-mp.md
+  - Web UI: web-ui.md
+  - One-click launch: one-click.md
+  - Browser extension: browser-extension.md
+  - MCP server: mcp.md
+  - Benchmarking: benchmarking.md
+  - Long videos: chunking.md
+  - Performance: performance.md
+  - Observability: observability.md
+  - E2E testing: e2e-testing.md
+  - CI matrix: ci-matrix.md
+  - Changelog: changelog.md
+  - Contributing: contributing.md
+  - License: license.md
+
+extra:
+  version:
+    provider: mike
+    default: stable
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/example/video2text
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/video2text/
+
+copyright: Copyright &copy; 2024–2026 Video2Text contributors. Licensed under MIT.
+
+# Strict mode: build fails on warnings.  Disable for now because
+# some auto-generated sections may include stale cross-refs.
+strict: false

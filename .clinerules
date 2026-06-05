@@ -1,0 +1,37 @@
+# Cline / Roo Code rules for Video2Text
+# Cline reads this file automatically. The full universal guide is in AGENTS.md.
+
+## Project
+Video2Text — offline video transcription tool. Downloads from Bilibili / Douyin
+/ local files, transcribes with local AI (Whisper / WhisperX / faster-whisper).
+
+## Stack
+- Python 3.8+
+- Core lib: `video2text/`
+- Batch lib: `douyin_batch/`
+- CLI: `python douyin_batch_v3.py --user <URL> --lang en`
+
+## Code style
+- `pathlib.Path` everywhere. No hard-coded path separators.
+- Type hints on public functions. English docstrings.
+- All user-visible strings via `t()` from `douyin_batch/i18n.py`.
+  Add new keys as `{"en": "...", "zh": "..."}` in the `Messages` class.
+- PEP 604 / PEP 585 syntax requires `from __future__ import annotations`.
+
+## Testing
+- `python run_tests.py` must pass (38 tests).
+- Add unit tests in `douyin_batch/tests/` for any new code.
+
+## Build commands
+- `make install`, `make test`, `make lint`, `make format`
+- Or, without `make`: `python -m pip install -r requirements.txt` etc.
+
+## Hard rules
+- Don't commit: `output/`, `models/`, `*.cookies`, `.env`, `my_config.json`.
+- Don't add new dependencies without updating `pyproject.toml` and
+  `requirements.txt`.
+- Use `douyin_batch.security.is_safe_url()` before fetching URLs.
+- Use `douyin_batch.platform_compat.safe_filename()` for user filenames.
+
+## Full guide
+Read `AGENTS.md` for the complete agent-friendly guide.

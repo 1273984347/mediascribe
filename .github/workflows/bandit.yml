@@ -1,0 +1,97 @@
+# Bandit security scan
+#
+# Runs PyCQA's Bandit against the two source trees that ship in the
+# project.  Bandit flags common Python security anti-patterns
+# (hard-coded secrets, weak crypto, ``subprocess`` shells, unsafe
+# deserialisation, …) that the rest of the test suite does not catch.
+#
+# This workflow:
+#   * Scans ``video2text/`` and ``douyin_batch/`` (production code).
+#   * Skips ``tests/`` (test fixtures often contain intentionally
+#     fake secrets / weak tokens — that is *not* a vulnerability).
+#   * Uploads the JSON report as a build artifact for review.
+#   * Soft-fails (continues-on-error) so the workflow is informational
+#     unless a maintainer opts in to making it required.
+
+name: bandit
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "video2text/**"
+      - "douyin_batch/**"
+      - ".github/workflows/bandit.yml"
+  pull_request:
+    branches: [main, master]
+    paths:
+      - "video2text/**"
+      - "douyin_batch/**"
+      - ".github/workflows/bandit.yml"
+  schedule:
+    # Weekly scan so newly-discovered CVEs in our deps surface quickly
+    # even if the dependency bumps themselves are silent.
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bandit:
+    name: bandit (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.12"]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Bandit
+        run: |
+          python -m pip install --upgrade pip
+          pip install "bandit>=1.7,<2.0"
+
+      - name: Run Bandit
+        # ``-r`` produces a JSON report; ``-ll`` raises the alarm
+        # threshold to medium+.  Test trees are excluded by an inline
+        # ``--exclude`` — they are allowed to use obviously-fake
+        # secrets and weak tokens.  ``-q`` silences per-file noise so
+        # the workflow log stays readable.
+        run: |
+          mkdir -p bandit-reports
+          bandit \
+            -r video2text douyin_batch \
+            --exclude video2text/web/static,douyin_batch/tests \
+            -ll \
+            -f json \
+            -o bandit-reports/bandit-${{ matrix.os }}.json || EXIT=$?
+          # Also produce a human-readable summary for the workflow log.
+          bandit \
+            -r video2text douyin_batch \
+            --exclude video2text/web/static,douyin_batch/tests \
+            -ll \
+            -f txt \
+            -o bandit-reports/bandit-${{ matrix.os }}.txt || true
+          # Re-emit the summary to the console for quick review.
+          cat bandit-reports/bandit-${{ matrix.os }}.txt
+          # If a real run failed for reasons other than findings, propagate it.
+          if [ -n "${EXIT:-}" ] && [ "$EXIT" -ne 0 ]; then exit "$EXIT"; fi
+
+      - name: Upload Bandit reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-reports
+          path: bandit-reports/
+          if-no-files-found: warn
+          retention-days: 14

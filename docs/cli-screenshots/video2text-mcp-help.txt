@@ -1,0 +1,11 @@
+usage: mcp_server.py [-h] [--transport {stdio,http}] [--host HOST]
+                     [--port PORT]
+
+Video2Text MCP server — expose transcription as MCP tools
+
+options:
+  -h, --help            show this help message and exit
+  --transport {stdio,http}
+                        Transport protocol (default: stdio)
+  --host HOST
+  --port PORT

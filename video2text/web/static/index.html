@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video2Text Web UI</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #1e293b;
+      --fg: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --ok: #22c55e;
+      --err: #ef4444;
+    }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+    }
+    main {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 32px 16px 80px;
+    }
+    h1 { font-size: 28px; margin: 0 0 8px; }
+    .lede { color: var(--muted); margin-bottom: 24px; }
+    form {
+      background: var(--panel);
+      padding: 20px;
+      border-radius: 12px;
+      display: grid;
+      gap: 12px;
+    }
+    label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+    textarea, input, select {
+      width: 100%;
+      background: #0b1220;
+      color: var(--fg);
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    textarea { min-height: 110px; font-family: ui-monospace, "Cascadia Code", Menlo, monospace; }
+    .row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+    button {
+      background: var(--accent);
+      color: #0b1220;
+      font-weight: 600;
+      border: none;
+      border-radius: 6px;
+      padding: 10px 16px;
+      cursor: pointer;
+    }
+    button[disabled] { opacity: 0.5; cursor: not-allowed; }
+    .status { font-size: 13px; color: var(--muted); }
+    .results { margin-top: 24px; display: grid; gap: 16px; }
+    .card {
+      background: var(--panel);
+      border-radius: 12px;
+      padding: 16px;
+      border-left: 4px solid var(--muted);
+    }
+    .card.ok { border-left-color: var(--ok); }
+    .card.err { border-left-color: var(--err); }
+    .card h3 { margin: 0 0 4px; font-size: 15px; word-break: break-all; }
+    .meta { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+    pre {
+      background: #0b1220;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 12px;
+      max-height: 360px;
+      overflow: auto;
+      font-size: 12px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .toolbar { display: flex; gap: 8px; margin-top: 8px; }
+    .toolbar button {
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid var(--accent);
+      padding: 6px 10px;
+      font-size: 12px;
+    }
+    footer { text-align: center; color: var(--muted); margin-top: 32px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Video2Text</h1>
+    <p class="lede">Paste up to 20 video URLs (Bilibili, Douyin, YouTube, Xiaohongshu, WeChat MP, TikTok). The server will download, transcribe, and return Markdown you can copy.</p>
+
+    <form id="form">
+      <div>
+        <label for="urls">Video URLs (one per line)</label>
+        <textarea id="urls" placeholder="https://www.youtube.com/watch?v=..." required></textarea>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="engine">Engine</label>
+          <select id="engine">
+            <option value="whisper">whisper (baseline)</option>
+            <option value="faster-whisper">faster-whisper</option>
+            <option value="whisperx">whisperx</option>
+          </select>
+        </div>
+        <div>
+          <label for="model">Model</label>
+          <select id="model">
+            <option value="tiny">tiny</option>
+            <option value="base">base</option>
+            <option value="small" selected>small</option>
+            <option value="medium">medium</option>
+            <option value="large">large</option>
+          </select>
+        </div>
+        <div>
+          <label for="language">Language (optional)</label>
+          <input id="language" placeholder="zh, en, ja, ...">
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="ocr">OCR engine (WeChat images)</label>
+          <select id="ocr">
+            <option value="auto" selected>auto</option>
+            <option value="paddleocr">paddleocr</option>
+            <option value="pytesseract">pytesseract</option>
+            <option value="easyocr">easyocr</option>
+            <option value="none">none</option>
+          </select>
+        </div>
+        <div>
+          <label for="cookies">WeChat cookies (optional)</label>
+          <input id="cookies" placeholder="wxuin=abc; pass_ticket=xyz">
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <label style="display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="bilingual"> Bilingual subtitles
+          </label>
+        </div>
+      </div>
+
+      <button id="submit" type="submit">Transcribe</button>
+      <p class="status" id="status">Ready.</p>
+    </form>
+
+    <section class="results" id="results"></section>
+
+    <footer>Video2Text v3.0.0 · <a href="/api/health" style="color:var(--accent);">/api/health</a> · <a href="/extension" style="color:var(--accent);">Browser extension</a></footer>
+  </main>
+
+  <script>
+    const form = document.getElementById("form");
+    const status = document.getElementById("status");
+    const results = document.getElementById("results");
+    const submit = document.getElementById("submit");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const urls = document.getElementById("urls").value
+        .split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+      if (urls.length === 0) return;
+      submit.disabled = true;
+      status.textContent = "Transcribing " + urls.length + " URL(s) — this may take a while...";
+      results.innerHTML = "";
+      try {
+        const body = {
+          urls,
+          engine: document.getElementById("engine").value,
+          model: document.getElementById("model").value,
+          language: document.getElementById("language").value || null,
+          ocr_engine: document.getElementById("ocr").value,
+          wechat_cookies: document.getElementById("cookies").value || null,
+          bilingual: document.getElementById("bilingual").checked,
+        };
+        const resp = await fetch("/api/transcribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+          throw new Error(err.detail || resp.statusText);
+        }
+        const data = await resp.json();
+        renderResults(data.results || []);
+        status.textContent = `Done. ${data.results.filter(r => r.ok).length}/${data.results.length} succeeded.`;
+      } catch (err) {
+        status.textContent = "Error: " + err.message;
+      } finally {
+        submit.disabled = false;
+      }
+    });
+
+    function renderResults(items) {
+      for (const item of items) {
+        const card = document.createElement("article");
+        card.className = "card " + (item.ok ? "ok" : "err");
+        const meta = [
+          item.engine ? "engine: " + item.engine : null,
+          item.wechat_mp_status ? "wechat_mp_status: " + item.wechat_mp_status : null,
+          item.ocr_total ? "ocr: " + item.ocr_success + "/" + item.ocr_total : null,
+        ].filter(Boolean).join(" · ");
+        card.innerHTML = `
+          <h3>${escape(item.url)}</h3>
+          ${item.title ? `<p class="meta">${escape(item.title)}</p>` : ""}
+          ${meta ? `<p class="meta">${escape(meta)}</p>` : ""}
+          ${item.error ? `<p class="meta" style="color:var(--err);">${escape(item.error)}</p>` : ""}
+          ${item.markdown ? `<pre>${escape(item.markdown)}</pre>` : ""}
+          <div class="toolbar">
+            <button data-copy="${escape(item.url)}">Copy markdown</button>
+            <button data-download="${escape(item.url)}">Download .md</button>
+          </div>`;
+        results.appendChild(card);
+      }
+      results.querySelectorAll("[data-copy]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const url = btn.getAttribute("data-copy");
+          const item = items.find(i => i.url === url);
+          if (item && item.markdown) {
+            navigator.clipboard.writeText(item.markdown);
+            status.textContent = "Markdown copied for " + url;
+          }
+        });
+      });
+      results.querySelectorAll("[data-download]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const url = btn.getAttribute("data-download");
+          const item = items.find(i => i.url === url);
+          if (item && item.markdown) {
+            const blob = new Blob([item.markdown], { type: "text/markdown" });
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = (item.title || url).replace(/[^a-z0-9]+/gi, "_").slice(0, 60) + ".md";
+            a.click();
+            URL.revokeObjectURL(a.href);
+          }
+        });
+      });
+    }
+
+    function escape(s) {
+      return String(s).replace(/[&<>"']/g, c => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+      }[c]));
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,126 @@
+{
+  "ruff": {
+    "exit": 1,
+    "stdout_tail": "eo2text.models import SourceRef\n    |                                   ^^^^^^^^^\n360 |     src = parse_source(url)\n361 |     if src.kind != \"wechat_mp\":\n    |\nhelp: Remove unused import: `video2text.models.SourceRef`\n\nF541 [*] f-string without any placeholders\n   --> video2text\\pipeline.py:247:15\n    |\n245 |         )\n246 |         \n247 |         print(f\"\\n✅ 完成！\")\n    |               ^^^^^^^^^^^^^^\n248 |         print(f\"📝 转录文件: {transcript_path}\")\n249 |         print(f\"📋 元数据: {metadata_path}\")\n    |\nhelp: Remove extraneous `f` prefix\n\nF541 [*] f-string without any placeholders\n   --> video2text\\pipeline.py:438:22\n    |\n436 |         if meta.get(\"url\"):\n437 |             lines.append(f\"- **原文链接**: {meta['url']}\")\n438 |         lines.append(f\"- **类型**: 微信公众号图文\")\n    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n439 |         # OCR 状态\n440 |         ocr_total = int(meta.get(\"ocr_total\") or 0)\n    |\nhelp: Remove extraneous `f` prefix\n\nF541 [*] f-string without any placeholders\n   --> video2text\\pipeline.py:492:15\n    |\n490 |         )\n491 |\n492 |         print(f\"\\n✅ 完成！\")\n    |               ^^^^^^^^^^^^^^\n493 |         print(f\"📝 转录文件: {transcript_path}\")\n494 |         print(f\"📋 元数据: {metadata_path}\")\n    |\nhelp: Remove extraneous `f` prefix\n\nF541 [*] f-string without any placeholders\n   --> video2text\\pipeline.py:605:15\n    |\n603 |         )\n604 |\n605 |         print(f\"\\n✅ 完成！\")\n    |               ^^^^^^^^^^^^^^\n606 |         print(f\"📝 转录文件: {transcript_path}\")\n607 |         print(f\"📋 元数据: {metadata_path}\")\n    |\nhelp: Remove extraneous `f` prefix\n\nF401 [*] `whisper` imported but unused\n  --> video2text\\transcribers\\whisper.py:29:16\n   |\n27 |         **kwargs,\n28 |     ) -> dict[str, Any]:\n29 |         import whisper\n   |                ^^^^^^^\n30 |         \n31 |         model = self._ensure_model()\n   |\nhelp: Remove unused import: `whisper`\n\nFound 42 errors.\n[*] 38 fixable with the `--fix` option (1 hidden fix can be enabled with the `--unsafe-fixes` option).\n"
+  },
+  "py_compile": {
+    "total": 71,
+    "failed": 0
+  },
+  "pytest": {
+    "exit": 0,
+    "summary": [
+      "douyin_batch\\tests\\test_round5_four_features.py ....................     [100%]",
+      "",
+      "============================ 190 passed in 21.63s ============================="
+    ]
+  },
+  "custom": {
+    "long_lines": 30,
+    "long_lines_samples": [
+      [
+        "douyin_auto_download.py",
+        44,
+        137
+      ],
+      [
+        "douyin_auto_download.py",
+        122,
+        136
+      ],
+      [
+        "douyin_batch.py",
+        30,
+        137
+      ],
+      [
+        "douyin_batch.py",
+        79,
+        137
+      ],
+      [
+        "douyin_batch.py",
+        140,
+        137
+      ],
+      [
+        "douyin_batch.py",
+        173,
+        136
+      ],
+      [
+        "douyin_user_scraper.py",
+        46,
+        137
+      ],
+      [
+        "get_user_url.py",
+        19,
+        137
+      ],
+      [
+        "process_douyin.py",
+        12,
+        125
+      ],
+      [
+        "test_douyin_direct.py",
+        7,
+        486
+      ]
+    ],
+    "debug_prints": 353,
+    "debug_prints_samples": [
+      [
+        "convert_to_md.py",
+        16,
+        "print(f\"📁 找到 {len(txt_files)} 个 .txt 文件\")"
+      ],
+      [
+        "convert_to_md.py",
+        17,
+        "print()"
+      ],
+      [
+        "convert_to_md.py",
+        93,
+        "print(f\"🔄 处理: {txt_file.name}\")"
+      ],
+      [
+        "convert_to_md.py",
+        116,
+        "print(f\"   ✅ 已生成: {md_file.name}\")"
+      ],
+      [
+        "convert_to_md.py",
+        117,
+        "print(f\"   📊 字符数: {chars}\")"
+      ],
+      [
+        "convert_to_md.py",
+        118,
+        "print()"
+      ],
+      [
+        "convert_to_md.py",
+        120,
+        "print(\"🎊 所有 .txt 文件已转换为 .md 格式！\")"
+      ],
+      [
+        "demo.py",
+        11,
+        "print(\"=\"*70)"
+      ],
+      [
+        "demo.py",
+        12,
+        "print(\"🎬 Video2Text 深度整合演示\")"
+      ],
+      [
+        "demo.py",
+        13,
+        "print(\"=\"*70)"
+      ]
+    ]
+  }
+}

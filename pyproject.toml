@@ -1,0 +1,204 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "video2text"
+version = "3.1.0"
+description = "Offline video transcription for Bilibili / Douyin / YouTube / Xiaohongshu / WeChat MP"
+readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT"
+authors = [
+    {name = "Video2Text Contributors"},
+]
+maintainers = [
+    {name = "Video2Text Maintainers", email = "maintainers@example.com"},
+]
+keywords = [
+    "video",
+    "transcription",
+    "asr",
+    "whisper",
+    "whisperx",
+    "faster-whisper",
+    "bilibili",
+    "douyin",
+    "tiktok",
+    "youtube",
+    "xiaohongshu",
+    "wechat-mp",
+    "offline",
+    "ai",
+    "speech-to-text",
+    "mcp",
+    "model-context-protocol",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Internationalization",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Natural Language :: Chinese (Simplified)",
+    "Natural Language :: Chinese (Traditional)",
+    "Natural Language :: English",
+    "Natural Language :: Multilingual",
+]
+
+dependencies = [
+    "openai-whisper>=20231117",
+    "yt-dlp>=2023.12.30",
+    "ffmpeg-python>=0.2.0",
+    "requests>=2.31.0",
+    "playwright>=1.40.0",
+    "torch>=2.0.0",
+    "torchaudio>=2.0.0",
+    "tqdm>=4.66.0",
+    "pyyaml>=6.0",
+]
+
+# Third-party plugins can be discovered via entry_points; see
+# docs/plugins.md.  Built-in extensions are listed in [project.entry-points].
+[project.entry-points."video2text.downloaders"]
+vimeo = "examples.plugins.vimeo_downloader:VimeoDownloader"
+
+[project.entry-points."video2text.transcribers"]
+
+[project.entry-points."video2text.url_transformers"]
+tcn = "examples.plugins.tcn_transformer:transform"
+
+[project.optional-dependencies]
+# Higher-accuracy ASR engines (optional, user chooses)
+whisperx = [
+    "whisperx>=3.1.1",
+    "pyannote.audio>=3.0.0",
+]
+faster-whisper = [
+    "faster-whisper>=0.10.0",
+]
+# OCR engines for WeChat MP image articles
+ocr = [
+    "paddleocr>=2.5.0",
+    "pytesseract>=0.3.10",
+    "easyocr>=1.6.2",
+]
+# MCP (Model Context Protocol) server support
+mcp = [
+    "mcp>=0.5.0",
+]
+# Web UI (FastAPI + uvicorn, served via ``uvicorn video2text.web.app:app``)
+web = [
+    "fastapi>=0.110.0",
+    "uvicorn>=0.27.0",
+    "pydantic>=2.6.0",
+]
+# Convenience meta-packages
+all = [
+    "video2text[whisperx,faster-whisper,ocr,mcp,web]",
+]
+# Dev / CI tooling
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.1.0",
+    "mypy>=1.7.0",
+]
+test = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/video2text"
+Repository = "https://github.com/yourusername/video2text.git"
+Issues = "https://github.com/yourusername/video2text/issues"
+Changelog = "https://github.com/yourusername/video2text/blob/main/CHANGELOG.md"
+
+[project.scripts]
+video2text = "video2text.__main__:main"
+video2text-batch = "douyin_batch_v3:main"
+
+[tool.setuptools]
+packages = [
+    "video2text",
+    "video2text.downloaders",
+    "video2text.transcribers",
+    "douyin_batch",
+    "douyin_batch.tests",
+]
+
+[tool.setuptools.package-data]
+video2text = ["py.typed"]
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["douyin_batch/tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["video2text", "douyin_batch"]
+omit = ["*/tests/*", "*/test_*.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py38"
+extend-exclude = [
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+    ".venv",
+    "__pycache__",
+    "*.egg-info",
+]
+
+[tool.ruff.lint]
+# E402 (module level import not at top) is allowed in test files where
+# we adjust sys.path before importing the package under test.
+# F401 (unused import) is allowed in __init__.py files.
+# UP045 (X | None) is kept as Optional[X] for Python 3.8/3.9 compat
+# (PEP 604 unions are 3.10+; we use `from __future__ import annotations`).
+# SIM/B warnings are stylistic; not required for functional correctness.
+select = ["E", "F", "W", "I", "C4"]
+ignore = [
+    "E501",   # line too long (covered by formatter)
+    "B008",   # function call in default argument (idiomatic in some cases)
+    "E402",   # module level import not at top of file (test convention)
+    "UP045",  # X | None (we use Optional[X] for 3.8 compat)
+    "SIM",    # flake8-simplify stylistic suggestions
+    "B",      # flake8-bugbear stylistic suggestions (B904 etc.)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"**/tests/*.py" = ["E402", "E702", "F401", "F841"]
