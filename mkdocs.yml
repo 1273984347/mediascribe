@@ -85,6 +85,7 @@ nav:
   - Observability: observability.md
   - E2E testing: e2e-testing.md
   - CI matrix: ci-matrix.md
+  - Roadmap v3.2: roadmap-v3.2.md
   - Changelog: changelog.md
   - Contributing: contributing.md
   - License: license.md
