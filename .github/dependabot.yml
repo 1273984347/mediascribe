@@ -1,0 +1,108 @@
+# Dependabot configuration for Video2Text
+#
+# Keeps the project's runtime + dev dependencies up-to-date by opening
+# weekly PRs against `main`.  The PRs trigger the existing ``test.yml``
+# matrix, so every bump is verified across Python 3.8–3.12 on
+# Windows / macOS / Linux before merge.
+#
+# See https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
+
+version: 2
+updates:
+  # ------------------------------------------------------------------
+  # Python — runtime + test deps shipped via pyproject.toml
+  # ------------------------------------------------------------------
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "automated"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    # Pin dev-only tooling to avoid noisy PRs.
+    ignore:
+      - dependency-name: "pip"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "wheel"
+        update-types: ["version-update:semver-major"]
+    groups:
+      # Batch related bumps into a single PR when possible — easier to
+      # review, easier to revert.
+      whisper-stack:
+        patterns:
+          - "openai-whisper"
+          - "faster-whisper"
+          - "whisperx"
+      media-stack:
+        patterns:
+          - "yt-dlp"
+          - "ffmpeg-python"
+          - "playwright"
+      ml-stack:
+        patterns:
+          - "torch"
+          - "torchaudio"
+      dev-tools:
+        dependency-type: "development"
+        patterns:
+          - "ruff"
+          - "pytest"
+          - "pytest-cov"
+          - "pytest-asyncio"
+          - "mypy"
+          - "bandit"
+          - "black"
+          - "isort"
+
+  # ------------------------------------------------------------------
+  # GitHub Actions — keep workflow actions up to date for security
+  # ------------------------------------------------------------------
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "ci"
+      - "automated"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    groups:
+      actions-major:
+        update-types:
+          - "version-update:semver-major"
+      actions-minor:
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
+
+  # ------------------------------------------------------------------
+  # Docker — base image bumps for the web/Dockerfile workflow
+  # ------------------------------------------------------------------
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 2
+    labels:
+      - "dependencies"
+      - "docker"
+      - "automated"
+    commit-message:
+      prefix: "docker"
+      include: "scope"

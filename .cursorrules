@@ -1,0 +1,40 @@
+# Cursor rules for Video2Text
+# Cursor reads this file automatically. The full universal guide is in AGENTS.md.
+
+# --- Project overview ---
+Video2Text is an offline video transcription tool. It downloads videos from
+Bilibili, Douyin, and local files, then transcribes audio with local AI models
+(Whisper / WhisperX / faster-whisper). No cloud, no API keys.
+
+# --- Stack ---
+- Python 3.8+ (3.12 recommended)
+- Core lib: `video2text/`
+- Batch lib: `douyin_batch/`
+- CLI entry: `douyin_batch_v3.py`
+
+# --- Conventions ---
+- Use `pathlib.Path` everywhere. No hard-coded `/` or `\` separators.
+- Type hints on all public functions. Docstrings in English.
+- User-visible strings MUST go through `t()` from `douyin_batch/i18n.py`.
+  Add new keys to the `Messages` class as `{"en": "...", "zh": "..."}`.
+- PEP 604 (`X | Y`) or PEP 585 (`list[int]`) syntax requires
+  `from __future__ import annotations` at the top of the file (Python 3.8 compat).
+- Run `python run_tests.py` after changes. All 38 tests must pass.
+
+# --- Build / test commands ---
+- `make install` — pip install dependencies
+- `make test`    — run all unit tests
+- `make lint`    — flake8 + black --check
+- `make format`  — black + isort
+- On Windows without `make`: `python -m pip install -r requirements.txt` etc.
+
+# --- Hard rules ---
+- Never commit: `output/`, `models/`, `*.cookies`, `.env`, `my_config.json`
+- Never add new dependencies without updating `pyproject.toml` and
+  `requirements.txt`.
+- Use `douyin_batch.security.is_safe_url()` before fetching URLs.
+- Use `douyin_batch.platform_compat.safe_filename()` for user-derived names.
+
+# --- Full guide ---
+See `AGENTS.md` for the complete agent-friendly guide with file map,
+common task recipes, and "what NOT to do" rules.

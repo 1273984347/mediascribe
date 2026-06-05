@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Video2Text Sender</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <h1>Video2Text Sender</h1>
+  <p class="hint">Send the current page to a self-hosted Video2Text Web UI.</p>
+
+  <label>API endpoint</label>
+  <input id="endpoint" type="text" value="http://127.0.0.1:8000">
+
+  <label>Engine</label>
+  <select id="engine">
+    <option value="whisper">whisper</option>
+    <option value="faster-whisper">faster-whisper</option>
+    <option value="whisperx">whisperx</option>
+  </select>
+
+  <label>Model</label>
+  <select id="model">
+    <option value="tiny">tiny</option>
+    <option value="base">base</option>
+    <option value="small" selected>small</option>
+    <option value="medium">medium</option>
+  </select>
+
+  <label>Current URL</label>
+  <div class="url" id="url">detecting...</div>
+
+  <label>Bearer token <span class="hint" style="display:inline">(from options page if set)</span></label>
+  <input id="apiToken" type="password" placeholder="optional">
+
+  <div class="toolbar side-only">
+    <button id="openOptions">Open settings</button>
+    <button id="openSidePanel" type="button">Open in side panel</button>
+  </div>
+
+  <button id="send">Send to Video2Text</button>
+  <p class="hint" id="status"></p>
+
+  <label>Result (Markdown)</label>
+  <pre id="result" style="display:none;"></pre>
+
+  <p style="margin-top: 12px;">
+    <a href="options.html" target="_blank">Settings</a> ·
+    <a href="http://127.0.0.1:8000/docs" target="_blank">API docs</a>
+  </p>
+
+  <script src="popup.js"></script>
+</body>
+</html>

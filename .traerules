@@ -1,0 +1,20 @@
+# Trae IDE rules for Video2Text
+# Trae reads AGENTS.md / CLAUDE.md / .cursorrules / .clinerules / .windsurfrules.
+# This file documents the precedence Trae should follow.
+
+# Precedence (first match wins):
+# 1. AGENTS.md          — universal guide (all agents)
+# 2. CLAUDE.md          — Claude Code specific
+# 3. .cursorrules       — Cursor / Trae specific
+# 4. .clinerules        — Cline / Roo Code
+# 5. .windsurfrules     — Windsurf
+
+# Project
+Video2Text — offline video transcription (Bilibili / Douyin / local files).
+Python 3.8+, core lib `video2text/`, batch lib `douyin_batch/`.
+
+# Conventions
+- All user-visible strings via `t()` from `douyin_batch/i18n.py`.
+- `pathlib.Path` everywhere.
+- Run `python run_tests.py` after changes (38 tests).
+- See AGENTS.md for full guide.

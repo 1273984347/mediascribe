@@ -1,0 +1,137 @@
+/* Video2Text Sender — shared styles
+ *
+ * Used by both the toolbar popup (360 px wide) and the Chrome Side
+ * Panel (typically 320–400 px wide on desktop).  The layout uses
+ * CSS variables so a future "wide" mode can override the max-width
+ * without re-declaring the rule set.
+ */
+
+:root {
+  --bg: #0f172a;
+  --bg-elevated: #0b1220;
+  --fg: #e2e8f0;
+  --fg-dim: #94a3b8;
+  --border: #334155;
+  --accent: #38bdf8;
+  --accent-fg: #0b1220;
+  --ok: #22c55e;
+  --err: #ef4444;
+  --radius: 4px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #ffffff;
+    --bg-elevated: #f8fafc;
+    --fg: #0f172a;
+    --fg-dim: #64748b;
+    --border: #cbd5e1;
+    --accent-fg: #ffffff;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segene UI", "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  padding: 12px 14px;
+  min-width: 320px;
+}
+
+h1 { font-size: 16px; margin: 0 0 6px; }
+
+.hint { color: var(--fg-dim); font-size: 12px; margin-bottom: 8px; }
+
+label {
+  display: block;
+  font-size: 12px;
+  color: var(--fg-dim);
+  margin-top: 8px;
+}
+
+input, select, textarea {
+  width: 100%;
+  background: var(--bg-elevated);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: inherit;
+}
+
+button {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border: none;
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 10px;
+  width: 100%;
+  font-size: 13px;
+}
+
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.url {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  font-size: 11px;
+  word-break: break-all;
+  margin-bottom: 8px;
+  max-height: 80px;
+  overflow: auto;
+}
+
+pre {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+  max-height: 320px;
+  overflow: auto;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+pre::-webkit-scrollbar,
+.url::-webkit-scrollbar { width: 8px; height: 8px; }
+pre::-webkit-scrollbar-thumb,
+.url::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+.ok { color: var(--ok); font-size: 12px; }
+.err { color: var(--err); font-size: 12px; }
+a { color: var(--accent); font-size: 12px; text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Layout helpers — only used in the side panel */
+.side-only { display: none; }
+body.is-side-panel .side-only { display: block; }
+body.is-side-panel pre { max-height: 60vh; }
+
+.toolbar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 6px 0 10px;
+}
+
+.toolbar button {
+  width: auto;
+  margin: 0;
+  padding: 4px 8px;
+  font-size: 11px;
+  background: var(--bg-elevated);
+  color: var(--fg);
+  border: 1px solid var(--border);
+}
+
+.toolbar button:hover { background: var(--border); }

@@ -1,0 +1,7 @@
+# WeChat MP E2E URL fixtures
+# Format: one JSON object per line: {"url": "...", "label": "...", "expect_kind": "wechat_mp"}
+# Lines starting with # are ignored.
+# Real WeChat MP article URLs always carry a __biz query string.
+
+{"url": "https://mp.weixin.qq.com/s/nGm_g_J9C2eIwSthWVoWhg?__biz=MzA&mid=123&idx=1", "label": "public_text_1"}
+{"url": "https://mp.weixin.qq.com/s/abc123def456?__biz=MzB&mid=456&idx=2", "label": "public_text_2"}

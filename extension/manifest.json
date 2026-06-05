@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "Video2Text Sender",
+  "short_name": "V2T Sender",
+  "version": "3.1.0",
+  "description": "Send the current page URL to a self-hosted Video2Text Web UI and copy the resulting Markdown transcript. Supports toolbar popup and browser Side Panel.",
+  "minimum_chrome_version": "114",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "http://host.docker.internal/*"
+  ],
+  "action": {
+    "default_title": "Send to Video2Text",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "popup.html"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "options_page": "options.html"
+}

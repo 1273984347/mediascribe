@@ -1,0 +1,52 @@
+usage: douyin_batch_v3.py [-h] [--from-video URL] [--user URL] [-n NUM]
+                          [--workers WORKERS] [--no-headless]
+                          [--retries RETRIES] [--output-dir OUTPUT_DIR]
+                          [--keep-audio] [--config FILE]
+                          [--log-level {DEBUG,INFO,WARNING,ERROR}]
+                          [--no-cache] [--clear-cache] [--save-config FILE]
+                          [--lang {en,zh}] [--json] [--dry-run]
+                          [--bilingual-json] [--platform NAME]
+
+批量转录抖音作者往期内容
+
+options:
+  -h, --help            show this help message and exit
+  --from-video URL      从视频URL自动获取作者主页
+  --user URL            作者主页URL
+  -n NUM, --num NUM     最大视频数量 (默认: 10)
+  --workers WORKERS     并发数 (默认: 1)
+  --no-headless         禁用无头模式
+  --retries RETRIES     下载重试次数
+  --output-dir OUTPUT_DIR
+                        输出目录
+  --keep-audio          保留音频文件
+  --config FILE         配置文件路径 (JSON)
+  --log-level {DEBUG,INFO,WARNING,ERROR}
+  --no-cache            禁用断点续传
+  --clear-cache         运行前清空缓存
+  --save-config FILE    保存当前配置到文件
+  --lang {en,zh}        界面语言: en 或 zh (默认: 自动检测)
+  --json                向 stdout 输出结构化 JSON（供 AI Agent / 脚本使用）
+  --dry-run             仅解析 URL 并制定计划，不下载也不转录
+  --bilingual-json      输出 JSON 时附带本地化的人类可读标签（platform_label / status_label /
+                        stage_label），同时保留稳定英文字段。
+  --platform NAME       仅处理指定平台的视频（bilibili, douyin, youtube, xiaohongshu,
+                        wechat_mp, tiktok），可重复以允许多个；默认全部处理。
+
+示例:
+  # 从视频URL自动获取作者主页
+  python douyin_batch_v3.py --from-video "https://v.douyin.com/xxxxx/" -n 10
+
+  # 直接提供作者主页
+  python douyin_batch_v3.py --user "https://www.douyin.com/user/MS4wLjABAAAAxxxx" -n 20
+
+  # 使用配置文件
+  python douyin_batch_v3.py --config my_config.json
+
+环境变量:
+  DOUYIN_BATCH_HEADLESS       是否无头模式
+  DOUYIN_BATCH_MAX_VIDEOS     最大视频数
+  DOUYIN_BATCH_WORKERS        并发数
+  DOUYIN_BATCH_LANGUAGE       转录语言
+  DOUYIN_BATCH_OUTPUT_DIR     输出目录
+        

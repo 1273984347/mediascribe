@@ -1,0 +1,27 @@
+# Aider repo map for Video2Text
+# Aider reads aider.conf.yml automatically. Pair with AGENTS.md (universal guide).
+
+read:
+  - AGENTS.md
+  - CLAUDE.md
+  - README.md
+  - CONTRIBUTING.md
+  - CHANGELOG.md
+  - pyproject.toml
+  - douyin_batch/i18n.py
+  - douyin_batch/platform_compat.py
+  - douyin_batch/security.py
+  - douyin_batch_v3.py
+
+# Conventions
+# - Python 3.8+ syntax; PEP 604/585 only with `from __future__ import annotations`.
+# - All user-visible strings via `t()` from `douyin_batch/i18n.py`.
+#   Add new keys to `Messages` as `{"en": "...", "zh": "..."}`.
+# - `pathlib.Path` everywhere. No hard-coded `/` or `\` separators.
+# - Run `python run_tests.py` after any change. 38 tests must pass.
+
+# Hard rules
+# - Never commit `output/`, `models/`, `*.cookies`, `.env`.
+# - Never add deps without updating `pyproject.toml` + `requirements.txt`.
+# - Use `douyin_batch.security.is_safe_url()` for URL validation.
+# - Use `douyin_batch.platform_compat.safe_filename()` for filenames.

@@ -1,0 +1,56 @@
+usage: douyin_batch_v3.py [-h] [--from-video URL] [--user URL] [-n NUM]
+                          [--workers WORKERS] [--no-headless]
+                          [--retries RETRIES] [--output-dir OUTPUT_DIR]
+                          [--keep-audio] [--config FILE]
+                          [--log-level {DEBUG,INFO,WARNING,ERROR}]
+                          [--no-cache] [--clear-cache] [--save-config FILE]
+                          [--lang {en,zh}] [--json] [--dry-run]
+                          [--bilingual-json] [--platform NAME]
+
+Batch-transcribe a Douyin creator's archive
+
+options:
+  -h, --help            show this help message and exit
+  --from-video URL      Auto-discover creator from a video URL
+  --user URL            Creator profile URL
+  -n NUM, --num NUM     Maximum number of videos (default: 10)
+  --workers WORKERS     Concurrency level (default: 1)
+  --no-headless         Disable headless browser mode
+  --retries RETRIES     Download retry count
+  --output-dir OUTPUT_DIR
+                        Output directory
+  --keep-audio          Keep audio files after transcription
+  --config FILE         Config file path (JSON)
+  --log-level {DEBUG,INFO,WARNING,ERROR}
+  --no-cache            Disable resume support
+  --clear-cache         Clear cache before running
+  --save-config FILE    Save current config to a file
+  --lang {en,zh}        UI language: en or zh (default: auto-detect)
+  --json                Output structured JSON to stdout (for AI agents /
+                        scripting)
+  --dry-run             Resolve URLs and plan only; do not download or
+                        transcribe
+  --bilingual-json      Output JSON with localised human labels alongside
+                        stable English constants (platform_label,
+                        status_label, stage_label).
+  --platform NAME       Only process videos of the given platform (bilibili,
+                        douyin, youtube, xiaohongshu, wechat_mp, tiktok);
+                        repeat to allow multiple. Default: all.
+
+Examples:
+  # Auto-discover creator from a single video
+  python douyin_batch_v3.py --from-video "https://v.douyin.com/xxxxx/" -n 10
+
+  # Provide a creator profile URL directly
+  python douyin_batch_v3.py --user "https://www.douyin.com/user/MS4wLjABAAAAxxxx" -n 20
+
+  # Use a config file
+  python douyin_batch_v3.py --config my_config.json
+
+Environment variables:
+  DOUYIN_BATCH_HEADLESS       Run browser in headless mode
+  DOUYIN_BATCH_MAX_VIDEOS     Maximum number of videos
+  DOUYIN_BATCH_WORKERS        Concurrency level
+  DOUYIN_BATCH_LANGUAGE       Transcription language
+  DOUYIN_BATCH_OUTPUT_DIR     Output directory
+        
