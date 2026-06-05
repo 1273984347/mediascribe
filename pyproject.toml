@@ -156,6 +156,11 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+markers = [
+    "integration: marks tests as integration (E2E / cross-module). Deselect with '-m \"not integration\"'.",
+    "network: marks tests that require outbound network. Deselect with '-m \"not network\"'.",
+    "slow: marks tests that take >5 seconds. Deselect with '-m \"not slow\"'.",
+]
 
 [tool.coverage.run]
 source = ["video2text", "douyin_batch"]
