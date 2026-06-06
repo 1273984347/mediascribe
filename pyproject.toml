@@ -88,6 +88,10 @@ whisperx = [
 faster-whisper = [
     "faster-whisper>=0.10.0",
 ]
+# VAD (voice activity detection) for smart chunking
+vad = [
+    "webrtcvad>=2.0.10",
+]
 # OCR engines for WeChat MP image articles
 ocr = [
     "paddleocr>=2.5.0",

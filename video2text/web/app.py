@@ -53,7 +53,7 @@ from typing import Any, Deque, Dict, List, Optional
 # still want to print the help without them, so we keep imports
 # inside the route handlers.
 try:
-    from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+    from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, status
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import HTMLResponse
     from pydantic import BaseModel, Field
@@ -405,6 +405,10 @@ def create_app(workspace: Optional[Path] = None,
     # Rate limiter: per-client, sliding-window.  Default = 10 req / 60 s.
     # Disable by setting ``VIDEO2TEXT_RATE_LIMIT=0``.
     app.state.rate_limiter = _build_rate_limiter()
+    # Job progress registry (v3.2.0a) — backs ``/ws/progress/{job_id}``
+    # and the ``/api/jobs/{job_id}`` REST helpers.
+    from video2text.progress import ProgressRegistry
+    app.state.jobs = ProgressRegistry()
 
     workspace = workspace or Path.cwd() / "web-workspace"
 
@@ -628,6 +632,78 @@ def create_app(workspace: Optional[Path] = None,
         for url in req.urls:
             items.append(_run_one(pipeline, url, workspace / "out", req))
         return TranscribeResponse(results=items)
+
+    # -------------------------------------------------------------------------
+    # Job progress (v3.2.0a) — WebSocket-friendly
+    # -------------------------------------------------------------------------
+    @app.websocket("/ws/progress/{job_id}")
+    async def ws_progress(websocket: WebSocket, job_id: str) -> None:
+        """Stream per-stage progress events for a job.
+
+        The job is created by :class:`video2text.progress.ProgressRegistry`
+        and its events queue is drained here.  The connection stays
+        open until the job finishes (event ``succeeded`` / ``failed``
+        / ``cancelled_done``) and then closes with code ``1000``.
+        """
+        await websocket.accept()
+        try:
+            from ..progress import ProgressRegistry
+        except ImportError:
+            await websocket.send_json({"event": "error", "message": "progress module missing"})
+            await websocket.close(code=1011)
+            return
+        registry: ProgressRegistry = app.state.jobs  # type: ignore[attr-defined]
+        job = registry.get(job_id)
+        if job is None:
+            await websocket.send_json({"event": "error", "message": "unknown job"})
+            await websocket.close(code=4404)
+            return
+        # Replay current state, then drain new events
+        await websocket.send_json({"event": "snapshot", **job.to_dict()})
+        # Use a timeout loop so we can detect client disconnect
+        import asyncio
+        while not job.finished:
+            try:
+                event = await asyncio.to_thread(job.events.get, timeout=0.5)
+            except Exception:
+                # Timeout — check for client disconnect
+                try:
+                    await websocket.send_json({"event": "ping"})
+                except Exception:
+                    return
+                continue
+            try:
+                await websocket.send_json(event)
+            except Exception:
+                return
+        # Final snapshot then close
+        try:
+            await websocket.send_json({"event": "snapshot", **job.to_dict()})
+        except Exception:
+            pass
+        await websocket.close(code=1000)
+
+    @app.post("/api/jobs/{job_id}/cancel", dependencies=[Depends(_require_api_token)])
+    def cancel_job(job_id: str) -> Dict[str, Any]:
+        """Cancel a running job (no-op if it doesn't exist)."""
+        from video2text.progress import ProgressRegistry
+
+        registry: ProgressRegistry = app.state.jobs  # type: ignore[attr-defined]
+        cancelled = registry.cancel(job_id)
+        if not cancelled:
+            raise HTTPException(status_code=404, detail=f"unknown job: {job_id}")
+        return {"job_id": job_id, "cancelled": True}
+
+    @app.get("/api/jobs/{job_id}", dependencies=[Depends(_require_api_token)])
+    def job_status(job_id: str) -> Dict[str, Any]:
+        """Return the current snapshot of a job's progress."""
+        from ..progress import ProgressRegistry
+
+        registry: ProgressRegistry = app.state.jobs  # type: ignore[attr-defined]
+        job = registry.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail=f"unknown job: {job_id}")
+        return job.to_dict()
 
     return app
 

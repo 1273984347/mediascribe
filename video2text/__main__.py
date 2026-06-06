@@ -5,18 +5,24 @@ Video2Text 命令行工具
 - bili2text（工作流设计）
 - WhisperX（说话人分离、Word-level 对齐）
 - faster-whisper（高性能）
+
+子命令分发：
+- ``transcribe`` / ``batch``：原 CLI（v3.1.0）
+- ``profile`` (v3.2.0a)：渲染 profile JSONL 报告
 """
 from __future__ import annotations
 
 import argparse
 import sys
 from pathlib import Path
+from typing import List, Optional
 
 from .config import Settings
 from .pipeline import Pipeline
 
 
-def main():
+def _run_legacy(argv: Optional[List[str]]) -> int:
+    """Original v3.1.0 CLI — ``transcribe`` / ``batch`` subcommands."""
     parser = argparse.ArgumentParser(
         description="🎬 Video2Text - 视频转文字工具（深度整合版）",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -151,7 +157,7 @@ def main():
         help="微信公众号 cookies 文件路径（Netscape / JSON / key=value）",
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # 解析 --wechat-cookies（CLI 形式：skey=abc,uin=12345）
     wechat_cookies_dict: dict = {}
@@ -187,17 +193,14 @@ def main():
                 output=args.output,
                 language=args.language,
             )
-
         elif args.command == "batch":
             inputs = list(args.inputs)
             if args.file:
                 with open(args.file, "r", encoding="utf-8") as f:
                     inputs.extend([line.strip() for line in f if line.strip()])
-
             if not inputs:
                 print("❌ 没有提供输入")
                 sys.exit(1)
-
             print(f"🚀 批量处理 {len(inputs)} 个输入...")
             results = []
             for i, input_source in enumerate(inputs, 1):
@@ -211,7 +214,6 @@ def main():
                 except Exception as e:
                     print(f"❌ 处理失败: {e}")
                     results.append((input_source, False, str(e)))
-
             # 总结
             print(f"\n{'='*50}")
             print("📊 批量处理完成")
@@ -220,7 +222,6 @@ def main():
             for source, ok, result in results:
                 status = "✅" if ok else "❌"
                 print(f"{status} {source}")
-
     except KeyboardInterrupt:
         print("\n\n⏹️ 用户中断")
         sys.exit(130)
@@ -229,7 +230,48 @@ def main():
         import traceback
         traceback.print_exc()
         sys.exit(1)
+    return 0
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    """Dispatch to the right sub-CLI.
+
+    v3.2.0a adds the ``profile`` subcommand while preserving the v3.1.0
+    ``transcribe`` / ``batch`` interface.
+
+    If ``argv`` is ``None`` we read ``sys.argv[1:]`` (original v3.1.0
+    behaviour).  Callers that want to invoke the CLI in-process can
+    pass an explicit list (including an empty list) without
+    side-effects from the surrounding shell argv.
+    """
+    if argv is None:
+        argv = sys.argv[1:]
+    if argv and argv[0] == "profile":
+        from .profile_cli import main as profile_main
+        return profile_main(argv[1:])
+    if not argv or argv[0] in ("-h", "--help"):
+        if not argv:
+            parser = argparse.ArgumentParser(
+                prog="python -m video2text",
+                description="🎬 Video2Text — video/audio to text pipeline",
+            )
+            sub = parser.add_subparsers(dest="command")
+            sub.add_parser("transcribe", aliases=["t"], help="转录单个视频/音频")
+            sub.add_parser("batch", help="批量处理多个输入")
+            sub.add_parser("profile", help="渲染 profile JSONL 报告")
+            parser.print_help(sys.stderr)
+            return 1
+        # ``-h`` / ``--help`` — let argparse print + exit (POSIX).
+        return _run_legacy(["--help"] if argv[0] in ("-h", "--help") else "help")
+    if argv[0] == "help":
+        print(__doc__)
+        return 0
+    if argv[0] not in ("transcribe", "t", "batch"):
+        print(f"video2text: unknown command {argv[0]!r}", file=sys.stderr)
+        print("Try 'python -m video2text help'", file=sys.stderr)
+        return 1
+    return _run_legacy(argv)
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

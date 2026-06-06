@@ -5,8 +5,8 @@
 
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-547%20passed-brightgreen.svg)](#testing)
-[![Coverage](https://img.shields.io/badge/Coverage-97%25-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/Tests-612%20passed-brightgreen.svg)](#testing)
+[![Coverage](https://img.shields.io/badge/Coverage-75%25-green.svg)](#testing)
 [![Platforms](https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](#-cross-platform)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://docs.astral.sh/ruff/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -34,6 +34,10 @@
 - 📝 **Markdown Output** - Structured transcripts with metadata
 - 🔄 **Batch Processing** - Download entire creator's content
 - 🛡️ **Production Ready** - Logging, error handling, resume support
+- 🎙️ **VAD chunking** (v3.2.0a) — `webrtcvad`-driven boundaries for long videos with 5 s overlap
+- 💾 **Cross-run cache** (v3.2.0a) — XDG-spec disk cache with LRU + TTL, `VIDEO2TEXT_CACHE_DIR` override
+- 📊 **`profile` CLI** (v3.2.0a) — `python -m video2text profile <run.jsonl>` to Markdown / JSON / CSV
+- 📡 **WebSocket progress** (v3.2.0a) — `/ws/progress/{job_id}` streams 3-bar download / transcribe / assemble updates
 
 ### 🚀 Quick Start
 

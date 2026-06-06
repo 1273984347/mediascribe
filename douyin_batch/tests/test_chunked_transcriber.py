@@ -161,6 +161,7 @@ class TestChunkedTranscriber(unittest.TestCase):
         )
         bad_chunk = Chunk(0, 0.0, 10.0, Path("does_not_exist.wav"))
         good_chunk = Chunk(1, 10.0, 20.0, self.src)
+        original_split_audio = m.split_audio
         m.split_audio = lambda *a, **kw: [bad_chunk, good_chunk]
         try:
             class RaisingOnMissing:
@@ -187,7 +188,7 @@ class TestChunkedTranscriber(unittest.TestCase):
             out_md = self.tmpdir / "out2.md"
             result = ct.transcribe(str(self.src), str(out_md))
         finally:
-            pass
+            m.split_audio = original_split_audio
         # Good chunk produced text
         merged = out_md.read_text(encoding="utf-8")
         self.assertIn("text for", merged)
