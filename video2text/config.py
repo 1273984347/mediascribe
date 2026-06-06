@@ -22,6 +22,7 @@ class Settings:
         diarization: bool = False,
         wechat_cookies: Optional[Dict[str, str]] = None,
         wechat_cookies_file: Optional[Path] = None,
+        cache_dir: Optional[Path] = None,
     ):
         self.workspace_root = workspace_root or Path.cwd() / "output"
 
@@ -30,6 +31,10 @@ class Settings:
         self.audio_dir = self.workspace_root / "audio"
         self.transcripts_dir = self.workspace_root / "transcripts"
         self.metadata_dir = self.workspace_root / "metadata"
+
+        # 跨 run 持久化缓存（v3.2.0a）
+        # None 意味着遵循 XDG / VIDEO2TEXT_CACHE_DIR / 默认值
+        self.cache_dir: Optional[Path] = Path(cache_dir) if cache_dir else None
 
         # 模型配置
         self.model = model

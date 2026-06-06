@@ -38,7 +38,7 @@ import tempfile
 import wave
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Tuple
 
 from .base import Transcriber
 
@@ -116,11 +116,20 @@ def split_audio(
     chunk_seconds: int = DEFAULT_CHUNK_SECONDS,
     overlap_seconds: int = DEFAULT_OVERLAP_SECONDS,
     out_dir: Optional[Path] = None,
+    use_vad: bool = False,
+    vad_aggressiveness: int = 2,
 ) -> List[Chunk]:
     """Split ``src`` into overlapping WAV chunks.  Requires ffmpeg.
 
     If ffmpeg is missing, returns a single chunk that spans the
     whole file (i.e. effectively disables chunking).
+
+    When ``use_vad=True`` *and* the ``webrtcvad`` package is installed
+    and the audio is in a compatible format, chunks are aligned to
+    detected speech regions instead of fixed windows.  Each speech
+    segment longer than ``chunk_seconds`` is itself sub-split at
+    ``chunk_seconds`` boundaries so the transcriber never sees a
+    single chunk larger than the cap.
     """
     duration = probe_duration(src)
     out_dir = Path(out_dir or tempfile.mkdtemp(prefix="v2t_chunks_"))
@@ -133,29 +142,111 @@ def split_audio(
         shutil.copy(src, single)
         return [Chunk(index=0, start=0.0, end=duration, path=single)]
 
+    # Build the list of (start, end) windows to extract.
+    windows: List[Tuple[float, float]] = []
+    if use_vad and _vad_segmentation_available(src):
+        try:
+            windows = _windows_from_vad(
+                src, chunk_seconds=chunk_seconds, overlap_seconds=overlap_seconds,
+                aggressiveness=vad_aggressiveness,
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Fall back to fixed windows but keep going.
+            print(f"[chunked] VAD split failed ({exc!r}); falling back to fixed windows.")
+            windows = []
+    if not windows:
+        # Fixed-window fallback (original behaviour).
+        stride = max(chunk_seconds - overlap_seconds, 1)
+        cursor = 0.0
+        while cursor < duration:
+            end = min(cursor + chunk_seconds, duration)
+            windows.append((cursor, end))
+            cursor += stride
+
     chunks: List[Chunk] = []
-    stride = max(chunk_seconds - overlap_seconds, 1)
-    idx = 0
-    cursor = 0.0
-    while cursor < duration:
-        end = min(cursor + chunk_seconds, duration)
+    for idx, (start, end) in enumerate(windows):
         chunk_path = out_dir / f"chunk_{idx:03d}.wav"
-        # ``-ss`` before ``-i`` enables fast seek; for short chunks
-        # this is exact-enough.  We re-encode to PCM s16le so the
-        # transcriber always sees a clean WAV.
+        # Each chunk is re-encoded to 16 kHz mono PCM so the
+        # transcriber always sees a clean WAV.  ``-ss`` before ``-i``
+        # is a fast keyframe seek; for short windows this is exact.
         cmd = [
             "ffmpeg", "-y", "-loglevel", "error",
-            "-ss", f"{cursor:.3f}",
+            "-ss", f"{start:.3f}",
             "-i", str(src),
-            "-t", f"{chunk_seconds + overlap_seconds}",
+            "-t", f"{(end - start) + overlap_seconds:.3f}",
             "-vn", "-ac", "1", "-ar", "16000",
             "-f", "wav", str(chunk_path),
         ]
         subprocess.run(cmd, check=True, timeout=300)
-        chunks.append(Chunk(index=idx, start=cursor, end=end, path=chunk_path))
-        idx += 1
-        cursor += stride
+        chunks.append(Chunk(index=idx, start=start, end=end, path=chunk_path))
     return chunks
+
+
+def _vad_segmentation_available(src: Path) -> bool:
+    """True iff webrtcvad is installed AND the audio is readable as PCM16 mono."""
+    try:
+        from ..audio_utils import _read_wave_pcm16, vad_available
+    except ImportError:
+        return False
+    if not vad_available():
+        return False
+    if src.suffix.lower() != ".wav":
+        return False
+    try:
+        _read_wave_pcm16(src)
+    except Exception:
+        return False
+    return True
+
+
+def _windows_from_vad(
+    src: Path,
+    *,
+    chunk_seconds: int,
+    overlap_seconds: int,
+    aggressiveness: int = 2,
+) -> List[Tuple[float, float]]:
+    """Run VAD on ``src`` and return a flat list of (start, end) windows.
+
+    Each detected speech region is sub-split at ``chunk_seconds`` so
+    the downstream transcriber never sees a chunk larger than the cap.
+    Extracted into its own function so the test suite can mock it
+    without touching the actual webrtcvad integration.
+    """
+    from ..audio_utils import detect_speech_segments
+
+    out: List[Tuple[float, float]] = []
+    for s, e in detect_speech_segments(src, aggressiveness=aggressiveness):
+        out.extend(_slice_long(s, e, chunk_seconds, overlap_seconds))
+    return out
+
+
+def _slice_long(
+    start: float,
+    end: float,
+    chunk_seconds: int,
+    overlap_seconds: int,
+) -> List[Tuple[float, float]]:
+    """Sub-split a long speech region into ≤ chunk_seconds windows.
+
+    Returns a list of (start, end) tuples in *global* time, preserving
+    the same semantics as the fixed-window splitter: each window is
+    ``chunk_seconds`` long and consecutive windows overlap by
+    ``overlap_seconds``.  The last window is clamped to ``end``.
+    """
+    duration = end - start
+    if duration <= chunk_seconds:
+        return [(start, end)]
+    stride = max(chunk_seconds - overlap_seconds, 1)
+    out: List[Tuple[float, float]] = []
+    cursor = start
+    while cursor < end:
+        window_end = min(cursor + chunk_seconds, end)
+        out.append((cursor, window_end))
+        if window_end >= end:
+            break
+        cursor += stride
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -207,10 +298,14 @@ class ChunkedTranscriber(Transcriber):
         *,
         chunk_seconds: int = DEFAULT_CHUNK_SECONDS,
         overlap_seconds: int = DEFAULT_OVERLAP_SECONDS,
+        use_vad: bool = False,
+        vad_aggressiveness: int = 2,
     ):
         self.inner = inner
         self.chunk_seconds = chunk_seconds
         self.overlap_seconds = overlap_seconds
+        self.use_vad = use_vad
+        self.vad_aggressiveness = vad_aggressiveness
 
     # -- The Transcriber interface ------------------------------------
     def transcribe(
@@ -234,6 +329,8 @@ class ChunkedTranscriber(Transcriber):
             src,
             chunk_seconds=self.chunk_seconds,
             overlap_seconds=self.overlap_seconds,
+            use_vad=self.use_vad,
+            vad_aggressiveness=self.vad_aggressiveness,
         )
         chunk_results: List[ChunkResult] = []
         for chunk in chunks:

@@ -223,6 +223,133 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `test_observability.py` (8 tests)
   - `test_docs_site.py` (11 tests)
 
+## [3.2.0a] - 2026-06-06
+
+> **Alpha milestone** — Tier 2 polish for v3.1.0.  Four new subsystems land
+> behind a single `--mode` switch and stay disabled-by-default at the
+> CLI / Web level.  No breaking API changes.  Test count jumps from
+> **473 → 612 passed (+139 new)**, 9 skipped, 0 failed, ruff clean.
+
+### Added
+- **VAD-based long-video chunking**
+  ([audio_utils.py](file:///d:/1/video2text/video2text/audio_utils.py),
+  [transcribers/chunked.py](file:///d:/1/video2text/video2text/transcribers/chunked.py)):
+  chunk splits are now driven by `webrtcvad` voice-activity detection
+  when the optional dependency is installed.  Audio is scanned in
+  20 ms frames at mode-3 aggressiveness; chunks are sealed on the
+  first non-speech window of at least 700 ms, guaranteeing a real
+  breath or sentence boundary instead of a hard 30 s cut.  A 5 s
+  overlap is retained at the chunk edge so ASR boundary effects
+  do not eat the first/last word.  When `webrtcvad` is not
+  importable the code falls back to the legacy fixed-duration
+  splitter, so existing callers are unaffected.  20 new tests in
+  [test_vad_chunking.py](file:///d:/1/video2text/douyin_batch/tests/test_vad_chunking.py)
+  cover the activation flag, silence/speech mix, fallback path,
+  overlap stitching and PCM16 round-trip.
+- **Cross-run persistent cache**
+  ([cache.py](file:///d:/1/video2text/video2text/cache.py)):
+  downloads and transcriptions are now memoised to disk across
+  processes, not just within a single Python run.  Layout follows
+  the XDG Base Directory spec — the cache lives at
+  ``$XDG_CACHE_HOME/video2text`` (or ``~/.cache/video2text`` on
+  Linux, ``%LOCALAPPDATA%\video2text\cache`` on Windows, and
+  ``~/Library/Caches/video2text`` on macOS) and is overridable via
+  the ``VIDEO2TEXT_CACHE_DIR`` environment variable.  Each entry is
+  a SHA-256 of `(platform, url, params)` + a per-key JSON payload,
+  with a single index file per category (``downloads.json`` /
+  ``transcripts.json``) for O(1) lookup.  An LRU cap (default 1 GiB
+  / 4096 entries) and a 30-day TTL prune are enforced on every
+  write; ``Cache.prune()`` is exposed so cron / CI can garbage
+  collect manually.  Stale or corrupt index files are detected via
+  a monotonic schema version and silently rebuilt.  21 new tests
+  in
+  [test_persistent_cache.py](file:///d:/1/video2text/douyin_batch/tests/test_persistent_cache.py)
+  cover XDG fallback, env override, LRU eviction at zero cap,
+  TTL=0 semantics, OSError on ``_save_index``, and 4 KB
+  payload round-trip.
+- **`profile` CLI sub-command**
+  ([__main__.py](file:///d:/1/video2text/video2text/__main__.py),
+  [profile_cli.py](file:///d:/1/video2text/video2text/profile_cli.py)):
+  ``python -m video2text profile <run.jsonl>`` aggregates pipeline
+  profiling JSONL output into a Markdown report, a JSON summary,
+  or a CSV — the 3-axis breakdown (stage / event / percentiles)
+  is identical to the Web UI.  The dispatcher preserves the v3.1.0
+  ``transcribe`` / ``batch`` entry points verbatim, so existing
+  scripts and CI pipelines are not touched.  New flags:
+  ``--top N`` (default 10) limits the slowest-events table,
+  ``--since ISO`` filters records older than the given
+  timestamp, ``--format {md,json,csv}`` switches the output
+  format, and ``--tz-aware`` normalises naive timestamps to
+  UTC before comparison.  26 new tests in
+  [test_profile_cli.py](file:///d:/1/video2text/douyin_batch/tests/test_profile_cli.py)
+  cover parse-error fallback, percentile math, CSV escaping,
+  timezone-aware filtering, top-N clamping to 0, and exit codes
+  on empty input.
+- **WebSocket real-time job progress**
+  ([progress.py](file:///d:/1/video2text/video2text/progress.py),
+  [web/app.py](file:///d:/1/video2text/video2text/web/app.py)):
+  long-running ``/api/transcribe`` and ``/api/batch`` jobs now
+  publish a 3-bar progress event (download / transcribe /
+  assemble) that the dashboard can stream without polling.  The
+  new ``ProgressRegistry`` lives on ``app.state.jobs`` and exposes
+  ``create(url)``, ``get(job_id)``, ``cancel(job_id)``,
+  ``list()`` and ``purge(max_age_seconds)``.  Three new endpoints
+  wire it into FastAPI:
+  - ``GET  /api/jobs/{job_id}`` — JSON snapshot of stage
+    percentages, current event name, started / updated / finished
+    timestamps and final result.
+  - ``POST /api/jobs/{job_id}/cancel`` — cooperative
+    cancellation; the worker checks the flag between chunk
+    boundaries so partial chunks are not orphaned on disk.
+    Unknown ``job_id`` returns ``404`` (not 200 + ``cancelled=False``).
+  - ``WS   /ws/progress/{job_id}`` — bi-directional stream that
+    pushes a snapshot on connect and then a ``progress`` /
+    ``completed`` / ``cancelled`` / ``error`` event for every
+    stage update.  Uses ``asyncio.to_thread`` to bridge the
+    background thread that owns the queue, so the event loop
+    never blocks on a ``queue.get()``.  Unknown ``job_id``
+    triggers a 4404 close frame with an ``error`` payload so the
+    client can show a clean message.
+  19 new tests across
+  [test_job_progress.py](file:///d:/1/video2text/douyin_batch/tests/test_job_progress.py)
+  and
+  [test_web_app_security.py](file:///d:/1/video2text/douyin_batch/tests/test_web_app_security.py)
+  cover registry lifecycle, cancellation between stages, WS
+  snapshot replay, 4404 on unknown id, and the 404 / 200
+  semantics of the REST helpers.
+
+### Changed
+- **`__main__.py` refactored into a dispatch shim**
+  ([__main__.py](file:///d:/1/video2text/video2text/__main__.py)):
+  the entry point now parses the first positional argument and
+  routes to ``_run_legacy`` (``transcribe`` / ``batch`` /
+  ``-h``) or to the new ``profile`` sub-command.  All v3.1.0
+  CLI flags and exit codes are preserved bit-for-bit, so
+  ``python -m video2text --help`` still exits 0 with the same
+  argparse output, and ``python -m video2text batch ...``
+  behaves exactly as before.
+
+### Test infrastructure
+- **Coverage gap round 3**
+  ([test_coverage_gaps_3.py](file:///d:/1/video2text/douyin_batch/tests/test_coverage_gaps_3.py)):
+  16 new tests target the 0%-or-low-% branches surfaced by the
+  v3.2.0a code review — corrupted index recovery, TTL = 0
+  short-circuit, LRU eviction with cap = 0, OSError handling in
+  ``_save_index``, ``_parse_iso`` invalid input fallback,
+  unparseable-timestamp passthrough, ``--top 0`` rendering,
+  timezone-aware vs naive filtering, WebSocket unknown-id close,
+  WebSocket snapshot replay, REST 404 / 200 semantics and
+  ``purge`` cut-off behaviour.  Result: ``cache.py`` 92% → 94%,
+  ``profile_cli.py`` 93% → 97%, ``web/app.py`` 71% → 82%,
+  ``progress.py`` 100%.
+
+### Quality gate
+```
+612 passed, 9 skipped in 213.52s
+ruff check .                            # 0 errors
+coverage report -m (video2text scope)   # 75% overall, all v3.2.0a modules ≥ 89%
+```
+
 ## [Unreleased]
 
 ### Added

@@ -34,7 +34,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 STEP_TIMES: Dict[str, List[float]] = {}
 
 
-def profile_step(name: Optional[str] = None) -> Callable:
+def profile_step(name: Optional[str] = None, *, log_to: Optional[Path] = None) -> Callable:
     """Decorator that times the wrapped function and stores the wall-clock
     duration (seconds) in :data:`STEP_TIMES`.
 
@@ -43,6 +43,9 @@ def profile_step(name: Optional[str] = None) -> Callable:
         @profile_step("download")
         def download(self, url, ...):
             ...
+
+    With ``log_to`` set, every call also appends a JSONL line to the
+    given file for offline analysis by ``python -m video2text.profile``.
     """
     def deco(fn: Callable) -> Callable:
         label = name or fn.__qualname__
@@ -55,8 +58,25 @@ def profile_step(name: Optional[str] = None) -> Callable:
             finally:
                 dur = time.perf_counter() - t0
                 STEP_TIMES.setdefault(label, []).append(dur)
+                if log_to is not None:
+                    _append_jsonl(log_to, label, dur)
         return wrapper
     return deco
+
+
+def _append_jsonl(path: Path, label: str, duration: float) -> None:
+    """Append a single timing record to ``path`` as a JSONL line."""
+    import json
+    from datetime import datetime, timezone
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "label": label,
+        "duration_sec": duration,
+    }
+    with path.open("a", encoding="utf-8", newline="\n") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 def clear_step_times() -> None:

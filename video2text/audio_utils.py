@@ -5,8 +5,9 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import wave
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, List, Optional, Tuple
 
 
 def extract_audio(
@@ -49,3 +50,151 @@ def extract_audio(
     if audio_path.exists():
         return audio_path
     return None
+
+
+# ---------------------------------------------------------------------------
+# VAD (Voice Activity Detection)
+# ---------------------------------------------------------------------------
+# Optional dependency: webrtcvad is a tiny C library wrapper (~1 MB).
+# It expects 16-bit PCM mono audio at 8/16/32/48 kHz.  ffmpeg already
+# produces this format, so no resampling is needed at runtime.
+#
+# VAD is *not* required: the chunked transcriber falls back to fixed
+# windows when the package is missing or the audio is not in a
+# supported format.  The split is also bounded to ``max_chunk_seconds``
+# so a single continuous speech segment longer than the cap still
+# gets cut into pieces.
+
+# Allowed sample rates for webrtcvad
+_VAD_SAMPLE_RATES = (8000, 16000, 32000, 48000)
+_VAD_FRAME_MS = 30  # 10/20/30 are supported
+_VAD_FRAME_BYTES_MULT = 2  # 16-bit = 2 bytes per sample
+
+
+def _is_webrtcvad_available() -> bool:
+    """Return True if webrtcvad is importable."""
+    try:
+        import webrtcvad  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
+def _read_wave_pcm16(path: Path) -> Tuple[bytes, int]:
+    """Read a 16-bit mono WAV file.  Returns (raw_pcm_bytes, sample_rate).
+
+    Raises ValueError if the file is not in a format compatible with
+    webrtcvad (16-bit, mono, supported rate).
+    """
+    if path.suffix.lower() != ".wav":
+        raise ValueError(f"webrtcvad needs a WAV file, got {path.suffix}")
+    with wave.open(str(path), "rb") as w:
+        if w.getsampwidth() != 2:
+            raise ValueError(
+                f"webrtcvad needs 16-bit audio (got {w.getsampwidth() * 8}-bit)"
+            )
+        if w.getnchannels() != 1:
+            raise ValueError(
+                f"webrtcvad needs mono audio (got {w.getnchannels()}-channel)"
+            )
+        rate = w.getframerate()
+        if rate not in _VAD_SAMPLE_RATES:
+            raise ValueError(
+                f"webrtcvad needs sample rate in {_VAD_SAMPLE_RATES}, got {rate}"
+            )
+        frames = w.readframes(w.getnframes())
+    return frames, rate
+
+
+def detect_speech_segments(
+    audio_path: Path,
+    *,
+    aggressiveness: int = 2,
+    min_speech_seconds: float = 0.5,
+    min_silence_seconds: float = 0.3,
+) -> List[Tuple[float, float]]:
+    """Detect speech regions in a 16 kHz mono WAV file.
+
+    Parameters
+    ----------
+    audio_path
+        Path to a 16-bit mono WAV file at 8/16/32/48 kHz.
+    aggressiveness
+        VAD aggressiveness 0-3 (higher = more aggressive silence).
+    min_speech_seconds
+        Drop speech segments shorter than this after merging.
+    min_silence_seconds
+        Pad each side of every speech region by this much so that the
+        Whisper transcriber has enough context to lock on.
+
+    Returns
+    -------
+    list of (start_sec, end_sec) tuples covering all speech regions.
+    Raises ``ImportError`` if ``webrtcvad`` is not installed.
+    Raises ``ValueError`` if the audio is not in a compatible format.
+    """
+    if not _is_webrtcvad_available():
+        raise ImportError(
+            "webrtcvad is not installed. "
+            "Install with `pip install video2text[vad]`."
+        )
+    import webrtcvad  # local import so the module loads even if missing
+
+    pcm, rate = _read_wave_pcm16(audio_path)
+    vad = webrtcvad.Vad(int(aggressiveness))
+
+    frame_bytes = int(rate * _VAD_FRAME_MS / 1000) * _VAD_FRAME_BYTES_MULT
+    n_frames = len(pcm) // frame_bytes
+    if n_frames == 0:
+        return []
+
+    frame_is_speech: List[bool] = []
+    for i in range(n_frames):
+        chunk = pcm[i * frame_bytes : (i + 1) * frame_bytes]
+        if not chunk:
+            break
+        try:
+            flag = vad.is_speech(chunk, rate)
+        except Exception:
+            flag = False
+        frame_is_speech.append(flag)
+
+    # Convert per-frame flags to (start, end) segments in seconds.
+    segments: List[Tuple[float, float]] = []
+    in_speech = False
+    seg_start = 0
+    sec_per_frame = _VAD_FRAME_MS / 1000.0
+    for i, is_speech in enumerate(frame_is_speech):
+        if is_speech and not in_speech:
+            seg_start = i
+            in_speech = True
+        elif not is_speech and in_speech:
+            segments.append((seg_start * sec_per_frame, i * sec_per_frame))
+            in_speech = False
+    if in_speech:
+        segments.append((seg_start * sec_per_frame, n_frames * sec_per_frame))
+
+    # Merge nearby speech regions (gaps shorter than min_silence are
+    # treated as the same utterance — e.g. short breaths).
+    merged: List[List[float]] = []
+    for s, e in segments:
+        if merged and s - merged[-1][1] < min_silence_seconds:
+            merged[-1][1] = e
+        else:
+            merged.append([s, e])
+
+    # Apply context padding and drop too-short segments.
+    total_seconds = n_frames * sec_per_frame
+    out: List[Tuple[float, float]] = []
+    for s, e in merged:
+        s = max(0.0, s - min_silence_seconds)
+        e = min(total_seconds, e + min_silence_seconds)
+        if e - s >= min_speech_seconds:
+            out.append((s, e))
+    return out
+
+
+def vad_available() -> bool:
+    """Public predicate: True iff ``detect_speech_segments`` can run."""
+    return _is_webrtcvad_available()
