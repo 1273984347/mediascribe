@@ -20,12 +20,48 @@ from typing import List, Optional
 from .config import Settings
 from .pipeline import Pipeline
 
+# 通用转录选项：供 transcribe / batch 子命令继承，支持放在子命令前或后。
+# 例如 `transcribe x.mp4 --model large` 与 `--model large transcribe x.mp4` 等价。
+_common_transcribe_opts = argparse.ArgumentParser(add_help=False)
+_common_transcribe_opts.add_argument(
+    "--model", "-m",
+    default="small",
+    choices=[
+        "tiny", "base", "small", "medium", "large",
+        # v3.2.0d: faster-whisper 支持的扩展模型
+        "large-v1", "large-v2", "large-v3",
+        "distil-large-v2", "distil-large-v3",
+    ],
+    help=(
+        "Whisper 模型（默认: small）。\n"
+        "  快速预览: tiny / base / small\n"
+        "  准确率优先: large-v3（推荐, 中文最佳）\n"
+        "  速度+准确率平衡: distil-large-v3"
+    ),
+)
+_common_transcribe_opts.add_argument(
+    "--device", "-d",
+    choices=["cpu", "cuda"],
+    help="运行设备（默认: 自动检测）",
+)
+_common_transcribe_opts.add_argument(
+    "--engine", "-e",
+    default="whisper",
+    choices=["whisper", "whisperx", "faster-whisper"],
+    help="转录引擎（默认: whisper）",
+)
+_common_transcribe_opts.add_argument(
+    "--language", "-l",
+    help="语言代码（如: zh, en, ja）",
+)
+
 
 def _run_legacy(argv: Optional[List[str]]) -> int:
     """Original v3.1.0 CLI — ``transcribe`` / ``batch`` subcommands."""
     parser = argparse.ArgumentParser(
         description="🎬 Video2Text - 视频转文字工具（深度整合版）",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[_common_transcribe_opts],
         epilog="""
 📦 整合项目：
   - yt-dlp: 多平台视频下载
@@ -55,37 +91,9 @@ def _run_legacy(argv: Optional[List[str]]) -> int:
         type=Path,
         help="工作目录（默认: ./output）",
     )
-    parser.add_argument(
-        "--model", "-m",
-        default="small",
-        choices=[
-            "tiny", "base", "small", "medium", "large",
-            # v3.2.0d: faster-whisper 支持的扩展模型
-            "large-v1", "large-v2", "large-v3",
-            "distil-large-v2", "distil-large-v3",
-        ],
-        help=(
-            "Whisper 模型（默认: small）。\n"
-            "  快速预览: tiny / base / small\n"
-            "  准确率优先: large-v3（推荐, 中文最佳）\n"
-            "  速度+准确率平衡: distil-large-v3"
-        ),
-    )
-    parser.add_argument(
-        "--device", "-d",
-        choices=["cpu", "cuda"],
-        help="运行设备（默认: 自动检测）",
-    )
-    parser.add_argument(
-        "--engine", "-e",
-        default="whisper",
-        choices=["whisper", "whisperx", "faster-whisper"],
-        help="转录引擎（默认: whisper）",
-    )
-    parser.add_argument(
-        "--language", "-l",
-        help="语言代码（如: zh, en, ja）",
-    )
+    # --model/--device/--engine/--language 见模块级 _common_transcribe_opts，
+    # 已通过 parents=[...] 注入顶层解析器与 transcribe/batch 子命令，
+    # 支持放在子命令前或后（如 `transcribe x.mp4 --model large`）。
 
     # 子命令
     subparsers = parser.add_subparsers(
@@ -98,6 +106,7 @@ def _run_legacy(argv: Optional[List[str]]) -> int:
     transcribe_parser = subparsers.add_parser(
         "transcribe",
         aliases=["t"],
+        parents=[_common_transcribe_opts],
         help="转录单个视频/音频",
     )
     transcribe_parser.add_argument(
@@ -136,6 +145,7 @@ def _run_legacy(argv: Optional[List[str]]) -> int:
     # 批量命令
     batch_parser = subparsers.add_parser(
         "batch",
+        parents=[_common_transcribe_opts],
         help="批量处理多个输入",
     )
     batch_parser.add_argument(
@@ -281,7 +291,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if argv[0] == "help":
         print(__doc__)
         return 0
-    if argv[0] not in ("transcribe", "t", "batch"):
+    if argv[0] not in ("transcribe", "t", "batch") and not argv[0].startswith("-"):
         print(f"video2text: unknown command {argv[0]!r}", file=sys.stderr)
         print("Try 'python -m video2text help'", file=sys.stderr)
         return 1

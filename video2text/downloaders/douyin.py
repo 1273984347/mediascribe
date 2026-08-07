@@ -82,13 +82,14 @@ class DouyinDownloader(Downloader):
         logger.info("目标链接: %s", url)
 
         # 首先检查是否是直接的 douyinvod 媒体链接
+        audio_url: Optional[str] = None
         if "douyinvod.com" in url:
             logger.info("检测到直接媒体链接")
             media_url = url
         else:
             # 尝试使用浏览器工具获取真实媒体 URL
             logger.info("使用浏览器工具解析抖音视频...")
-            media_url = self._extract_media_url_with_browser(url)
+            media_url, audio_url = self._extract_media_url_with_browser(url)
 
         if not media_url:
             logger.warning("无法自动获取媒体 URL")
@@ -105,6 +106,22 @@ class DouyinDownloader(Downloader):
 
         logger.info("下载成功: %s", video_path.name)
 
+        # DASH 音视频分离：若抓到独立音频流，合并音视频
+        if audio_url:
+            logger.info("检测到独立音频流，下载并合并音视频...")
+            merged_path = video_path.with_name(f"{video_path.stem}_merged.mp4")
+            if self._merge_av(video_path, audio_url, merged_path, settings.downloads_dir):
+                # 清理合并前的纯视频流中间文件
+                if video_path.exists() and video_path != merged_path:
+                    try:
+                        video_path.unlink()
+                    except OSError:
+                        pass
+                video_path = merged_path
+                logger.info("音视频合并完成: %s", video_path.name)
+            else:
+                logger.warning("音视频合并失败，回退使用纯视频流（可能无声）")
+
         return DownloadResult(
             source=source,
             video_path=video_path,
@@ -116,7 +133,9 @@ class DouyinDownloader(Downloader):
             },
         )
 
-    def _extract_media_url_with_browser(self, url: str) -> Optional[str]:
+    def _extract_media_url_with_browser(
+        self, url: str
+    ) -> tuple[Optional[str], Optional[str]]:
         """使用 Playwright 浏览器自动化提取真实媒体 URL。
 
         v3.2.0e: Playwright 解析失败时重试最多 ``_PLAYWRIGHT_MAX_ATTEMPTS`` 次。
@@ -142,7 +161,7 @@ class DouyinDownloader(Downloader):
             try:
                 media_urls = self._try_playwright_capture(sync_playwright, url)
                 if media_urls:
-                    return self._pick_best_url(media_urls)
+                    return self._pick_best_urls(media_urls)
                 logger.warning(
                     "Playwright 尝试 %d/%d 未捕获到 douyinvod 媒体链接",
                     attempt, _PLAYWRIGHT_MAX_ATTEMPTS,
@@ -158,7 +177,7 @@ class DouyinDownloader(Downloader):
 
         if last_error:
             logger.warning("Playwright 全部 %d 次尝试均失败", _PLAYWRIGHT_MAX_ATTEMPTS)
-        return None
+        return (None, None)
 
     @staticmethod
     def _try_playwright_capture(sync_playwright, url: str) -> list[str]:
@@ -194,21 +213,56 @@ class DouyinDownloader(Downloader):
         return list(dict.fromkeys(media_urls))
 
     @staticmethod
-    def _pick_best_url(urls: list[str]) -> Optional[str]:
-        """优先 .mp4 > .m3u8 > 第一个。"""
-        for u in urls:
-            if ".mp4" in u:
-                return u
-        for u in urls:
-            if ".m3u8" in u:
-                return u
-        return urls[0] if urls else None
+    def _separate_streams(urls: list[str]) -> tuple[list[str], list[str]]:
+        """把捕获到的 douyinvod URL 分为视频流与音频流。
 
-    def _download_media(self, media_url: str, save_dir: Path) -> Optional[Path]:
+        抖音 DASH 会把视频、音频拆成独立 CDN：音频流 URL 通常含
+        ``media-audio`` / ``/audio`` / ``.m4a`` 关键字；其余视为视频流。
+        """
+        video_urls: list[str] = []
+        audio_urls: list[str] = []
+        for u in urls:
+            low = u.lower().split("?")[0]
+            if "media-audio" in low or "/audio" in low or low.endswith(".m4a"):
+                audio_urls.append(u)
+            else:
+                video_urls.append(u)
+        return video_urls, audio_urls
+
+    @staticmethod
+    def _pick_best_urls(urls: list[str]) -> tuple[Optional[str], Optional[str]]:
+        """返回 ``(最佳视频流, 最佳音频流或 None)``。
+
+        v3.2.0f: 区分视频/音频流，DASH 分离时返回独立音频流，
+        由调用方负责合并，避免下载到无声视频。
+        """
+        video_urls, audio_urls = DouyinDownloader._separate_streams(urls)
+        video: Optional[str] = None
+        for u in video_urls:
+            if ".mp4" in u:
+                video = u
+                break
+        if video is None:
+            for u in video_urls:
+                if ".m3u8" in u:
+                    video = u
+                    break
+        if video is None and video_urls:
+            video = video_urls[0]
+        elif video is None and not video_urls and urls:
+            # 兜底：没有任何可识别视频流时退回原始列表第一条
+            video = urls[0]
+        audio = audio_urls[0] if audio_urls else None
+        return video, audio
+
+    def _download_media(
+        self, media_url: str, save_dir: Path, suffix: str = ".mp4"
+    ) -> Optional[Path]:
         """下载真实媒体文件。
 
         v3.2.0e: 复用 ``_build_session()`` 拿到带重试的 session，
         失败时 ``try/finally`` 清理 ``.part`` 文件。
+        v3.2.0f: 支持 ``suffix`` 参数以下载音频流等非 mp4 资源。
         """
         save_dir.mkdir(parents=True, exist_ok=True)
 
@@ -218,7 +272,7 @@ class DouyinDownloader(Downloader):
         }
 
         # 用 uuid4 防止同秒下载文件名碰撞
-        file_name = f"douyin_{uuid.uuid4().hex[:8]}.mp4"
+        file_name = f"douyin_{uuid.uuid4().hex[:8]}{suffix}"
         file_path = save_dir / file_name
         session = _build_session()
 
@@ -231,6 +285,8 @@ class DouyinDownloader(Downloader):
             total_size = int(response.headers.get("content-length", 0))
             downloaded = 0
 
+            # 进度日志按 5% 分桶降频，避免高带宽下逐 chunk 刷屏。
+            last_logged_bucket = -1
             with open(file_path, "wb") as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
@@ -238,10 +294,13 @@ class DouyinDownloader(Downloader):
                         downloaded += len(chunk)
                         if total_size > 0:
                             percent = (downloaded / total_size) * 100
-                            logger.info(
-                                "下载进度: %.1f%% (%d/%d 字节)",
-                                percent, downloaded, total_size,
-                            )
+                            bucket = int(percent // 5)
+                            if bucket != last_logged_bucket:
+                                last_logged_bucket = bucket
+                                logger.info(
+                                    "下载进度: %.1f%% (%d/%d 字节)",
+                                    percent, downloaded, total_size,
+                                )
 
             return file_path
 
@@ -254,3 +313,54 @@ class DouyinDownloader(Downloader):
                 except OSError:
                     pass
             return None
+
+    def _merge_av(
+        self,
+        video_path: Path,
+        audio_url: str,
+        out_path: Path,
+        save_dir: Path,
+    ) -> bool:
+        """下载独立音频流并与视频流无损合并（ffmpeg -c copy）。
+
+        v3.2.0f: 解决抖音 DASH 音视频分离导致的无声视频问题。
+        成功返回 True 并把合并结果写到 ``out_path``；失败清理临时文件并返回 False。
+        """
+        import shutil
+        import subprocess
+
+        audio_path = self._download_media(audio_url, save_dir, suffix=".m4a")
+        if not audio_path or not audio_path.exists():
+            logger.warning("音频流下载失败，无法合并")
+            return False
+
+        ffmpeg = shutil.which("ffmpeg") or "ffmpeg"
+        cmd = [
+            ffmpeg, "-y",
+            "-i", str(video_path),
+            "-i", str(audio_path),
+            "-c", "copy",
+            "-map", "0:v:0", "-map", "1:a:0",
+            str(out_path),
+        ]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, timeout=600)
+        except Exception as e:  # 合并失败不应中断主流程
+            logger.warning("ffmpeg 合并音视频失败: %r", e)
+            if out_path.exists():
+                try:
+                    out_path.unlink()
+                except OSError:
+                    pass
+            return False
+        finally:
+            # 清理临时音频文件
+            if audio_path.exists():
+                try:
+                    audio_path.unlink()
+                except OSError:
+                    pass
+
+        if not out_path.exists() or out_path.stat().st_size == 0:
+            return False
+        return True

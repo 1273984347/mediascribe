@@ -37,6 +37,7 @@
 - 🎙️ **VAD chunking** (v3.2.0a) — `webrtcvad`-driven boundaries for long videos with 5 s overlap
 - 💾 **Cross-run cache** (v3.2.0a) — XDG-spec disk cache with LRU + TTL, `VIDEO2TEXT_CACHE_DIR` override
 - 📊 **`profile` CLI** (v3.2.0a) — `python -m video2text profile <run.jsonl>` to Markdown / JSON / CSV
+- 🧠 **ASR 自动学习** (v3.2.0b) — `python -m video2text learn` 从用户校对累积术语库,越用越准
 - 📡 **WebSocket progress** (v3.2.0a) — `/ws/progress/{job_id}` streams 3-bar download / transcribe / assemble updates
 
 ### 🚀 Quick Start
@@ -63,6 +64,12 @@ python -m video2text transcribe "https://www.bilibili.com/video/BV1Nd596vEyU"
 
 # From local file
 python -m video2text transcribe "video.mp4" --language zh
+
+# 指定模型 / 设备（默认模型 small；中文推荐 large-v3）
+python -m video2text transcribe "video.mp4" --model large-v3 --device cuda
+
+# 全局选项也可前置（与上一行等价）
+python -m video2text --model large-v3 transcribe "video.mp4"
 ```
 
 #### Batch Transcription (Creator's Archive)
@@ -73,6 +80,27 @@ python douyin_batch_v3.py --user "https://www.douyin.com/user/xxx" -n 20
 
 # From a single video (auto-finds creator)
 python douyin_batch_v3.py --from-video "https://v.douyin.com/xxxxx/" -n 10
+```
+
+#### ASR Auto-Learning (`learn`)
+
+Accumulate a term-correction glossary from your edits so transcripts get more accurate over time (v3.2.0b).
+
+```bash
+# Recommended: diff edited text vs original ASR to extract phonetic-error mappings
+python -m video2text learn edit --original "ASR原始文本" --corrected "校对后文本"
+
+# Compare a reference transcript against the ASR output
+python -m video2text learn compare --reference "正确文本" --transcript "ASR文本"
+
+# Manual term management
+python -m video2text learn save    --wrong "错误词" --right "正确词"
+python -m video2text learn list
+python -m video2text learn confirm --wrong "错误词" --right "正确词"
+python -m video2text learn remove  --wrong "错误词" --right "正确词"
+python -m video2text learn export  --output terms.json
+python -m video2text learn import  --input terms.json
+python -m video2text learn clear
 ```
 
 ### 🏗️ Architecture
@@ -350,6 +378,7 @@ The library uses `pathlib` everywhere, normalises `~` and env-vars in user paths
 - 📝 **Markdown 输出** - 结构化转录文档
 - 🔄 **批量处理** - 批量下载作者全部往期内容
 - 🛡️ **生产就绪** - 日志、错误处理、断点续传
+- 🧠 **ASR 自动学习** - `python -m video2text learn` 从用户校对累积术语库,越用越准
 
 ### 🚀 快速开始
 
@@ -375,6 +404,12 @@ python -m video2text transcribe "https://www.bilibili.com/video/BV1Nd596vEyU"
 
 # 从本地文件
 python -m video2text transcribe "video.mp4" --language zh
+
+# 指定模型 / 设备（默认 small；中文推荐 large-v3）
+python -m video2text transcribe "video.mp4" --model large-v3 --device cuda
+
+# 全局选项也可前置（等价）
+python -m video2text --model large-v3 transcribe "video.mp4"
 ```
 
 #### 批量转录（作者往期内容）
@@ -385,6 +420,27 @@ python douyin_batch_v3.py --user "https://www.douyin.com/user/xxx" -n 20
 
 # 从单个视频（自动找到作者）
 python douyin_batch_v3.py --from-video "https://v.douyin.com/xxxxx/" -n 10
+```
+
+#### ASR 自动学习（learn）
+
+根据用户校对累积术语库，越用越准（v3.2.0b）。
+
+```bash
+# 推荐：对比编辑前后文本，自动提取语音相似的错误映射
+python -m video2text learn edit --original "ASR原始文本" --corrected "校对后文本"
+
+# 对比参考文本与转录
+python -m video2text learn compare --reference "正确文本" --transcript "ASR文本"
+
+# 手动管理术语
+python -m video2text learn save    --wrong "错误词" --right "正确词"
+python -m video2text learn list
+python -m video2text learn confirm --wrong "错误词" --right "正确词"
+python -m video2text learn remove  --wrong "错误词" --right "正确词"
+python -m video2text learn export  --output terms.json
+python -m video2text learn import  --input terms.json
+python -m video2text learn clear
 ```
 
 ### 🧪 测试

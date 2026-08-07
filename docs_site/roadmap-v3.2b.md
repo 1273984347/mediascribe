@@ -40,7 +40,7 @@ Three concrete pain points motivate v3.2.0b:
 
 **Effort** L · **Impact** High
 
-* Replace the sequential `Pipeline.run` with an `asyncio.Pipeline`
+* Replace the sequential `Pipeline.run` with an `AsyncPipeline`
   that runs `download` and `transcribe` concurrently inside a
   bounded `asyncio.Queue`.
 * Worker pool size auto-detected from `os.cpu_count()` /
@@ -51,8 +51,8 @@ Three concrete pain points motivate v3.2.0b:
 * `asyncio.to_thread` wraps the blocking ffmpeg / `WhisperModel`
   calls so the event loop never stalls.
 * `Pipeline` keeps the synchronous facade (`run`, `run_batch`) so
-  existing callers are not broken; the new class is opt-in via
-  `Pipeline.async_run(...)`.
+  existing callers are not broken; the new async class is opt-in via
+  `AsyncPipeline`.
 * Backpressure: when the disk cache is full, `download` waits for
   the LRU eviction to free a slot before producing the next chunk.
 * Cancellation: a single `pipeline.cancel()` cancels all
@@ -173,8 +173,8 @@ bench JSON schema is stable across the v3.2.0b → v3.3 cycle
 1. **`whisperx` install cost** — `pyannote.audio` pulls in
    `torch` + `torchaudio` (~ 2 GiB).  Should v3.3 make it
    default, or stay opt-in?
-2. **`asyncio.Pipeline` API shape** — should it be a context
-   manager (`async with Pipeline.async_run(...) as p:`) or a plain
+2. **`AsyncPipeline` API shape** — should it be a context
+   manager (`async with AsyncPipeline.run(...) as p:`) or a plain
    coroutine?  The context-manager form is more Pythonic but
    requires `__aenter__` / `__aexit__` to be added.
 3. **Benchmark corpus licensing** — the 1-hour corpus is currently

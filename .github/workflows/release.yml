@@ -6,7 +6,7 @@ name: release
 #
 # Pipeline:
 #   1. ``lint``        — ruff + bandit on Python 3.12
-#   2. ``test``        — pytest on Python 3.8 / 3.9 / 3.10 / 3.11 / 3.12
+#   2. ``test``        — pytest on Python 3.10 / 3.11 / 3.12
 #                        across Ubuntu / macOS / Windows (matrix subset for speed)
 #   3. ``build``       — sdist + manylinux wheel
 #   4. ``publish-pypi``  — uses ``PYPI_API_TOKEN`` secret (id-token for OIDC)
@@ -50,13 +50,20 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: ruff check .
       - run: ruff format --check .
-      - name: bandit (skip tests/)
+      - name: mypy (non-blocking — surfaces type issues)
+        # 类型检查当前为非阻断：历史代码未全量注解，阻断会拖垮发布。
+        # 作为 advisory 步骤逐步收敛。
+        continue-on-error: true
+        run: mypy video2text douyin_batch
+      - name: bandit (skip tests/, gate on HIGH)
+        # 仅高危（HIGH）阻断发布；中危（MEDIUM）作为 artifact 留档。
+        # MD5 缓存键已在 cache.py 标注 # nosec B324（非安全敏感）。
         run: |
           bandit -r video2text douyin_batch \
             --skip '*/tests/*' \
-            --severity-level medium \
+            --severity-level high \
             --confidence-level medium \
-            --format json --output bandit-report.json || true
+            --format json --output bandit-report.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -81,7 +88,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
           cache: 'pip'
-      - run: pip install -e ".[dev]"
+      - run: pip install -e ".[dev,faster-whisper,mcp]"
       - name: pytest (deselect slow integration tests on PR builds)
         run: |
           python -m pytest --no-header -q -m "not integration and not network"
