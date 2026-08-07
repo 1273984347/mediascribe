@@ -40,7 +40,7 @@ import asyncio
 import os
 import threading
 import time
-from typing import List, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from .config import Settings
 from .models import TranscriptResult
@@ -220,10 +220,20 @@ class AsyncPipeline:
     async def run(
         self,
         source_input: str,
+        *,
+        runner: Optional[Callable[[], Any]] = None,
         **kwargs,
     ) -> TranscriptResult:
-        """跑单个 video 的 stage chain(走 asyncio.to_thread)。"""
+        """跑单个 video 的 stage chain(走 asyncio.to_thread)。
+
+        若提供 ``runner``(可调用 ``() -> TranscriptResult``),则改为执行
+        ``runner()`` 而非底层 ``Pipeline.transcribe`` —— 这是 Web 层接线
+        的关键:传入 :func:`video2text.progress.with_progress` 包装的 thunk,
+        即可在并发批处理中保留进度事件与结果落盘。
+        """
         loop = asyncio.get_running_loop()
+        if runner is not None:
+            return await loop.run_in_executor(None, runner)
         return await loop.run_in_executor(
             None, lambda: self._sync.transcribe(source_input, **kwargs)
         )
@@ -231,6 +241,8 @@ class AsyncPipeline:
     async def run_batch(
         self,
         source_inputs: Sequence[str],
+        *,
+        runners: Optional[Dict[str, Callable[[], Any]]] = None,
         **kwargs,
     ) -> List[TranscriptResult]:
         """并发跑多个 video,任一失败不阻塞其他。
@@ -241,6 +253,9 @@ class AsyncPipeline:
         * 任一任务抛 :class:`Exception`,该位置结果是 ``_FailedResult``
           类型(``isinstance(result, _FailedResult)``)
         * 整体 :func:`asyncio.gather` 不抛 — 调用方按位置访问
+        * ``runners`` 可选:键为 source、值为 ``() -> result`` 的可调用,
+          命中时优先于默认 ``self._sync.transcribe`` 执行(Web 层用于注入
+          with_progress 包装的带进度 thunk)
 
         v3.2.0e:batch 启动时调 :func:`_gpu_aware_concurrency` 收紧并发,
         避免 CUDA OOM。快照一次(不中途动态调整),中途显存波动由
@@ -253,12 +268,16 @@ class AsyncPipeline:
             self.max_concurrent, vram_per_task_mb=self._vram_per_task_mb
         )
         sem = asyncio.Semaphore(effective)
+        runners = runners or {}
 
         async def _one(src: str) -> object:
             async with sem:
                 if self._cancel_event.is_set():
                     return _FailedResult(src, PipelineCancelled())
                 try:
+                    r = runners.get(src)
+                    if r is not None:
+                        return await self.run(src, runner=r)
                     return await self.run(src, **kwargs)
                 except Exception as exc:  # 隔离单个视频失败(含 PipelineCancelled)
                     return _FailedResult(src, exc)

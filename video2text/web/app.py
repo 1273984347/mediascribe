@@ -39,6 +39,8 @@ Security:
 from __future__ import annotations
 
 import argparse
+import asyncio
+import functools
 import logging
 import os
 import sys
@@ -500,7 +502,7 @@ def _reset_gpu_health_cache() -> None:
 # ---------------------------------------------------------------------------
 # Background job runner (v3.2.0c Tier 1 — cancel WS bridge)
 # ---------------------------------------------------------------------------
-def _run_job_safely(
+def _store_job_result(
     runner: Callable[[], Any],
     job_id: str,
     out_path: Path,
@@ -509,11 +511,11 @@ def _run_job_safely(
     results_lock: "threading.Lock",
     registry: Any,
 ) -> None:
-    """Run a ``with_progress`` thunk in background, store result on finish.
+    """执行 ``runner()`` 并把结果安全写入 ``results_store``。
 
-    Wrapped in try/except so the executor thread never crashes the
-    process — failures are written to ``results_store`` instead of
-    surfacing as unhandled exceptions.
+    ``runner`` 由调用方构造(可包含 :func:`video2text.progress.with_progress`
+    进度包装)。所有写操作都在 ``results_lock`` 内,且先校验 job 仍在
+    ``registry`` 中(关闭 TOCTOU 窗口)。
 
     v3.2.0c-fix (P3-1): If the job has been purged from ``registry``
     between ``runner()`` finishing and the result-store write (e.g. by
@@ -570,6 +572,50 @@ def _run_job_safely(
                 "url": url,
                 "error": f"{exc.__class__.__name__}: {exc}",
             }
+
+
+def _run_job_safely(
+    runner: Callable[[], Any],
+    job_id: str,
+    out_path: Path,
+    url: str,
+    results_store: Dict[str, Dict[str, Any]],
+    results_lock: "threading.Lock",
+    registry: Any,
+) -> None:
+    """遗留单任务提交路径的薄封装 — 委托 :func:`_store_job_result`。
+
+    v3.2.0e:批量提交已改走 :func:`_run_batch_job`(``AsyncPipeline.run_batch``),
+    此处保留以兼容单 URL 直接 ``ThreadPoolExecutor.submit`` 的调用方。
+    """
+    _store_job_result(
+        runner, job_id, out_path, url, results_store, results_lock, registry
+    )
+
+
+def _run_batch_job(
+    ap: Any,
+    urls: List[str],
+    runners: Dict[str, Callable[[], Any]],
+    job_ids: List[str],
+    async_pipelines: Dict[str, Any],
+) -> None:
+    """整批提交路径:在独立线程跑 ``AsyncPipeline.run_batch``。
+
+    * GPU 感知并发 + 单视频失败隔离 + 可取消(见 ``cancel_job`` / ws_progress)。
+    * 每个 URL 的 ``runners[url]`` 是 ``with_progress`` + ``_store_job_result``
+      封装的带进度 thunk。
+    * 批处理结束后清理 ``async_pipelines`` 中本批 job_id 注册(该字典即
+      ``app.state.async_pipelines``,由 submit_jobs 传入),避免注册表泄漏。
+    """
+    try:
+        asyncio.run(ap.run_batch(urls, runners=runners))
+    except BaseException:
+        # 取消或其他异常:后台线程静默结束,各 job 自身状态已反映结果。
+        pass
+    finally:
+        for jid in job_ids:
+            async_pipelines.pop(jid, None)
 
 
 def create_app(workspace: Optional[Path] = None,
@@ -1116,18 +1162,27 @@ def create_app(workspace: Optional[Path] = None,
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"init failed: {exc}")
         from video2text.progress import ProgressRegistry, with_progress
+        from video2text.pipeline_async import AsyncPipeline
 
         registry: ProgressRegistry = app.state.jobs  # type: ignore[attr-defined]
         out_dir = workspace / "out"
         out_dir.mkdir(parents=True, exist_ok=True)
+        # v3.2.0e wiring: 整批走一个 AsyncPipeline.run_batch,获得 GPU 感知并发
+        # + 单视频失败隔离 + 可取消(见 cancel_job / ws_progress)。每个 URL 的
+        # runner 用 with_progress 包装以保留进度事件与落盘,再套 _store_job_result
+        # 安全写回 job_results。
+        ap = AsyncPipeline(pipeline)
+        urls = list(req.urls)
+        runners: Dict[str, Callable[[], Any]] = {}
         jobs_out: List[Dict[str, Any]] = []
-        for url in req.urls:
+        job_ids: List[str] = []
+        for url in urls:
             job = registry.create(url)
             out_path = out_dir / f"{int(time.time())}_{uuid.uuid4().hex[:8]}.md"
-            runner = with_progress(pipeline, job, url, out_path=out_path)
-            app.state.job_executor.submit(
-                _run_job_safely,
-                runner,
+            wp = with_progress(pipeline, job, url, out_path=out_path)
+            runners[url] = functools.partial(
+                _store_job_result,
+                wp,
                 job.job_id,
                 out_path,
                 url,
@@ -1142,6 +1197,19 @@ def create_app(workspace: Optional[Path] = None,
                 "ws": f"/ws/progress/{job.job_id}",
                 "result": f"/api/jobs/{job.job_id}/result",
             })
+            job_ids.append(job.job_id)
+        # 注册 AP 到本批所有 job_id — cancel 任一 job 都能命中并中止整批
+        # 尚未启动的排队任务(已启动的仍由 registry.cancel 协作取消)。
+        for jid in job_ids:
+            app.state.async_pipelines[jid] = ap
+        app.state.job_executor.submit(
+            _run_batch_job,
+            ap,
+            urls,
+            runners,
+            job_ids,
+            app.state.async_pipelines,
+        )
         return {"jobs": jobs_out}
 
     @app.get("/api/jobs/{job_id}/result", dependencies=[Depends(_require_api_token)])

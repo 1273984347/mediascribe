@@ -13,12 +13,14 @@ Video2Text 命令行工具
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 from pathlib import Path
 from typing import List, Optional
 
 from .config import Settings
 from .pipeline import Pipeline
+from .pipeline_async import AsyncPipeline, _FailedResult
 
 # 通用转录选项：供 transcribe / batch 子命令继承，支持放在子命令前或后。
 # 例如 `transcribe x.mp4 --model large` 与 `--model large transcribe x.mp4` 等价。
@@ -222,18 +224,22 @@ def _run_legacy(argv: Optional[List[str]]) -> int:
                 print("❌ 没有提供输入")
                 sys.exit(1)
             print(f"🚀 批量处理 {len(inputs)} 个输入...")
+            # v3.2.0e: 批量走 AsyncPipeline.run_batch — GPU 感知并发 +
+            # 单视频失败隔离(某个失败不影响其他)。失败位置返回 _FailedResult。
+            ap = AsyncPipeline(pipeline)
+            try:
+                raw = asyncio.run(ap.run_batch(inputs, language=args.language))
+            except KeyboardInterrupt:
+                print("\n\n⏹️ 用户中断")
+                sys.exit(130)
             results = []
-            for i, input_source in enumerate(inputs, 1):
+            for i, (src, r) in enumerate(zip(inputs, raw), 1):
                 print(f"\n--- [{i}/{len(inputs)}] ---")
-                try:
-                    result = pipeline.transcribe(
-                        input_source,
-                        language=args.language,
-                    )
-                    results.append((input_source, True, result))
-                except Exception as e:
-                    print(f"❌ 处理失败: {e}")
-                    results.append((input_source, False, str(e)))
+                if isinstance(r, _FailedResult):
+                    print(f"❌ 处理失败: {r.exc}")
+                    results.append((src, False, str(r.exc)))
+                else:
+                    results.append((src, True, r))
             # 总结
             print(f"\n{'='*50}")
             print("📊 批量处理完成")
