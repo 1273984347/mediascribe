@@ -7,6 +7,12 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
+# 文件名清洗的规范实现统一收敛到 ``platform_compat.safe_filename``（被
+# video2text 核心包直接引用，行为契约稳定）。``sanitize_filename`` 在其基础上
+# 叠加安全专用规则（路径穿越 ``..``、空值回退 ``unnamed``、可调 max_length），
+# 避免两份重复实现。
+from .platform_compat import safe_filename
+
 # Trusted domains
 TRUSTED_DOMAINS = {
     "bilibili.com",
@@ -66,6 +72,9 @@ def sanitize_filename(name: str, max_length: int = 200) -> str:
     """
     Sanitize a filename to prevent path traversal and other attacks.
 
+    P1-14 收敛：基础清洗委托给 ``platform_compat.safe_filename``（跨平台规范实现），
+    这里只叠加安全专用规则。保持历史行为以确保既有测试通过。
+
     Args:
         name: Filename to sanitize
         max_length: Maximum filename length
@@ -76,31 +85,27 @@ def sanitize_filename(name: str, max_length: int = 200) -> str:
     if not name or not isinstance(name, str):
         return "unnamed"
 
-    # Remove path separators and parent directory references
-    name = name.replace("..", "_")
-    name = name.replace("/", "_")
-    name = name.replace("\\", "_")
-
-    # Remove control characters
-    name = "".join(c for c in name if c.isprintable())
-
-    # Strip leading/trailing whitespace and dots
-    name = name.strip().strip(".")
-
-    if not name:
-        return "unnamed"
-
-    # Limit length
-    if len(name) > max_length:
-        # Preserve extension
+    # 1) 长度上限 + 扩展名保留：在原始字符串上计算，避免 ``safe_filename`` 的
+    #    200 截断提前吞掉扩展名（既有测试依赖此行为）。
+    if max_length and len(name) > max_length:
         if "." in name:
             base, ext = name.rsplit(".", 1)
-            base = base[: max_length - len(ext) - 1]
+            base = base[: max(0, max_length - len(ext) - 1)]
             name = f"{base}.{ext}"
         else:
             name = name[:max_length]
 
-    return name
+    # 2) 跨平台基础清洗（去非法字符 / 控制字符 / Windows 保留名）。
+    cleaned = safe_filename(name)
+
+    # 3) 安全专用规则：中和父目录引用（路径穿越），并剥离首尾空白与小数点。
+    cleaned = cleaned.replace("..", "_")
+    cleaned = cleaned.strip().strip(".")
+
+    if not cleaned:
+        return "unnamed"
+
+    return cleaned
 
 
 def safe_join_path(base: Path, *parts: str) -> Optional[Path]:
