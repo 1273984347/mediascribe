@@ -79,25 +79,28 @@ python douyin_batch_v3.py --from-video "https://v.douyin.com/xxxxx/" -n 10
 
 ```
 video2text/
-├── video2text/          # Core library
-│   ├── pipeline.py      # Main workflow
-│   ├── downloaders/     # Platform-specific downloaders
-│   ├── transcribers/    # AI model wrappers
-│   ├── config.py        # Settings
-│   └── url_utils.py     # URL parsing
-│
-├── douyin_batch/        # Batch processing module
-│   ├── browser.py       # Playwright automation
-│   ├── logger.py        # Logging system
-│   ├── config.py        # Batch configuration
-│   ├── cache.py         # Resume support
-│   ├── progress.py      # Progress tracking
-│   ├── report.py        # Report generation
-│   ├── retry.py         # Retry mechanism
-│   └── tests/           # Unit tests
-│
-└── douyin_batch_v3.py   # Batch CLI entry point
+├── video2text/          # Core library: pipeline, downloaders, transcribers, config, url_utils
+├── douyin_batch/        # Batch module: browser, logger, config, cache, progress, report, retry, tests/
+├── docs/                # Documentation sources
+├── docs_site/           # Documentation website (MkDocs)
+├── extension/           # Browser extension assets (used by video2text/web/app.py)
+├── examples/            # Usage examples
+├── scripts/             # Helper scripts
+└── output/              # Transcription working dir (git-ignored)
+    └── video_transcripts/
+        └── douyin_<video_id>/
+            ├── downloads/        # source media (mp4)
+            ├── audio/            # extracted wav
+            ├── metadata/         # platform metadata (json)
+            ├── <id>.md           # raw transcript
+            └── <id>.reviewed.md  # human-reviewed transcript
 ```
+
+> **Transcription output.** Local runs write per-video artifacts under
+> `output/video_transcripts/douyin_<video_id>/`: the source media in
+> `downloads/`, extracted audio in `audio/`, platform metadata in `metadata/`,
+> the raw transcript `<id>.md`, and the human-reviewed transcript
+> `<id>.reviewed.md`. Each video is fully isolated in its own folder.
 
 ### 🧪 Testing
 

@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Video2Text v3.2.0a · WebSocket Progress Demo</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #1a1d23;
+    --panel-2: #232730;
+    --text: #e6e6e6;
+    --muted: #8a8f9a;
+    --accent: #4f8cff;
+    --ok: #46c987;
+    --warn: #f5a524;
+    --err: #ff5d5d;
+    --border: #2c313c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  header {
+    padding: 24px 32px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { margin: 0 0 4px; font-size: 20px; font-weight: 600; }
+  header p  { margin: 0; color: var(--muted); font-size: 13px; }
+  main { max-width: 960px; margin: 0 auto; padding: 24px 32px 64px; }
+  section {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  h2 { margin: 0 0 12px; font-size: 14px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  input[type="text"] {
+    flex: 1 1 280px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 8px 12px;
+    font-size: 13px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  button {
+    background: var(--accent);
+    color: white;
+    border: 0;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  button:hover:not(:disabled) { opacity: 0.85; }
+  button:disabled { background: #3a3f4b; cursor: not-allowed; }
+  button.danger { background: var(--err); }
+  button.secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); }
+
+  .stage { margin-bottom: 18px; }
+  .stage:last-child { margin-bottom: 0; }
+  .stage-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+  .stage-name { font-size: 13px; font-weight: 500; }
+  .stage-pct  { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .bar {
+    width: 100%;
+    height: 8px;
+    background: var(--panel-2);
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+  }
+  .bar-fill {
+    height: 100%;
+    background: var(--accent);
+    width: 0;
+    transition: width 0.4s ease;
+  }
+  .bar-fill.ok    { background: var(--ok); }
+  .bar-fill.warn  { background: var(--warn); }
+  .bar-fill.err   { background: var(--err); }
+
+  .status {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: var(--panel-2);
+    color: var(--muted);
+  }
+  .status.connecting { background: #2a3a5c; color: #82b1ff; }
+  .status.open       { background: #1f3d2c; color: var(--ok); }
+  .status.closed     { background: #3a2a2a; color: var(--err); }
+  .status.snapshot   { background: #2a3a5c; color: #82b1ff; }
+  .status.progress   { background: #1f3d2c; color: var(--ok); }
+  .status.completed  { background: #1f3d2c; color: var(--ok); }
+  .status.cancelled  { background: #3a2a2a; color: var(--warn); }
+  .status.error      { background: #3a2a2a; color: var(--err); }
+
+  pre {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    font-size: 12px;
+    color: var(--muted);
+    overflow: auto;
+    max-height: 220px;
+    margin: 0;
+  }
+  pre .ts  { color: #5a6371; }
+  pre .ev  { color: var(--accent); font-weight: 600; }
+
+  .empty { color: var(--muted); font-size: 13px; font-style: italic; }
+
+  .pill {
+    display: inline-block;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    color: var(--muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    margin-right: 4px;
+  }
+
+  footer {
+    text-align: center;
+    color: var(--muted);
+    font-size: 12px;
+    padding: 16px;
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Video2Text · <span style="color:var(--accent)">v3.2.0a</span> WebSocket Progress Demo</h1>
+  <p>Live download / transcribe / assemble progress for any job_id served by the FastAPI backend.</p>
+</header>
+
+<main>
+  <section>
+    <h2>Connection</h2>
+    <div class="row">
+      <span class="pill">host</span>
+      <input type="text" id="host" value="localhost:8000" />
+      <span class="pill">job_id</span>
+      <input type="text" id="jobId" placeholder="e.g. 9f1b8c…" style="flex: 1 1 220px;" />
+      <button id="connectBtn">Connect</button>
+      <button id="cancelBtn" class="danger" disabled>Cancel job</button>
+      <button id="disconnectBtn" class="secondary" disabled>Disconnect</button>
+    </div>
+    <div style="margin-top:12px;">
+      Connection:
+      <span id="connStatus" class="status connecting">idle</span>
+      <span id="lastEventStatus" class="status" style="margin-left:8px;">no events</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>3-bar progress</h2>
+    <div class="stage" data-stage="download">
+      <div class="stage-head">
+        <span class="stage-name">Download</span>
+        <span class="stage-pct">0%</span>
+      </div>
+      <div class="bar"><div class="bar-fill"></div></div>
+    </div>
+    <div class="stage" data-stage="transcribe">
+      <div class="stage-head">
+        <span class="stage-name">Transcribe</span>
+        <span class="stage-pct">0%</span>
+      </div>
+      <div class="bar"><div class="bar-fill"></div></div>
+    </div>
+    <div class="stage" data-stage="assemble">
+      <div class="stage-head">
+        <span class="stage-name">Assemble</span>
+        <span class="stage-pct">0%</span>
+      </div>
+      <div class="bar"><div class="bar-fill"></div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Current snapshot (REST <code>GET /api/jobs/{id}</code>)</h2>
+    <pre id="snapshot">(no snapshot yet)</pre>
+  </section>
+
+  <section>
+    <h2>Event log</h2>
+    <pre id="log"><span class="empty">No events yet — click Connect with a valid job_id.</span></pre>
+  </section>
+</main>
+
+<footer>
+  Open this page from the same origin as the FastAPI server, or use a
+  CORS-enabled deployment. See
+  <a href="https://github.com/yourusername/video2text/blob/main/RELEASE_NOTES_v3.2.0a.md">RELEASE_NOTES_v3.2.0a.md</a>.
+</footer>
+
+<script>
+(() => {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const hostInput   = $("host");
+  const jobIdInput  = $("jobId");
+  const connectBtn  = $("connectBtn");
+  const cancelBtn   = $("cancelBtn");
+  const discBtn     = $("disconnectBtn");
+  const connStatus  = $("connStatus");
+  const lastStatus  = $("lastEventStatus");
+  const snapshotEl  = $("snapshot");
+  const logEl       = $("log");
+
+  let ws = null;
+  let aborted = false;
+
+  const setConnStatus = (text, cls) => {
+    connStatus.textContent = text;
+    connStatus.className = "status " + cls;
+  };
+  const setLastStatus = (text, cls) => {
+    lastStatus.textContent = text;
+    lastStatus.className = "status " + cls;
+  };
+
+  const setBar = (stage, pct) => {
+    const node = document.querySelector(`.stage[data-stage="${stage}"]`);
+    if (!node) return;
+    const fill = node.querySelector(".bar-fill");
+    const label = node.querySelector(".stage-pct");
+    const clamped = Math.max(0, Math.min(100, Math.round(pct)));
+    fill.style.width = clamped + "%";
+    label.textContent = clamped + "%";
+    fill.classList.remove("ok", "warn", "err");
+    if (clamped >= 100) fill.classList.add("ok");
+  };
+  const resetBars = () => {
+    ["download", "transcribe", "assemble"].forEach(s => setBar(s, 0));
+  };
+
+  const log = (ev, payload) => {
+    if (logEl.querySelector(".empty")) logEl.innerHTML = "";
+    const ts = new Date().toLocaleTimeString();
+    const line = document.createElement("div");
+    const tsEl = document.createElement("span");
+    tsEl.className = "ts";
+    tsEl.textContent = `[${ts}] `;
+    const evEl = document.createElement("span");
+    evEl.className = "ev";
+    evEl.textContent = ev + " ";
+    const json = document.createElement("span");
+    json.textContent = JSON.stringify(payload);
+    line.appendChild(tsEl);
+    line.appendChild(evEl);
+    line.appendChild(json);
+    logEl.appendChild(line);
+    logEl.scrollTop = logEl.scrollHeight;
+  };
+
+  const applyStages = (stages) => {
+    if (!stages) return;
+    if (typeof stages.download   === "number") setBar("download",   stages.download);
+    if (typeof stages.transcribe === "number") setBar("transcribe", stages.transcribe);
+    if (typeof stages.assemble   === "number") setBar("assemble",   stages.assemble);
+  };
+
+  const refreshSnapshot = async (jobId) => {
+    try {
+      const r = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, {
+        headers: { "Authorization": "Bearer dashboard-dev-key-2024" }
+      });
+      if (!r.ok) {
+        snapshotEl.textContent = `(GET /api/jobs/${jobId} → HTTP ${r.status})`;
+        return;
+      }
+      const data = await r.json();
+      snapshotEl.textContent = JSON.stringify(data, null, 2);
+      if (data && data.stages) applyStages(data.stages);
+    } catch (err) {
+      snapshotEl.textContent = "(snapshot fetch failed: " + err.message + ")";
+    }
+  };
+
+  const handleEvent = (msg) => {
+    log(msg.type, msg);
+    if (msg.type === "snapshot" || msg.type === "progress") {
+      if (msg.stages) applyStages(msg.stages);
+      if (msg.type === "snapshot") {
+        snapshotEl.textContent = JSON.stringify(msg, null, 2);
+      }
+      setLastStatus(msg.type, msg.type);
+    } else if (msg.type === "completed") {
+      if (msg.stages) applyStages(msg.stages);
+      setLastStatus("completed", "completed");
+      snapshotEl.textContent = JSON.stringify(msg, null, 2);
+      disconnect();
+    } else if (msg.type === "cancelled") {
+      setLastStatus("cancelled", "cancelled");
+      snapshotEl.textContent = JSON.stringify(msg, null, 2);
+      disconnect();
+    } else if (msg.type === "error") {
+      setLastStatus("error: " + (msg.message || "unknown"), "error");
+      snapshotEl.textContent = JSON.stringify(msg, null, 2);
+    }
+  };
+
+  const connect = () => {
+    const host = hostInput.value.trim() || "localhost:8000";
+    const jobId = jobIdInput.value.trim();
+    if (!jobId) {
+      alert("Please paste a job_id first (you can copy it from POST /api/transcribe response).");
+      return;
+    }
+    resetBars();
+    aborted = false;
+    setConnStatus("connecting…", "connecting");
+    setLastStatus("no events", "");
+
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    const url = `${proto}//${host}/ws/progress/${encodeURIComponent(jobId)}`;
+    log("ws.open", { url });
+    ws = new WebSocket(url);
+
+    ws.onopen = () => {
+      setConnStatus("open", "open");
+      connectBtn.disabled = true;
+      cancelBtn.disabled = false;
+      discBtn.disabled = false;
+      refreshSnapshot(jobId);
+    };
+    ws.onmessage = (e) => {
+      let msg;
+      try { msg = JSON.parse(e.data); }
+      catch { log("ws.raw", { data: e.data }); return; }
+      handleEvent(msg);
+    };
+    ws.onerror = (e) => {
+      log("ws.error", { readyState: ws ? ws.readyState : null });
+      setConnStatus("error", "error");
+    };
+    ws.onclose = (e) => {
+      log("ws.close", { code: e.code, reason: e.reason || "(no reason)" });
+      setConnStatus(`closed (${e.code})`, "closed");
+      connectBtn.disabled = false;
+      cancelBtn.disabled = true;
+      discBtn.disabled = true;
+      ws = null;
+      if (e.code === 4404) {
+        setLastStatus("unknown job_id (4404)", "error");
+      }
+    };
+  };
+
+  const disconnect = () => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.close(1000, "client-disconnect");
+    }
+  };
+
+  const cancel = async () => {
+    const jobId = jobIdInput.value.trim();
+    if (!jobId) return;
+    try {
+      const r = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, {
+        method: "POST",
+        headers: { "Authorization": "Bearer dashboard-dev-key-2024" }
+      });
+      log("cancel", { status: r.status });
+      if (r.status === 200) {
+        setLastStatus("cancellation requested", "cancelled");
+      } else if (r.status === 404) {
+        setLastStatus("unknown job_id (404)", "error");
+      }
+    } catch (err) {
+      log("cancel.error", { message: err.message });
+    }
+  };
+
+  connectBtn.addEventListener("click", connect);
+  discBtn.addEventListener("click", disconnect);
+  cancelBtn.addEventListener("click", cancel);
+
+  // Pre-fill job_id from ?job=… query string (handy for shared links)
+  const params = new URLSearchParams(location.search);
+  if (params.get("job")) jobIdInput.value = params.get("job");
+  if (params.get("host")) hostInput.value = params.get("host");
+})();
+</script>
+</body>
+</html>

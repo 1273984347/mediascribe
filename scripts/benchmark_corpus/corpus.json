@@ -1,0 +1,43 @@
+{
+  "schema_version": "video2text-benchmark-corpus/v1",
+  "description": "v3.2.0b 复现 benchmark 用的 1-hour 固定 corpus。4 个 16 kHz mono WAV,3 种语言,总时长 60 min。",
+  "language_codes": {
+    "zh": "Mandarin (普通话)",
+    "en": "English (英语)",
+    "mixed": "中英混说"
+  },
+  "files": [
+    {
+      "name": "01_zh_5min.wav",
+      "language": "zh",
+      "duration_s": 300,
+      "speakers": 1,
+      "topic": "新闻播报样本(普通话标准男声)",
+      "reference": "01_zh_5min.json"
+    },
+    {
+      "name": "02_en_15min.wav",
+      "language": "en",
+      "duration_s": 900,
+      "speakers": 1,
+      "topic": "TED-talk style monolog(英语标准女声)",
+      "reference": "02_en_15min.json"
+    },
+    {
+      "name": "03_mixed_30min.wav",
+      "language": "mixed",
+      "duration_s": 1800,
+      "speakers": 2,
+      "topic": "中英双语访谈(2-speaker)",
+      "reference": "03_mixed_30min.json"
+    },
+    {
+      "name": "04_zh_60min.wav",
+      "language": "zh",
+      "duration_s": 3600,
+      "speakers": 3,
+      "topic": "长访谈(60 min,3 speakers,普通话)",
+      "reference": "04_zh_60min.json"
+    }
+  ]
+}

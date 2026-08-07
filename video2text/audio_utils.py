@@ -3,11 +3,22 @@
 """
 from __future__ import annotations
 
+import logging
+import os
 import shutil
 import subprocess
 import wave
 from pathlib import Path
 from typing import Any, List, Optional, Tuple
+
+_logger = logging.getLogger(__name__)
+
+
+# FFmpeg subprocess 默认超时（秒）。
+# 30 分钟视频通常 < 1 分钟即可提取完毕，10 分钟超时对绝大多数用例留足余量。
+# 损坏视频/无限流可能导致 ffmpeg 死循环 → subprocess 阻塞 → pipeline 卡死。
+# 显式 timeout 参数 > VIDEO2TEXT_FFMPEG_TIMEOUT 环境变量 > 此默认值。
+_FFMPEG_DEFAULT_TIMEOUT_SECONDS = 600.0
 
 
 def extract_audio(
@@ -15,8 +26,16 @@ def extract_audio(
     output_dir: Path,
     stem: str,
     progress: Optional[Any] = None,
+    timeout: Optional[float] = None,
 ) -> Optional[Path]:
-    """从视频提取音频 - 参考 bili2text"""
+    """从视频提取音频 - 参考 bili2text
+
+    v3.2.0e+ 增加超时控制:
+      * 优先级: 显式 ``timeout`` 参数 > ``VIDEO2TEXT_FFMPEG_TIMEOUT`` 环境变量
+        > 默认 ``_FFMPEG_DEFAULT_TIMEOUT_SECONDS`` (600s)。
+      * 超时抛 ``RuntimeError`` (包裹 ``subprocess.TimeoutExpired``)，
+        避免损坏视频/无限流导致 pipeline 永久阻塞。
+    """
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         raise RuntimeError("未找到 FFmpeg，请先安装并添加到 PATH")
@@ -38,11 +57,37 @@ def extract_audio(
     if progress:
         print("提取音频中...")
 
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        encoding="utf-8",
-    )
+    # 超时解析: 参数 > env > 默认。env="0" 表示禁用超时（极端调试场景）。
+    resolved_timeout = timeout
+    if resolved_timeout is None:
+        env_val = os.environ.get("VIDEO2TEXT_FFMPEG_TIMEOUT", "").strip()
+        if env_val:
+            try:
+                resolved_timeout = float(env_val)
+            except ValueError:
+                # DRL R2 F-7: 静默回退会让用户误以为 env 生效。改 log warning 提示。
+                _logger.warning(
+                    "VIDEO2TEXT_FFMPEG_TIMEOUT=%r 不是合法浮点数, "
+                    "回退到默认 %.0fs", env_val, _FFMPEG_DEFAULT_TIMEOUT_SECONDS
+                )
+                resolved_timeout = _FFMPEG_DEFAULT_TIMEOUT_SECONDS
+        else:
+            resolved_timeout = _FFMPEG_DEFAULT_TIMEOUT_SECONDS
+    if resolved_timeout is not None and resolved_timeout <= 0:
+        resolved_timeout = None  # 显式禁用
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            encoding="utf-8",
+            timeout=resolved_timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        timeout_desc = f"{resolved_timeout:.0f}s" if resolved_timeout else "N/A"
+        raise RuntimeError(
+            f"FFmpeg 提取音频超时 (>{timeout_desc}): {video_path.name}"
+        ) from exc
 
     if result.returncode != 0:
         raise RuntimeError(f"FFmpeg 错误: {result.stderr}")

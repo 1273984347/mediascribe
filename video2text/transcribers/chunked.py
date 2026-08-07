@@ -348,12 +348,17 @@ class ChunkedTranscriber(Transcriber):
         full_text = merge_texts(chunk_results)
         full_segments = merge_segments(chunk_results)
         # Persist the merged transcript to ``output_path``.
+        # v3.2.0e+: 原子写避免半写污染（长视频合并后 markdown 可达 100KB+）。
+        # 延迟导入 ``_atomic_write_text`` 避免与 ``pipeline_stages`` 形成循环
+        # import（``pipeline_stages`` 顶部 ``from .transcribers import Transcriber``）。
+        from ..pipeline_stages import _atomic_write_text
+
         out = Path(output_path)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(full_text, encoding="utf-8")
+        _atomic_write_text(out, full_text, encoding="utf-8")
         # Sidecar JSON for downstream tools.
         sidecar = out.with_suffix(out.suffix + ".chunks.json")
-        sidecar.write_text(
+        _atomic_write_text(
+            sidecar,
             json.dumps(
                 {
                     "engine": self.inner.name,

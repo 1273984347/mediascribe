@@ -13,6 +13,7 @@
       --accent: #38bdf8;
       --ok: #22c55e;
       --err: #ef4444;
+      --warn: #f59e0b;
     }
     body {
       margin: 0;
@@ -25,7 +26,14 @@
       margin: 0 auto;
       padding: 32px 16px 80px;
     }
-    h1 { font-size: 28px; margin: 0 0 8px; }
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+    h1 { font-size: 28px; margin: 0; }
     .lede { color: var(--muted); margin-bottom: 24px; }
     form {
       background: var(--panel);
@@ -67,6 +75,7 @@
     }
     .card.ok { border-left-color: var(--ok); }
     .card.err { border-left-color: var(--err); }
+    .card.warn { border-left-color: var(--warn); }
     .card h3 { margin: 0 0 4px; font-size: 15px; word-break: break-all; }
     .meta { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
     pre {
@@ -80,7 +89,7 @@
       white-space: pre-wrap;
       word-break: break-word;
     }
-    .toolbar { display: flex; gap: 8px; margin-top: 8px; }
+    .toolbar { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
     .toolbar button {
       background: transparent;
       color: var(--accent);
@@ -88,13 +97,76 @@
       padding: 6px 10px;
       font-size: 12px;
     }
+    .toolbar button.danger {
+      color: var(--err);
+      border-color: var(--err);
+    }
+    /* v3.2.0c Tier 2 — GPU pill */
+    .gpu-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 99px;
+      font-size: 12px;
+      background: #0b1220;
+      border: 1px solid #334155;
+      color: var(--muted);
+    }
+    .gpu-pill .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted);
+    }
+    .gpu-pill.ok .dot { background: var(--ok); }
+    .gpu-pill.ok { color: var(--fg); border-color: #334155; }
+    .gpu-pill.loading .dot { background: var(--warn); animation: pulse 1.2s infinite ease-in-out; }
+    .gpu-pill.unavailable .dot { background: var(--muted); }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+    /* v3.2.0c Tier 1 — progress bar */
+    .progress {
+      margin-top: 10px;
+      display: grid;
+      gap: 6px;
+    }
+    .progress-row {
+      display: grid;
+      grid-template-columns: 110px 1fr 50px;
+      gap: 8px;
+      align-items: center;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .progress-bar {
+      height: 6px;
+      background: #0b1220;
+      border-radius: 3px;
+      overflow: hidden;
+      border: 1px solid #334155;
+    }
+    .progress-bar > span {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: var(--accent);
+      transition: width 0.3s ease;
+    }
+    .progress-bar.done > span { background: var(--ok); }
+    .progress-bar.cancelled > span { background: var(--muted); }
+    .progress-bar.failed > span { background: var(--err); }
     footer { text-align: center; color: var(--muted); margin-top: 32px; font-size: 12px; }
   </style>
 </head>
 <body>
   <main>
-    <h1>Video2Text</h1>
-    <p class="lede">Paste up to 20 video URLs (Bilibili, Douyin, YouTube, Xiaohongshu, WeChat MP, TikTok). The server will download, transcribe, and return Markdown you can copy.</p>
+    <header>
+      <h1>Video2Text</h1>
+      <span id="gpu-pill" class="gpu-pill loading" title="GPU probe (refreshes every 5s)">
+        <span class="dot"></span>
+        <span id="gpu-label">GPU …</span>
+      </span>
+    </header>
+    <p class="lede">Paste up to 20 video URLs (Bilibili, Douyin, YouTube, Xiaohongshu, WeChat MP, TikTok). The server runs each as a background job with stage-level progress and live cancellation via WebSocket.</p>
 
     <form id="form">
       <div>
@@ -114,11 +186,22 @@
         <div>
           <label for="model">Model</label>
           <select id="model">
-            <option value="tiny">tiny</option>
-            <option value="base">base</option>
-            <option value="small" selected>small</option>
-            <option value="medium">medium</option>
-            <option value="large">large</option>
+            <optgroup label="快速预览">
+              <option value="tiny">tiny</option>
+              <option value="base">base</option>
+              <option value="small" selected>small</option>
+            </optgroup>
+            <optgroup label="准确率优先">
+              <option value="medium">medium</option>
+              <option value="large">large</option>
+              <option value="large-v1">large-v1</option>
+              <option value="large-v2">large-v2</option>
+              <option value="large-v3">large-v3 (推荐, 中文最佳)</option>
+            </optgroup>
+            <optgroup label="速度+准确率平衡">
+              <option value="distil-large-v2">distil-large-v2</option>
+              <option value="distil-large-v3">distil-large-v3</option>
+            </optgroup>
           </select>
         </div>
         <div>
@@ -156,14 +239,66 @@
 
     <section class="results" id="results"></section>
 
-    <footer>Video2Text v3.0.0 · <a href="/api/health" style="color:var(--accent);">/api/health</a> · <a href="/extension" style="color:var(--accent);">Browser extension</a></footer>
+    <footer>Video2Text v3.2.0c · <a href="/api/health" style="color:var(--accent);">/api/health</a> · <a href="/extension" style="color:var(--accent);">Browser extension</a></footer>
   </main>
 
   <script>
     const form = document.getElementById("form");
-    const status = document.getElementById("status");
+    const statusEl = document.getElementById("status");
     const results = document.getElementById("results");
     const submit = document.getElementById("submit");
+
+    // -------------------------------------------------------------------------
+    // v3.2.0c Tier 2 — GPU pill: poll /api/health every 5 s, render a pill.
+    // -------------------------------------------------------------------------
+    const gpuPill = document.getElementById("gpu-pill");
+    const gpuLabel = document.getElementById("gpu-label");
+
+    function fmtMb(mb) {
+      if (mb == null) return "?";
+      if (mb >= 1024) return (mb / 1024).toFixed(1) + " GiB";
+      return Math.round(mb) + " MiB";
+    }
+
+    function renderGpuPill(health) {
+      const gpu = health && health.gpu;
+      if (!gpu || !gpu.available) {
+        gpuPill.className = "gpu-pill unavailable";
+        gpuLabel.textContent = "CPU only";
+        return;
+      }
+      const name = gpu.name || gpu.device || "GPU";
+      const shortName = name.length > 24 ? name.slice(0, 22) + "…" : name;
+      const util = gpu.utilisation_pct != null ? ` · ${gpu.utilisation_pct}% util` : "";
+      const vram = gpu.vram_total_mb != null
+        ? ` · ${fmtMb(gpu.vram_used_mb)}/${fmtMb(gpu.vram_total_mb)}`
+        : "";
+      gpuPill.className = "gpu-pill ok";
+      gpuLabel.textContent = `GPU: ${shortName}${vram}${util}`;
+    }
+
+    async function pollGpu() {
+      try {
+        const r = await fetch("/api/health");
+        if (r.ok) renderGpuPill(await r.json());
+        else gpuPill.className = "gpu-pill unavailable";
+      } catch (_) {
+        gpuPill.className = "gpu-pill unavailable";
+      }
+    }
+
+    pollGpu();
+    setInterval(pollGpu, 5000);
+
+    // -------------------------------------------------------------------------
+    // v3.2.0c Tier 1 — form submit → POST /api/jobs (async + cancel + WS)
+    // -------------------------------------------------------------------------
+    const STAGE_LABELS = {
+      download: "Download",
+      extract_audio: "Extract audio",
+      transcribe: "Transcribe",
+      merge: "Merge",
+    };
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -171,8 +306,8 @@
         .split(/\r?\n/).map(s => s.trim()).filter(Boolean);
       if (urls.length === 0) return;
       submit.disabled = true;
-      status.textContent = "Transcribing " + urls.length + " URL(s) — this may take a while...";
       results.innerHTML = "";
+      statusEl.textContent = "Submitting " + urls.length + " URL(s)…";
       try {
         const body = {
           urls,
@@ -183,7 +318,7 @@
           wechat_cookies: document.getElementById("cookies").value || null,
           bilingual: document.getElementById("bilingual").checked,
         };
-        const resp = await fetch("/api/transcribe", {
+        const resp = await fetch("/api/jobs", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -193,63 +328,138 @@
           throw new Error(err.detail || resp.statusText);
         }
         const data = await resp.json();
-        renderResults(data.results || []);
-        status.textContent = `Done. ${data.results.filter(r => r.ok).length}/${data.results.length} succeeded.`;
+        const jobs = data.jobs || [];
+        statusEl.textContent = `Submitted ${jobs.length} job(s). Tracking progress…`;
+        for (const job of jobs) {
+          renderJobCard(job);
+        }
       } catch (err) {
-        status.textContent = "Error: " + err.message;
+        statusEl.textContent = "Error: " + err.message;
       } finally {
         submit.disabled = false;
       }
     });
 
-    function renderResults(items) {
-      for (const item of items) {
-        const card = document.createElement("article");
-        card.className = "card " + (item.ok ? "ok" : "err");
-        const meta = [
-          item.engine ? "engine: " + item.engine : null,
-          item.wechat_mp_status ? "wechat_mp_status: " + item.wechat_mp_status : null,
-          item.ocr_total ? "ocr: " + item.ocr_success + "/" + item.ocr_total : null,
-        ].filter(Boolean).join(" · ");
-        card.innerHTML = `
-          <h3>${escape(item.url)}</h3>
-          ${item.title ? `<p class="meta">${escape(item.title)}</p>` : ""}
-          ${meta ? `<p class="meta">${escape(meta)}</p>` : ""}
-          ${item.error ? `<p class="meta" style="color:var(--err);">${escape(item.error)}</p>` : ""}
-          ${item.markdown ? `<pre>${escape(item.markdown)}</pre>` : ""}
-          <div class="toolbar">
-            <button data-copy="${escape(item.url)}">Copy markdown</button>
-            <button data-download="${escape(item.url)}">Download .md</button>
-          </div>`;
-        results.appendChild(card);
-      }
-      results.querySelectorAll("[data-copy]").forEach(btn => {
-        btn.addEventListener("click", () => {
-          const url = btn.getAttribute("data-copy");
-          const item = items.find(i => i.url === url);
-          if (item && item.markdown) {
-            navigator.clipboard.writeText(item.markdown);
-            status.textContent = "Markdown copied for " + url;
-          }
-        });
+    // -------------------------------------------------------------------------
+    // Job card rendering + WS progress + cancel button + result polling
+    // -------------------------------------------------------------------------
+    function renderJobCard(job) {
+      const card = document.createElement("article");
+      card.className = "card warn";
+      card.dataset.jobId = job.job_id;
+      card.innerHTML = `
+        <h3>${escapeHtml(job.url)}</h3>
+        <p class="meta">job: <code>${escapeHtml(job.job_id)}</code> · stage: <span data-stage>queued</span></p>
+        <div class="progress">
+          ${["download", "extract_audio", "transcribe", "merge"].map(s => `
+            <div class="progress-row">
+              <span>${STAGE_LABELS[s]}</span>
+              <div class="progress-bar" data-stage="${s}"><span style="width:0%"></span></div>
+              <span data-pct="${s}">0%</span>
+            </div>
+          `).join("")}
+        </div>
+        <div class="toolbar">
+          <button data-cancel>Cancel</button>
+          <button data-result style="display:none;">Copy markdown</button>
+          <button data-download style="display:none;">Download .md</button>
+        </div>`;
+      results.appendChild(card);
+
+      // Cancel button
+      card.querySelector("[data-cancel]").addEventListener("click", async () => {
+        try {
+          await fetch(`/api/jobs/${job.job_id}/cancel`, { method: "POST" });
+          statusEl.textContent = `Cancellation requested for ${job.job_id}`;
+        } catch (_) { /* network */ }
       });
-      results.querySelectorAll("[data-download]").forEach(btn => {
-        btn.addEventListener("click", () => {
-          const url = btn.getAttribute("data-download");
-          const item = items.find(i => i.url === url);
-          if (item && item.markdown) {
-            const blob = new Blob([item.markdown], { type: "text/markdown" });
-            const a = document.createElement("a");
-            a.href = URL.createObjectURL(blob);
-            a.download = (item.title || url).replace(/[^a-z0-9]+/gi, "_").slice(0, 60) + ".md";
-            a.click();
-            URL.revokeObjectURL(a.href);
-          }
-        });
-      });
+
+      connectWs(card, job);
     }
 
-    function escape(s) {
+    function connectWs(card, job) {
+      const url = (location.protocol === "https:" ? "wss:" : "ws:") +
+        "//" + location.host + `/ws/progress/${job.job_id}`;
+      const ws = new WebSocket(url);
+
+      function setStage(name, idx, pct) {
+        const bar = card.querySelector(`.progress-bar[data-stage="${name}"]`);
+        const label = card.querySelector(`[data-pct="${name}"]`);
+        if (bar) bar.querySelector("span").style.width = pct + "%";
+        if (label) label.textContent = Math.round(pct) + "%";
+        const stageSpan = card.querySelector("[data-stage]");
+        if (stageSpan) stageSpan.textContent = name;
+      }
+
+      function markBar(name, cls) {
+        const bar = card.querySelector(`.progress-bar[data-stage="${name}"]`);
+        if (bar) bar.classList.add(cls);
+      }
+
+      ws.onmessage = (ev) => {
+        let msg;
+        try { msg = JSON.parse(ev.data); } catch (_) { return; }
+        if (!msg || typeof msg !== "object") return;
+        const stage = msg.stage;
+        const evt = msg.event;
+        if (evt === "stage_start") setStage(stage, msg.stage_index, 0);
+        else if (evt === "stage_progress") setStage(stage, msg.stage_index,
+          msg.total > 0 ? (msg.current / msg.total) * 100 : 0);
+        else if (evt === "stage_done") {
+          setStage(stage, msg.stage_index, 100);
+          markBar(stage, "done");
+        } else if (evt === "succeeded") {
+          markBar("merge", "done");
+          card.classList.remove("warn");
+          card.classList.add("ok");
+          card.querySelector("[data-stage]").textContent = "done";
+          fetchResult(card, job);
+        } else if (evt === "failed") {
+          card.classList.remove("warn");
+          card.classList.add("err");
+          const meta = card.querySelector(".meta");
+          meta.innerHTML += `<br><span style="color:var(--err);">error: ${escapeHtml(msg.error || "unknown")}</span>`;
+          ws.close();
+        } else if (evt === "cancelled" || evt === "cancelled_done") {
+          ["download", "extract_audio", "transcribe", "merge"].forEach(s => markBar(s, "cancelled"));
+          card.classList.remove("warn");
+          card.querySelector("[data-stage]").textContent = "cancelled";
+          ws.close();
+        }
+      };
+      ws.onerror = () => { /* server-side close will end the loop */ };
+      ws.onclose = () => { /* done */ };
+    }
+
+    async function fetchResult(card, job) {
+      try {
+        const r = await fetch(`/api/jobs/${job.job_id}/result`);
+        if (!r.ok) return;
+        const data = await r.json();
+        if (!data.markdown) return;
+        const pre = document.createElement("pre");
+        pre.textContent = data.markdown;
+        card.appendChild(pre);
+        const copyBtn = card.querySelector("[data-result]");
+        const dlBtn = card.querySelector("[data-download]");
+        copyBtn.style.display = "";
+        dlBtn.style.display = "";
+        copyBtn.addEventListener("click", () => {
+          navigator.clipboard.writeText(data.markdown);
+          statusEl.textContent = "Markdown copied for " + job.url;
+        });
+        dlBtn.addEventListener("click", () => {
+          const blob = new Blob([data.markdown], { type: "text/markdown" });
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = (data.title || job.url).replace(/[^a-z0-9]+/gi, "_").slice(0, 60) + ".md";
+          a.click();
+          URL.revokeObjectURL(a.href);
+        });
+      } catch (_) { /* network */ }
+    }
+
+    function escapeHtml(s) {
       return String(s).replace(/[&<>"']/g, c => ({
         "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
       }[c]));

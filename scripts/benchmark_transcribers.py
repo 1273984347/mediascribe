@@ -1,311 +1,388 @@
 """
-Transcriber benchmark suite.
+v3.2.0b 复现 benchmark — whisperx vs faster-whisper 跨 engine / model 对比。
 
-This script compares the three supported transcribing engines
-(whisper / faster-whisper / whisperx) along the axes that matter
-most in practice:
+用法
+----
 
-* **Cold-start latency** (seconds before the first call returns)
-* **Per-call throughput** (ms of audio processed per real-second)
-* **Memory peak** (MB; ``resource.getrusage`` on Unix, ``tracemalloc``
-  on Windows)
-* **Engine availability** (true only if the optional package is
-  installed)
+::
 
-The actual ASR code paths require multi-GB models that cannot be
-exercised in CI.  To make the benchmark useful in a sandbox, we
-ship a **mocked** mode: each engine is replaced by a stub that
-returns deterministic text and a cost profile (CPU time, sleep)
-proportional to the audio length.  When the real package is
-installed, ``--real`` will dispatch to the actual transcriber.
+    # 真 benchmark(需要 GPU + whisperx + faster-whisper)
+    python scripts/benchmark_transcribers.py \\
+        --corpus scripts/benchmark_corpus \\
+        --engines faster_whisper,whisperx \\
+        --models base,small,medium \\
+        --device auto \\
+        --output runs/bench-2026-06-06.json
 
-Usage:
-    # Mocked benchmark (default; safe in CI)
-    python scripts/benchmark_transcribers.py
+    # CI 假数据(无 GPU / 无模型权重也跑得动)
+    python scripts/benchmark_transcribers.py \\
+        --engines fake \\
+        --output runs/bench-smoke.json
 
-    # Restrict to one engine
-    python scripts/benchmark_transcribers.py --engine faster-whisper
+输出
+----
+JSON,schema 固定::
 
-    # Use real ASR (requires the corresponding package)
-    python scripts/benchmark_transcribers.py --real
+    {
+      "schema": "video2text-benchmark/v1",
+      "host": { "device": "cuda", "device_name": "RTX 4090", ... },
+      "engines": [ {name, model, device, wall_clock_s, real_time_factor,
+                     wer_pct, peak_vram_mb, first_token_latency_ms} ],
+      "files":   [ {name, duration_s, language} ]
+    }
 
-    # Adjust audio length / iterations
-    python scripts/benchmark_transcribers.py --audio-seconds 60 --iterations 3
+测试
+----
+``douyin_batch/tests/test_benchmark_transcribers.py`` 验证 schema 稳定
++ ``--engines fake`` 假数据路径。
 """
 from __future__ import annotations
 
 import argparse
-import gc
 import json
 import os
 import platform
-import statistics
 import sys
 import time
-import tracemalloc
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
-ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(ROOT))
+SCHEMA = "video2text-benchmark/v1"
 
 
 # ---------------------------------------------------------------------------
-# 1. Cost profile (mocked engines)
+# v3.1.0 兼容: 旧的 COST_PROFILE / BenchResult / render_table / write_reports
+# 这些 API 由 ``douyin_batch/tests/test_benchmark_transcribers.py`` 锁定,
+# v3.2.0b 不能移除;新写法的功能在 :func:`benchmark` / :class:`EngineResult`。
 # ---------------------------------------------------------------------------
-# Relative cost factors derived from published benchmarks of
-# faster-whisper vs whisperx vs openai-whisper.  These mirror the
-# widely-reported ordering on CPU: faster-whisper ~3-5x faster than
-# whisper, whisperx ~5-8x faster than whisper (with alignment).
-COST_PROFILE = {
-    "whisper": {
-        "cold_start_ms": 4500,
-        "ms_per_audio_sec": 800,
-    },
-    "faster-whisper": {
-        "cold_start_ms": 1200,
-        "ms_per_audio_sec": 220,
-    },
-    "whisperx": {
-        "cold_start_ms": 5500,
-        "ms_per_audio_sec": 150,
-    },
+COST_PROFILE: Dict[str, Dict[str, float]] = {
+    "whisper":       {"cold_start_ms": 12_000.0, "ms_per_audio_sec": 1_500.0},
+    "faster-whisper": {"cold_start_ms":  1_500.0, "ms_per_audio_sec":   200.0},
+    "whisperx":      {"cold_start_ms":  3_500.0, "ms_per_audio_sec":   260.0},
 }
 
 
-def _mock_engine_call(engine: str, audio_seconds: float) -> Dict[str, Any]:
-    """Simulate one ASR call.  Sleeps proportionally to cost profile."""
-    profile = COST_PROFILE[engine]
-    work_seconds = (profile["cold_start_ms"] / 1000.0) + (
-        profile["ms_per_audio_sec"] / 1000.0
-    ) * audio_seconds
-    # Scale the simulated work down so the mocked run finishes in
-    # a few seconds instead of an hour.
-    scale = float(os.environ.get("BENCH_SCALE", "0.01"))
-    work_seconds *= scale
-    t0 = time.perf_counter()
-    time.sleep(work_seconds)
-    wall = time.perf_counter() - t0
-    return {
-        "text": f"[{engine} mock] transcribed {audio_seconds:.1f}s of audio",
-        "wall_sec": wall,
-        "audio_sec": audio_seconds,
-    }
-
-
-# ---------------------------------------------------------------------------
-# 2. Per-engine wrapper
-# ---------------------------------------------------------------------------
 @dataclass
 class BenchResult:
+    """v3.1.0 老的 benchmark 行 — 仅给 :func:`render_table` / :func:`write_reports` 用。
+
+    v3.2.0b 新流用 :class:`EngineResult` (按 engine × model × file 展开)。
+    """
+
     engine: str
-    available: bool
-    iterations: int = 0
-    audio_seconds: float = 0.0
+    available: bool = True
     cold_start_ms: float = 0.0
     per_call_ms: List[float] = field(default_factory=list)
-    throughput_audio_per_wall: float = 0.0
     peak_mem_mb: float = 0.0
-    error: Optional[str] = None
+
+
+def render_table(results: Sequence["BenchResult"]) -> str:
+    """把 :class:`BenchResult` 列表渲染成 ASCII 表格。"""
+    lines = [
+        "| Engine         | Available | Cold start (ms) | per-call (ms) | peak mem (MiB) |",
+        "|----------------|-----------|-----------------|---------------|----------------|",
+    ]
+    for r in results:
+        avail = "yes" if r.available else "no"
+        per_call = ", ".join(f"{x:.1f}" for x in r.per_call_ms) or "-"
+        lines.append(
+            f"| {r.engine:<14} | {avail:<9} | {r.cold_start_ms:>15.1f} | {per_call:<13} | {r.peak_mem_mb:>14.2f} |"
+        )
+    return "\n".join(lines)
+
+
+def write_reports(results: Sequence["BenchResult"], out_dir: Path) -> None:
+    """把 :class:`BenchResult` 列表写成 json / txt / md 三件套。"""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema": "video2text-benchmark-results/v1",
+        "results": [
+            {
+                "engine": r.engine,
+                "available": r.available,
+                "cold_start_ms": r.cold_start_ms,
+                "per_call_ms": list(r.per_call_ms),
+                "peak_mem_mb": r.peak_mem_mb,
+            }
+            for r in results
+        ],
+    }
+    (out_dir / "benchmark.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    (out_dir / "benchmark.txt").write_text(render_table(results), encoding="utf-8")
+    (out_dir / "benchmark.md").write_text(
+        render_table(results).replace("|", "\\|").replace("\n", "  \n"),
+        encoding="utf-8",
+    )
+
+
+# ---------------------------------------------------------------------------
+# 数据类 (v3.2.0b 新)
+# ---------------------------------------------------------------------------
+@dataclass
+class EngineResult:
+    """单个 (engine, model) 组合的运行结果。"""
+
+    engine: str
+    model: str
+    device: str
+    wall_clock_s: float
+    real_time_factor: float
+    wer_pct: Optional[float]  # None = placeholder / no reference
+    peak_vram_mb: Optional[int]
+    first_token_latency_ms: Optional[float]
+    file: str
+    language: str
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
 
-def _is_available(engine: str) -> bool:
-    """Check optional dependency presence."""
+@dataclass
+class HostInfo:
+    """运行环境探针。"""
+
+    python: str
+    platform: str
+    device: str
+    device_name: Optional[str] = None
+    vram_total_mb: Optional[int] = None
+    cuda_available: bool = False
+    mps_available: bool = False
+    cpu_count: int = 1
+
+
+# ---------------------------------------------------------------------------
+# HostInfo 探针
+# ---------------------------------------------------------------------------
+def detect_host(device_hint: str) -> HostInfo:
+    info = HostInfo(
+        python=sys.version.split()[0],
+        platform=platform.platform(),
+        device=device_hint,
+        cpu_count=os.cpu_count() or 1,
+    )
     try:
-        from video2text.transcribers.factory import _engine_available
-        return _engine_available(engine)
+        import torch  # type: ignore
+
+        info.cuda_available = bool(torch.cuda.is_available())
+        if hasattr(torch.backends, "mps"):
+            info.mps_available = bool(torch.backends.mps.is_available())
+        if info.cuda_available:
+            info.device = "cuda"
+            try:
+                idx = torch.cuda.current_device()
+                props = torch.cuda.get_device_properties(idx)
+                info.device_name = props.name
+                try:
+                    _, total = torch.cuda.mem_get_info(idx)
+                    info.vram_total_mb = int(total / (1024 * 1024))
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        elif info.mps_available:
+            info.device = "metal"
     except Exception:
-        return False
-
-
-def _real_transcribe(engine: str, audio_path: str) -> Dict[str, Any]:
-    """Dispatch to the real engine, returning a small dict."""
-    from video2text.transcribers.factory import get_transcriber
-    t = get_transcriber(engine, model="tiny")
-    out = t.transcribe(audio_path, audio_path + ".md")
-    return {"text": out.text if hasattr(out, "text") else str(out)}
-
-
-def run_engine(
-    engine: str,
-    *,
-    audio_seconds: float,
-    iterations: int,
-    use_real: bool,
-    audio_path: Optional[Path],
-) -> BenchResult:
-    # In mock mode, the engine is "available" for benchmarking
-    # purposes even if the real package is not installed.
-    available_real = _is_available(engine)
-    available_effective = available_real or (not use_real and engine in COST_PROFILE)
-    res = BenchResult(
-        engine=engine, available=available_effective,
-        audio_seconds=audio_seconds, iterations=iterations,
-    )
-    if use_real and not available_real:
-        res.error = f"engine {engine!r} not installed; skip real mode"
-        return res
-    if not use_real and engine not in COST_PROFILE:
-        res.error = f"no cost profile for {engine!r}"
-        return res
-
-    gc.collect()
-    tracemalloc.start()
-    try:
-        # Cold start: a one-shot import/load cost (mocked as sleep)
-        cold_t0 = time.perf_counter()
-        if use_real:
-            # Force the import path even if not yet loaded
-            from video2text.transcribers import factory
-            _ = factory._engine_available  # touch
-        else:
-            time.sleep(COST_PROFILE[engine]["cold_start_ms"] * 0.001 * 0.01)
-        res.cold_start_ms = (time.perf_counter() - cold_t0) * 1000.0
-
-        # Per-call benchmarks
-        for i in range(iterations):
-            t0 = time.perf_counter()
-            if use_real:
-                if audio_path is None or not audio_path.exists():
-                    res.error = "--audio-path required for real mode"
-                    break
-                _real_transcribe(engine, str(audio_path))
-            else:
-                _mock_engine_call(engine, audio_seconds)
-            res.per_call_ms.append((time.perf_counter() - t0) * 1000.0)
-
-        current, peak = tracemalloc.get_traced_memory()
-        res.peak_mem_mb = peak / (1024 * 1024)
-    finally:
-        tracemalloc.stop()
-
-    if res.per_call_ms:
-        mean_ms = statistics.mean(res.per_call_ms)
-        # Throughput: how many seconds of audio per real second.
-        # mean_ms is per call; audio_seconds is per call; the throughput
-        # is the ratio inverted.
-        res.throughput_audio_per_wall = audio_seconds / (mean_ms / 1000.0) if mean_ms else 0.0
-    return res
+        pass
+    return info
 
 
 # ---------------------------------------------------------------------------
-# 3. Reporting
+# Corpus 扫描
 # ---------------------------------------------------------------------------
-def render_table(results: List[BenchResult]) -> str:
-    headers = ["Engine", "Avail", "Cold ms", "Mean ms/call", "Throughput", "Peak MB"]
-    rows = [headers]
-    for r in results:
-        mean = statistics.mean(r.per_call_ms) if r.per_call_ms else 0.0
-        rows.append([
-            r.engine,
-            "Y" if r.available else "N",
-            f"{r.cold_start_ms:.0f}",
-            f"{mean:.1f}",
-            f"{r.throughput_audio_per_wall:.2f}x",
-            f"{r.peak_mem_mb:.1f}",
-        ])
-    widths = [max(len(str(row[i])) for row in rows) for i in range(len(headers))]
+def scan_corpus(corpus_dir: Path) -> List[Dict[str, Any]]:
+    """从 ``corpus.json`` 读 manifest;找不到就回退到 ``*.wav`` glob。"""
+    manifest = corpus_dir / "corpus.json"
+    if manifest.exists():
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        return list(data.get("files", []))
+    # 兜底:扫 wav
     out = []
-    for ri, row in enumerate(rows):
-        line = "  ".join(str(c).ljust(widths[i]) for i, c in enumerate(row))
-        out.append(line)
-        if ri == 0:
-            out.append("  ".join("-" * w for w in widths))
-    return "\n".join(out)
+    for wav in sorted(corpus_dir.glob("*.wav")):
+        out.append({"name": wav.name, "language": "unknown", "duration_s": None})
+    return out
 
 
-def write_reports(results: List[BenchResult], out_dir: Path) -> None:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "benchmark.json").write_text(
-        json.dumps(
-            {
-                "generated_at": datetime.now(timezone.utc).isoformat(),
-                "platform": platform.platform(),
-                "python": platform.python_version(),
-                "results": [r.to_dict() for r in results],
-            },
-            ensure_ascii=False, indent=2,
-        ),
-        encoding="utf-8",
-    )
-    (out_dir / "benchmark.txt").write_text(
-        render_table(results), encoding="utf-8"
-    )
-    lines = ["| Engine | Available | Cold start (ms) | Mean ms/call | Throughput (audio s / wall s) | Peak MB |",
-             "|--------|-----------|------------------|--------------|-------------------------------|---------|"]
-    for r in results:
-        mean = statistics.mean(r.per_call_ms) if r.per_call_ms else 0.0
-        lines.append(
-            f"| {r.engine} | {'yes' if r.available else 'no'} | "
-            f"{r.cold_start_ms:.0f} | {mean:.1f} | "
-            f"{r.throughput_audio_per_wall:.2f} | {r.peak_mem_mb:.1f} |"
+def load_reference(corpus_dir: Path, file_name: str) -> Optional[Dict[str, Any]]:
+    """读 reference JSON;WER 计算由 caller 决定。"""
+    stem = Path(file_name).stem
+    candidates = [
+        corpus_dir / f"{stem}.json",
+        corpus_dir / f"{stem}_reference.json",
+    ]
+    for c in candidates:
+        if c.exists():
+            try:
+                return json.loads(c.read_text(encoding="utf-8"))
+            except Exception:
+                return None
+    return None
+
+
+# ---------------------------------------------------------------------------
+# WER 计算 (简化版 — 字符级 levenshtein,中文按 char,英文按 word)
+# ---------------------------------------------------------------------------
+def char_wer(reference: str, hypothesis: str) -> float:
+    """字符级 WER (%)。
+
+    真实 corpus 用 jiwer / 全字 WER,这里用 O(N*M) 动态规划
+    Levenshtein 距离,够 CI smoke test 用。
+    """
+    if not reference:
+        return 100.0 if hypothesis else 0.0
+    ref = list(reference.strip())
+    hyp = list(hypothesis.strip())
+    n, m = len(ref), len(hyp)
+    if m == 0:
+        return 100.0
+    # 1D DP
+    prev = list(range(m + 1))
+    for i in range(1, n + 1):
+        cur = [i] + [0] * m
+        for j in range(1, m + 1):
+            cost = 0 if ref[i - 1] == hyp[j - 1] else 1
+            cur[j] = min(
+                cur[j - 1] + 1,        # insert
+                prev[j] + 1,           # delete
+                prev[j - 1] + cost,    # substitute
+            )
+        prev = cur
+    return round(100.0 * prev[m] / n, 2)
+
+
+# ---------------------------------------------------------------------------
+# 跑单个 (engine, model, file)
+# ---------------------------------------------------------------------------
+def run_one(
+    engine: str,
+    model: str,
+    device: str,
+    file_meta: Dict[str, Any],
+    corpus_dir: Path,
+) -> EngineResult:
+    """跑一个组合,返回 :class:`EngineResult`。
+
+    ``engine == "fake"`` 时返回稳定 canned 数据,CI 不需要真模型。
+    """
+    name = file_meta["name"]
+    lang = file_meta.get("language", "unknown")
+    duration_s = file_meta.get("duration_s") or 0.0
+
+    if engine == "fake":
+        # Canned 数据,稳定可测
+        return EngineResult(
+            engine=engine,
+            model=model,
+            device=device,
+            wall_clock_s=0.42,
+            real_time_factor=round(0.42 / max(duration_s, 1.0), 4),
+            wer_pct=0.0,
+            peak_vram_mb=None,
+            first_token_latency_ms=12.0,
+            file=name,
+            language=lang,
         )
-    (out_dir / "benchmark.md").write_text("\n".join(lines), encoding="utf-8")
+
+    # 真跑路径(留空 stub — v3.2.0b Tier 1 落实时填)
+    t0 = time.perf_counter()
+    try:
+        # 真实实现 import / transcribe / 算 WER
+        raise NotImplementedError(
+            "real engine path is not yet implemented in v3.2.0b Tier 1; "
+            "use --engines fake for now"
+        )
+    finally:
+        wall = time.perf_counter() - t0
+
+    return EngineResult(
+        engine=engine,
+        model=model,
+        device=device,
+        wall_clock_s=round(wall, 3),
+        real_time_factor=round(wall / max(duration_s, 1.0), 4),
+        wer_pct=None,
+        peak_vram_mb=None,
+        first_token_latency_ms=None,
+        file=name,
+        language=lang,
+    )
 
 
 # ---------------------------------------------------------------------------
-# 4. CLI
+# 主流程
 # ---------------------------------------------------------------------------
+def benchmark(
+    corpus_dir: Path,
+    engines: Sequence[str],
+    models: Sequence[str],
+    device: str,
+) -> Dict[str, Any]:
+    host = detect_host(device)
+    files = scan_corpus(corpus_dir)
+    if not files:
+        print(f"[warn] no .wav in {corpus_dir}; results will be empty", file=sys.stderr)
+
+    results: List[EngineResult] = []
+    for eng in engines:
+        for m in models:
+            for fm in files:
+                results.append(run_one(eng, m, host.device, fm, corpus_dir))
+    return {
+        "schema": SCHEMA,
+        "host": asdict(host),
+        "engines": [r.to_dict() for r in results],
+        "files": [
+            {"name": f["name"], "duration_s": f.get("duration_s"), "language": f.get("language")}
+            for f in files
+        ],
+    }
+
+
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
-    parser.add_argument(
-        "--engine", action="append",
-        choices=["whisper", "faster-whisper", "whisperx"],
-        help="Restrict to one or more engines (default: all)",
+    p = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
+    p.add_argument(
+        "--corpus",
+        type=Path,
+        default=Path("scripts/benchmark_corpus"),
+        help="Path to benchmark corpus directory (default: scripts/benchmark_corpus)",
     )
-    parser.add_argument(
-        "--audio-seconds", type=float, default=30.0,
-        help="Length of the synthetic audio in seconds (default 30)",
+    p.add_argument(
+        "--engines",
+        default="fake",
+        help="Comma-separated engine list (default: fake). Real: faster_whisper,whisperx",
     )
-    parser.add_argument(
-        "--iterations", type=int, default=3,
-        help="Number of transcribe calls per engine (default 3)",
+    p.add_argument(
+        "--models",
+        default="base",
+        help="Comma-separated model list (default: base)",
     )
-    parser.add_argument(
-        "--real", action="store_true",
-        help="Use the real transcribers instead of mocked costs",
+    p.add_argument(
+        "--device",
+        default="auto",
+        help="Device hint: auto|cpu|cuda|metal|rocm (default: auto)",
     )
-    parser.add_argument(
-        "--audio-path", type=Path, default=None,
-        help="Path to a real audio/video file (required for --real)",
+    p.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Write JSON to this path; default = stdout",
     )
-    parser.add_argument(
-        "--output-dir", default="./bench-results",
-        help="Where to write the JSON / TXT / MD reports",
-    )
-    args = parser.parse_args(argv)
+    args = p.parse_args(argv)
 
-    engines = args.engine or ["whisper", "faster-whisper", "whisperx"]
-    out_dir = Path(args.output_dir).resolve()
-    out_dir.mkdir(parents=True, exist_ok=True)
+    engines = [e.strip() for e in args.engines.split(",") if e.strip()]
+    models = [m.strip() for m in args.models.split(",") if m.strip()]
 
-    results: List[BenchResult] = []
-    for engine in engines:
-        print(f"\n>>> benchmarking {engine} ...")
-        r = run_engine(
-            engine,
-            audio_seconds=args.audio_seconds,
-            iterations=args.iterations,
-            use_real=args.real,
-            audio_path=args.audio_path,
-        )
-        results.append(r)
-        mean = statistics.mean(r.per_call_ms) if r.per_call_ms else 0.0
-        print(
-            f"<<< {engine}: cold={r.cold_start_ms:.0f}ms  "
-            f"mean={mean:.1f}ms  "
-            f"throughput={r.throughput_audio_per_wall:.2f}x  "
-            f"peak={r.peak_mem_mb:.1f}MB"
-        )
-
-    write_reports(results, out_dir)
-    print("\n" + render_table(results))
-    print(f"\nReports written to: {out_dir}")
+    data = benchmark(args.corpus, engines, models, args.device)
+    text = json.dumps(data, ensure_ascii=False, indent=2)
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(text, encoding="utf-8")
+        print(f"[ok] wrote {args.output} ({len(data['engines'])} runs)")
+    else:
+        print(text)
     return 0
 
 

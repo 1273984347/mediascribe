@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 
 class Settings:
@@ -23,6 +23,7 @@ class Settings:
         wechat_cookies: Optional[Dict[str, str]] = None,
         wechat_cookies_file: Optional[Path] = None,
         cache_dir: Optional[Path] = None,
+        llm_post_process: Optional[Dict[str, Any]] = None,
     ):
         self.workspace_root = workspace_root or Path.cwd() / "output"
 
@@ -38,8 +39,9 @@ class Settings:
 
         # 模型配置
         self.model = model
-        self.device = device
         self.engine = engine
+        # device 默认 auto-resolve (CUDA > Metal > ROCm > CPU)
+        self.device = device if device else os.environ.get("VIDEO2TEXT_DEVICE", "auto")
         self.language = language
 
         # 高级功能
@@ -59,6 +61,30 @@ class Settings:
             env_cookie = os.environ.get("VIDEO2TEXT_WECHAT_COOKIE")
             if env_cookie:
                 self.wechat_cookies = _parse_cookie_string(env_cookie)
+
+        # v3.2.0d: LLM 后处理配置（OpenAI 兼容 API）
+        # 显式 dict 参数优先；环境变量次之；默认禁用
+        self.llm_post_process: Dict[str, Any] = dict(llm_post_process or {})
+        # 环境变量兜底
+        env_api_key = os.environ.get("VIDEO2TEXT_LLM_API_KEY", "").strip()
+        if env_api_key and "api_key" not in self.llm_post_process:
+            self.llm_post_process.setdefault("api_key", env_api_key)
+        if "api_base" not in self.llm_post_process:
+            self.llm_post_process.setdefault(
+                "api_base",
+                os.environ.get("VIDEO2TEXT_LLM_API_BASE", "https://api.deepseek.com").strip(),
+            )
+        if "model" not in self.llm_post_process:
+            self.llm_post_process.setdefault(
+                "model",
+                os.environ.get("VIDEO2TEXT_LLM_MODEL", "deepseek-chat").strip(),
+            )
+        if "enabled" not in self.llm_post_process:
+            enabled_env = os.environ.get("VIDEO2TEXT_LLM_ENABLED", "0").strip().lower()
+            # 有 api_key 默认启用，无则禁用；env 显式覆盖
+            self.llm_post_process.setdefault(
+                "enabled", enabled_env in ("1", "true", "yes", "on") if enabled_env else bool(env_api_key)
+            )
 
         self.ensure_directories()
 
