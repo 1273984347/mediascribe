@@ -118,6 +118,10 @@ def safe_filename(name: str) -> str:
     """
     Make a string safe for use as a filename on all platforms.
     Removes/replaces invalid characters.
+
+    规范实现：被 ``video2text.inputs.safe_stem``、``video2text.mcp_server`` 以及
+    ``douyin_batch.security.sanitize_filename`` 复用（后者在其基础上叠加安全规则）。
+    行为契约稳定，改动需同步关注上述调用方与对应测试。
     """
     # Windows invalid chars
     invalid = '<>:"/\\|?*\x00'
