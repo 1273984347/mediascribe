@@ -46,7 +46,9 @@ class TestStaticIndexHtml(unittest.TestCase):
         index = ROOT / "video2text" / "web" / "static" / "index.html"
         self.assertTrue(index.exists())
         text = index.read_text(encoding="utf-8")
-        for needle in ("/api/transcribe", "/api/health", "textarea", "engine", "model"):
+        # v3.2.0c: form now POSTs to /api/jobs (async + cancel + WS).
+        # /api/health is still referenced by the GPU pill polling loop.
+        for needle in ("/api/jobs", "/api/health", "textarea", "engine", "model", "gpu-pill"):
             self.assertIn(needle, text)
 
 

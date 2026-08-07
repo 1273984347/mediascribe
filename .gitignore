@@ -86,3 +86,9 @@ output/downloads/
 .one-click.pid
 .one-click.log
 web-workspace/
+
+# Archive (development history, not tracked)
+archive/
+
+# Agent local data (WorkBuddy memory/skills/identity — local only, not version-controlled)
+.workbuddy/

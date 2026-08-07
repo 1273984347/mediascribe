@@ -1,13 +1,24 @@
 """
 核心 Pipeline - 真正参考 bili2text 的实现
 这是整个系统的核心工作流
+
+v3.2.0b 重构：把 ``transcribe()`` 中的串行 4 步抽到
+:mod:`video2text.pipeline_stages` 的 5 个 :class:`Stage` 子类,
+:func:`Pipeline._run_stage_chain` 负责把 chain 串起来。
+保留所有 v3.1.0 / v3.2.0a 公共契约:
+
+* ``Pipeline(settings, downloader, transcriber)`` 签名不变
+* ``Pipeline.transcribe(source_input, **kwargs)`` 签名与返回类型不变
+* 微信公众号文本型文章走老的 ``_handle_wechat_mp`` 路径
 """
 from __future__ import annotations
 
 import json
+import logging
+import platform
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from .audio_utils import extract_audio
 from .config import Settings
@@ -21,12 +32,128 @@ from .downloaders import (
 )
 from .inputs import parse_source, safe_stem
 from .models import DownloadResult, SourceRef, TranscriptResult
+from .pipeline_stages import (
+    PipelineContext,
+    Stage,
+    _atomic_write_text,
+    default_chain,
+)
 from .transcribers import (
     FasterWhisperTranscriber,
     Transcriber,
     WhisperTranscriber,
     WhisperXTranscriber,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def resolve_device(requested: Optional[str] = "auto") -> str:
+    """把 ``"auto"`` / ``None`` / 显式设备字符串归一化成 backend 名称。
+
+    v3.2.0b Tier 1 — 端到端 GPU 加速的第一块砖。返回的字符串直接
+    喂给 ``faster_whisper.WhisperModel(device=...)`` 与
+    ``whisperx.load_model(device=...)``。
+
+    探测顺序
+    --------
+    1. 显式 ``requested`` 非 ``auto`` / ``None`` → 原样返回
+    2. ``torch.cuda.is_available()``     → ``"cuda"``
+    3. Apple Silicon                    → ``"metal"``
+    4. AMD ROCm                         → ``"rocm"``
+    5. 兜底                             → ``"cpu"``
+
+    任何 torch 探测失败都会被吞掉并退回到 ``cpu``,绝不抛异常 —
+    启动期 GPU 探测失败不应阻塞 CLI / Web 启动。
+    """
+    if requested and requested != "auto":
+        return requested
+
+    # 1. CUDA (nvidia)
+    try:
+        import torch  # type: ignore
+
+        if torch.cuda.is_available():
+            return "cuda"
+        # 2. Apple Silicon Metal
+        if (
+            hasattr(torch.backends, "mps")
+            and torch.backends.mps.is_available()
+        ):
+            return "metal"
+        # 3. AMD ROCm
+        if getattr(torch.version, "hip", None):
+            return "rocm"
+    except Exception:
+        # torch 未安装 / 损坏 — 退到 cpu 不抛错
+        pass
+
+    # 4. 兜底
+    return "cpu"
+
+
+def gpu_health() -> dict:
+    """``GET /api/health`` 的 ``gpu`` 块 — 0.1 s 探针。
+
+    v3.2.0b Tier 1 Tier 1 should-have 5。返回结构:
+
+    .. code-block:: python
+
+        {
+            "available": True,
+            "device": "cuda",
+            "name": "NVIDIA GeForce RTX 4090",
+            "vram_total_mb": 24576,
+            "vram_used_mb": 10221,
+            "temperature_c": 41,
+            "utilisation_pct": 38,
+            "backend": "torch",
+        }
+
+    任何子探测失败都会让 ``available`` 变 ``False`` 但不抛错。
+    """
+    info: dict = {
+        "available": False,
+        "device": "cpu",
+        "name": None,
+        "vram_total_mb": None,
+        "vram_used_mb": None,
+        "temperature_c": None,
+        "utilisation_pct": None,
+        "backend": None,
+    }
+    try:
+        import torch  # type: ignore
+
+        if torch.cuda.is_available():
+            info.update(
+                available=True,
+                device="cuda",
+                backend="torch",
+            )
+            try:
+                idx = torch.cuda.current_device()
+                props = torch.cuda.get_device_properties(idx)
+                info["name"] = props.name
+                # 新版 API: torch.cuda.mem_get_info
+                try:
+                    free, total = torch.cuda.mem_get_info(idx)
+                    info["vram_total_mb"] = int(total / (1024 * 1024))
+                    info["vram_used_mb"] = int((total - free) / (1024 * 1024))
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            return info
+        if (
+            hasattr(torch.backends, "mps")
+            and torch.backends.mps.is_available()
+            and platform.system() == "Darwin"
+        ):
+            return {**info, "available": True, "device": "metal", "backend": "torch"}
+    except Exception:
+        pass
+    return info
 
 
 class Pipeline:
@@ -37,10 +164,30 @@ class Pipeline:
         settings: Settings,
         downloader: Optional[Downloader] = None,
         transcriber: Optional[Transcriber] = None,
+        *,
+        profile: bool = False,
+        profile_log: Optional[Path] = None,
     ):
+        """
+        Parameters
+        ----------
+        profile
+            v3.2.0c Tier 2.  When ``True``, every ``stage.run_with_progress``
+            call is wrapped in :func:`video2text.performance.profile_step`
+            so per-stage wall-clock is recorded in ``STEP_TIMES`` and
+            (optionally) appended to ``profile_log`` as JSONL.  Use the
+            v3.2.0a ``profile`` CLI to read it back.
+        profile_log
+            Optional JSONL path; only used when ``profile=True``.
+            If ``None``, timings are still recorded in memory via
+            :data:`video2text.performance.STEP_TIMES` and can be
+            inspected via :func:`get_step_times`.
+        """
         self.settings = settings
         self.downloader = downloader
         self.transcriber = transcriber or self._create_transcriber(settings)
+        self.profile = bool(profile)
+        self.profile_log = Path(profile_log) if profile_log else None
 
     def _create_transcriber(self, settings: Settings) -> Transcriber:
         """根据设置创建转录器"""
@@ -128,6 +275,11 @@ class Pipeline:
         4. 转录
         5. 保存结果
 
+        v3.2.0b: 1-5 步被 :func:`video2text.pipeline_stages.default_chain`
+        拆成 5 个 :class:`Stage` 子类顺序执行;本方法只负责组装
+        :class:`PipelineContext`、跑 chain,并在微信公众号文本型文章
+        这条分支上走老的 ``_handle_wechat_mp``。
+
         WeChat MP 专属参数（仅在 source.kind == "wechat_mp" 时生效）：
         - ``ocr_engine``：auto / paddleocr / pytesseract / easyocr
         - ``ocr_lang``：OCR 语言代码（默认 chi_sim+eng）
@@ -151,116 +303,71 @@ class Pipeline:
                 bilingual=bilingual,
             )
 
-        downloaded: Optional[DownloadResult] = None
-        audio_path: Path
-
-        if source.kind in ["bilibili", "video", "douyin", "tiktok", "youtube", "xiaohongshu"]:
-            if source.kind in ["bilibili", "douyin", "tiktok", "youtube", "xiaohongshu"] or (source.url and not source.path):
-                # 需要下载
-                print("📥 下载视频...")
-                # 智能选择下载器
-                current_downloader = self._get_downloader(source)
-                downloaded = current_downloader.download(source, self.settings)
-                video_path = downloaded.video_path
-                base_name = downloaded.title or source.display_name
-            else:
-                # 本地视频文件
-                assert source.path is not None
-                video_path = source.path
-                base_name = source.display_name
-
-            # 提取音频
-            print("🔊 提取音频...")
-            audio_result = extract_audio(
-                video_path,
-                self.settings.audio_dir,
-                safe_stem(base_name),
-            )
-            if audio_result is None:
-                raise RuntimeError("音频提取失败")
-            audio_path = audio_result
-
-        elif source.kind == "audio":
-            # 直接是音频文件
-            assert source.path is not None
-            audio_path = source.path
-            base_name = source.display_name
-            video_path = None
-
-        else:
-            raise ValueError(f"不支持的源类型: {source.kind}")
-
-        # 转录
-        print("🎤 开始转录...")
-        # 使用传入的语言，或配置中的语言
-        lang = language or self.settings.language
-        transcription = self.transcriber.transcribe(
-            audio_path,
+        # ---- v3.2.0b stage chain ----
+        ctx = PipelineContext(
+            settings=self.settings,
+            source_input=source_input,
             prompt=prompt,
-            progress=True,
-            language=lang,
-        )
-
-        text = transcription.get("text", "").strip()
-        if not text:
-            raise RuntimeError("转录结果为空")
-
-        # 保存结果
-        print("💾 保存结果...")
-        transcript_path = self._resolve_output_path(base_name, output)
-        metadata_path = self._resolve_metadata_path(transcript_path)
-
-        transcript_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # 构建 Markdown 格式内容
-        markdown_content = self._build_markdown_content(
-            base_name,
-            text,
-            transcription,
-            downloaded,
-        )
-        transcript_path.write_text(markdown_content, encoding="utf-8")
-
-        # 保存元数据
-        metadata = {
-            "source": {
-                "raw_input": source.raw_input,
-                "kind": source.kind,
-                "bv": source.bv,
-                "url": source.url,
-                "path": str(source.path) if source.path else None,
-            },
-            "engine": self.transcriber.name,
-            "model": transcription.get("model"),
-            "audio_path": str(audio_path),
-            "video_path": str(video_path) if video_path else None,
-            "download_metadata": downloaded.metadata if downloaded else None,
-            "language": transcription.get("language"),
-            "speaker_diarization": transcription.get("speaker_diarization", False),
-            "generated_at": datetime.now().isoformat(),
-        }
-        metadata_path.write_text(
-            json.dumps(metadata, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-
-        print("\n✅ 完成！")
-        print(f"📝 转录文件: {transcript_path}")
-        print(f"📋 元数据: {metadata_path}")
-
-        return TranscriptResult(
+            output=output,
+            language=language,
+            ocr_engine=ocr_engine,
+            ocr_lang=ocr_lang,
+            save_images=save_images,
+            bilingual=bilingual,
             source=source,
-            engine=self.transcriber.name,
-            model=str(transcription.get("model", "")),
-            text=text,
-            audio_path=audio_path,
-            transcript_path=transcript_path,
-            video_path=video_path,
-            metadata_path=metadata_path,
-            metadata=metadata,
-            segments=transcription.get("segments"),
-            language=transcription.get("language"),
-            speaker_diarization=transcription.get("speaker_diarization", False),
+        )
+        return self._run_stage_chain(ctx).result
+
+    # ------------------------------------------------------------------
+    # v3.2.0b stage chain orchestrator
+    # ------------------------------------------------------------------
+    def _run_stage_chain(self, ctx: PipelineContext) -> PipelineContext:
+        """按 :func:`default_chain` 顺序跑每个 stage,中途失败立即抛。
+
+        chain 由 :meth:`_build_chain` 构造,默认 5 个 stage
+        (parse → download → extract_audio → transcribe → assemble)。
+        v3.2.0b Tier 1 会在 ``asyncio.Pipeline`` 中用
+        ``asyncio.to_thread(stage.run, ctx)`` 取代本方法 — 同步版本
+        必须保留以维持 :class:`Pipeline` 公共契约。
+
+        v3.2.0c Tier 2 — 当 ``self.profile=True`` 时,每个 stage 调用
+        被 :func:`video2text.performance.profile_step` 包装,记录
+        wall-clock 到 :data:`STEP_TIMES` (内存) + 可选 JSONL 文件。
+        """
+        # Lazy import so performance.py is only touched when profile is used.
+        if self.profile:
+            from .performance import clear_step_times, profile_step
+            clear_step_times()  # fresh slate per pipeline run
+        for stage in self._build_chain():
+            if not stage.should_run(ctx):
+                continue
+            if self.profile:
+                # Wrap stage.run_with_progress with profile_step so the
+                # timing label matches the stage name.  ``log_to`` is
+                # passed through so the JSONL sidecar is written if the
+                # user supplied ``profile_log``.
+                runner = profile_step(stage.name, log_to=self.profile_log)(
+                    stage.run_with_progress
+                )
+                ctx = runner(ctx)
+            else:
+                ctx = stage.run_with_progress(ctx)
+            if ctx.result is not None:
+                # 微信公众号文本型文章等场景:assemble 提前写入 result 后
+                # chain 也应停止,避免后续 stage 在不完整 ctx 上出错
+                break
+        assert ctx.result is not None, "stage chain did not produce a result"
+        return ctx
+
+    def _build_chain(self) -> List[Stage]:
+        """构造 :class:`Pipeline` 使用的 stage 链。"""
+        return default_chain(
+            transcriber=self.transcriber,
+            downloader=self.downloader,
+            downloader_getter=self._get_downloader,
+            resolve_output_path=self._resolve_output_path,
+            resolve_metadata_path=self._resolve_metadata_path,
+            build_markdown=self._build_markdown_content,
         )
 
     def _build_markdown_content(
@@ -466,7 +573,7 @@ class Pipeline:
                 lines.append(ocr.strip())
                 lines.append("")
 
-        transcript_path.write_text("\n".join(lines), encoding="utf-8")
+        _atomic_write_text(transcript_path, "\n".join(lines), encoding="utf-8")
 
         # metadata
         metadata = {
@@ -484,7 +591,8 @@ class Pipeline:
             "speaker_diarization": False,
             "generated_at": datetime.now().isoformat(),
         }
-        metadata_path.write_text(
+        _atomic_write_text(
+            metadata_path,
             json.dumps(metadata, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
@@ -547,7 +655,7 @@ class Pipeline:
         markdown_content = self._build_video_article_markdown(
             base_name, text, transcription, downloaded, bilingual=bilingual
         )
-        transcript_path.write_text(markdown_content, encoding="utf-8")
+        _atomic_write_text(transcript_path, markdown_content, encoding="utf-8")
 
         meta = downloaded.metadata or {}
         # 始终在 metadata 中记录 bilingual 标签，方便 Agent 读取
@@ -597,7 +705,8 @@ class Pipeline:
                     "zh": labels_zh,
                     "active_lang": prev_lang,
                 }
-        metadata_path.write_text(
+        _atomic_write_text(
+            metadata_path,
             json.dumps(metadata, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )

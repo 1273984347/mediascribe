@@ -93,6 +93,15 @@ class JobProgress:
 
     def cancel(self) -> None:
         self.cancelled = True
+        # v3.2.0c-fix: cancelled is a terminal state — finished must be
+        # True so the WS loop (``while not job.finished``), REST
+        # ``/api/jobs/{id}/result`` (``finished`` field) and
+        # ``ProgressRegistry.purge`` (filters on ``j.finished``) all
+        # observe the job as done. Previously ``finished`` stayed
+        # False forever for cancelled jobs, causing the WS loop to
+        # spin forever on non-browser clients and the registry to
+        # leak memory.
+        self.finished = True
         self.emit("cancelled")
 
     def fail(self, error: str) -> None:
@@ -216,6 +225,15 @@ def with_progress(
                 "out_path": str(out_path) if out_path else None,
             })
         except JobCancelled:
+            # v3.2.0c-note: ``cancelled_done`` is emitted for direct
+            # ``job.events`` subscribers (e.g. tests, in-process
+            # consumers) as the "worker has acknowledged the cancel"
+            # signal.  Note that WS clients (``/ws/progress/{id}``)
+            # will NOT receive this event — ``cancel()`` now sets
+            # ``finished=True`` synchronously, so the WS loop exits
+            # right after delivering ``cancelled`` and never drains
+            # the subsequent ``cancelled_done``.  This is intentional;
+            # the ``cancelled`` event already conveys terminal state.
             job.emit("cancelled_done")
             raise
         except Exception as exc:  # noqa: BLE001

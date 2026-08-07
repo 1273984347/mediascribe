@@ -16,7 +16,6 @@ from unittest import mock
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # cache.py — 14 missing statements
 # ---------------------------------------------------------------------------
@@ -141,7 +140,9 @@ class TestProfileCliCoverageGaps:
 
 try:
     from starlette.testclient import TestClient
+
     from video2text.web.app import create_app
+
     _HAS_WEB = True
 except Exception:  # pragma: no cover
     _HAS_WEB = False

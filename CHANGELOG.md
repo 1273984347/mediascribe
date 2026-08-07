@@ -405,6 +405,18 @@ coverage report -m (video2text scope)   # 75% overall, all v3.2.0a modules ≥ 8
   `ocr_lang` (default `chi_sim+eng`), `save_images` flag
 - **Ruff lint config** in `pyproject.toml` (replaces ad-hoc checks);
   `make lint` and `make verify` now run ruff with 0-error policy
+- **Stage cancel mechanism (v3.2.0e)**: `PipelineCancelled` exception +
+  `PipelineContext.raise_if_cancelled()` — each `Stage.run()` checks
+  `cancel_event` before/after blocking operations (download / ffmpeg / ASR /
+  LLM post-process / disk write); `run_with_progress` skips 100% emit on
+  cancel. `AsyncPipeline.run_batch` wraps cancelled tasks into
+  `_FailedResult(src, PipelineCancelled)` for caller-side distinction
+- **GPU VRAM-aware concurrency (v3.2.0e)**: `_gpu_aware_concurrency()` caps
+  `max_concurrent` by `free_vram // vram_per_task_mb` on CUDA; falls back to
+  `base` on CPU / metal / unknown VRAM. `_GpuHealthCache` TTL cache (5s,
+  thread-safe) avoids re-probing `gpu_health()` per batch.
+  New env var `VIDEO2TEXT_VRAM_PER_TASK_MB` (default 3000, based on large-v3
+  ~5GB / medium ~5GB / small ~2GB)
 
 ### Changed
 - `douyin_batch_v3.py` is now fully i18n-aware (CLI help, banner, status messages)

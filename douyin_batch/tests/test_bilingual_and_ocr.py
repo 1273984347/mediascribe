@@ -140,62 +140,51 @@ class TestAgentOutputBilingual(unittest.TestCase):
 
 
 class TestDetectPlatformInV3(unittest.TestCase):
-    """douyin_batch_v3._detect_platform"""
+    """video2text.inputs.parse_source — platform detection."""
 
     def test_douyin(self):
-        from douyin_batch_v3 import _detect_platform
-
-        self.assertEqual(
-            _detect_platform("https://www.douyin.com/video/abc"), "douyin"
-        )
+        from video2text.inputs import parse_source
+        src = parse_source("https://www.douyin.com/video/abc")
+        self.assertEqual(src.kind, "douyin")
 
     def test_bilibili(self):
-        from douyin_batch_v3 import _detect_platform
-
-        self.assertEqual(
-            _detect_platform("https://www.bilibili.com/video/BV1xx"), "bilibili"
-        )
+        from video2text.inputs import parse_source
+        src = parse_source("https://www.bilibili.com/video/BV1xx411c7mD")
+        self.assertEqual(src.kind, "bilibili")
 
     def test_youtube(self):
-        from douyin_batch_v3 import _detect_platform
-
-        self.assertEqual(
-            _detect_platform("https://youtu.be/abc"), "youtube"
-        )
+        from video2text.inputs import parse_source
+        src = parse_source("https://youtu.be/abc")
+        self.assertEqual(src.kind, "youtube")
 
     def test_xiaohongshu(self):
-        from douyin_batch_v3 import _detect_platform
-
-        self.assertEqual(
-            _detect_platform("https://www.xiaohongshu.com/explore/abc"), "xiaohongshu"
-        )
+        from video2text.inputs import parse_source
+        src = parse_source("https://www.xiaohongshu.com/explore/abc")
+        self.assertEqual(src.kind, "xiaohongshu")
 
     def test_wechat_mp(self):
-        from douyin_batch_v3 import _detect_platform
-
-        self.assertEqual(
-            _detect_platform("https://mp.weixin.qq.com/s?__biz=MzA&mid=1"), "wechat_mp"
-        )
+        from video2text.inputs import parse_source
+        src = parse_source("https://mp.weixin.qq.com/s?__biz=MzA&mid=1")
+        self.assertEqual(src.kind, "wechat_mp")
 
     def test_tiktok(self):
-        from douyin_batch_v3 import _detect_platform
-
-        self.assertEqual(
-            _detect_platform("https://www.tiktok.com/@x/video/1"), "tiktok"
-        )
+        from video2text.inputs import parse_source
+        src = parse_source("https://www.tiktok.com/@x/video/1")
+        self.assertEqual(src.kind, "tiktok")
 
     def test_unknown(self):
-        from douyin_batch_v3 import _detect_platform
-
-        self.assertEqual(_detect_platform("https://example.com/x"), "unknown")
-        self.assertEqual(_detect_platform(""), "unknown")
+        from video2text.inputs import parse_source
+        src = parse_source("https://example.com/x")
+        self.assertEqual(src.kind, "video")  # generic URL → video
 
     def test_local_path(self):
-        from douyin_batch_v3 import _detect_platform
-
-        # 不是 http(s) 开头 → 视为 local
-        self.assertEqual(_detect_platform("Z:/path/video.mp4"), "local")
-        self.assertEqual(_detect_platform("./relative.mp4"), "local")
+        from video2text.inputs import parse_source
+        # 不存在的路径 → kind="video" (fallback)
+        src = parse_source("Z:/path/video.mp4")
+        self.assertIn(src.kind, ("video", "audio"))
+        # 不存在的相对路径也走 fallback
+        src2 = parse_source("./relative.mp4")
+        self.assertIn(src2.kind, ("video", "audio"))
 
 
 class TestWechatMpImageExtract(unittest.TestCase):

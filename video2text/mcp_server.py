@@ -417,9 +417,29 @@ def _tool_transcribe_video(args: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+_BATCH_DEFAULT_TIMEOUT_SECONDS = 1800  # 30 min; 批量转录可能涉及多视频下载+ASR
+
+
 def _tool_batch_transcribe_creator(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Run the batch CLI as a subprocess and return the parsed JSON output."""
+    """Run the batch CLI as a subprocess and return the parsed JSON output.
+
+    v3.2.0e+ 安全加固 (F-10):
+      * 为 ``subprocess.run`` 添加 ``timeout`` 参数（默认 1800s = 30min,
+        可通过环境变量 ``VIDEO2TEXT_BATCH_TIMEOUT`` 覆盖），
+        防止批量 CLI 长时间阻塞 MCP 服务进程。
+      * 捕获 ``subprocess.TimeoutExpired`` 异常，返回结构化错误而非崩溃
+        MCP 工具调用链。
+    """
     import subprocess
+    env_val = os.environ.get("VIDEO2TEXT_BATCH_TIMEOUT", "").strip()
+    if env_val:
+        try:
+            timeout = float(env_val)
+        except ValueError:
+            timeout = _BATCH_DEFAULT_TIMEOUT_SECONDS
+    else:
+        timeout = _BATCH_DEFAULT_TIMEOUT_SECONDS
+
     cmd = [
         sys.executable, "douyin_batch_v3.py",
         "--json",
@@ -435,7 +455,22 @@ def _tool_batch_transcribe_creator(args: Dict[str, Any]) -> Dict[str, Any]:
     if args.get("output_dir"):
         cmd.extend(["--output-dir", args["output_dir"]])
 
-    proc = subprocess.run(cmd, capture_output=True, text=True, cwd=str(Path(__file__).parent.parent))
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=str(Path(__file__).parent.parent),
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as e:
+        return {
+            "ok": False,
+            "error": f"batch transcribe timed out after {timeout:.0f}s",
+            "cmd": cmd,
+            "stdout": e.stdout or "",
+            "stderr": e.stderr or "",
+        }
     try:
         return json.loads(proc.stdout)
     except json.JSONDecodeError:

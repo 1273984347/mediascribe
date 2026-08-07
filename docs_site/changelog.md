@@ -26,6 +26,40 @@ summary; for the full per-commit history see GitHub.
 * **CI matrix**: 5 Python × 3 OS = 15 cells.
 * **Docs site**: mkdocs + Material, ready for GitHub Pages.
 
+### v3.2.x — Async pipeline + GPU acceleration + LLM post-processing
+
+* **v3.2.0a** — VAD chunking, persistent cache, `profile` CLI,
+  WebSocket progress.
+* **v3.2.0b** — `AsyncPipeline` with `asyncio.Semaphore`-capped
+  worker pool; `resolve_device()` / `gpu_health()` probes;
+  `VIDEO2TEXT_MAX_WORKERS` env var.
+* **v3.2.0c** — `@profile_step` decorator, UI GPU pill,
+  cancel WebSocket bridge, hidden memory-leak fixes.
+* **v3.2.0d** — LLM post-processing skeleton
+  (`llm_post_process.py`), 10-Whisper-model selection, 16 real
+  Douyin videos transcribed.
+* **v3.2.0e** — Stage-level cancel mechanism (`PipelineCancelled`
+  + `raise_if_cancelled()` in every `Stage.run()`); GPU
+  VRAM-aware concurrency (`_gpu_aware_concurrency` caps
+  `max_concurrent` by `free_vram // vram_per_task_mb` on CUDA);
+  `_GpuHealthCache` TTL cache (5 s, thread-safe). New env var
+  `VIDEO2TEXT_VRAM_PER_TASK_MB` (default 3000).
+* **v3.2.0f** — Production hardening sweep:
+  SSRF protocol blacklist expanded (browser/script schemes:
+  `javascript:`, `vbscript:`, `blob:`, `view-source:`, etc.);
+  Web `Pipeline` cache protected by `_PIPELINE_CACHE_LOCK`
+  (thread-safe FIFO eviction, per-request isolated `Settings`);
+  atomic write `_atomic_write_text` helper across `pipeline.py`,
+  `pipeline_stages.py`, `transcribers/chunked.py`, `learn.py`,
+  `cache.py` (tmp name carries PID + UUID8 to avoid concurrent
+  collisions, failure-cleanup on exception); FFmpeg audio
+  extraction `subprocess.run` now honours
+  `VIDEO2TEXT_FFMPEG_TIMEOUT` (default 600 s, logs on invalid
+  env value); MCP batch transcribe subprocess gains
+  `VIDEO2TEXT_BATCH_TIMEOUT` (default 1800 s) with structured
+  `TimeoutExpired` response; new `_atomic_write_text` unit tests
+  (success / failure-cleanup / parent-dir / atomic-replace).
+
 ### v2.x — Bilingual output + WeChat MP hardening
 
 * Bilingual subtitle rendering for WeChat video messages.

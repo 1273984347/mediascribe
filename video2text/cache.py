@@ -92,11 +92,21 @@ def _load_index(cache_dir: Path, name: str) -> dict:
 
 
 def _save_index(cache_dir: Path, name: str, index: dict) -> None:
+    """v3.2.0e+: 原子写 index，tmp 名含 PID + UUID8 避免并发碰撞，
+    写失败时清理 tmp（原 ``.tmp`` 名固定，多进程同时写会互相覆盖）。"""
+    import uuid
     p = _index_path(cache_dir, name)
     p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(p)
+    tmp = p.with_suffix(f".{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        tmp.write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(p)
+    except Exception:
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
 
 
 # ---------------------------------------------------------------------------

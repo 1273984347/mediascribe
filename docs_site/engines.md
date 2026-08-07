@@ -29,6 +29,35 @@ and uses less VRAM.
 | medium | ~5 GB | 8x | 2.4 |
 | large | ~10 GB | 16x | 2.0 |
 
+## GPU VRAM-aware concurrency (v3.2.0e)
+
+When `AsyncPipeline.run_batch` starts a batch on a CUDA device,
+`_gpu_aware_concurrency()` caps `max_concurrent` by
+`free_vram // vram_per_task_mb` to avoid CUDA OOM.  It falls back to
+the configured `base` (CPU / metal / unknown VRAM).
+
+| Per-task VRAM budget | Source |
+|---------------------|--------|
+| `VIDEO2TEXT_VRAM_PER_TASK_MB` env var | explicit override |
+| Default 3000 MB | large-v3 ~5GB / medium ~5GB / small ~2GB → conservative |
+
+GPU health is probed via `gpu_health()` and cached in `_GpuHealthCache`
+(TTL 5 s, thread-safe) so consecutive batches in the same process
+share a single probe.
+
+## Subprocess timeout control (v3.2.0f)
+
+Two subprocess invocations now honour explicit timeouts to avoid
+blocking the host process indefinitely:
+
+| Subprocess | Env var | Default | Behaviour on timeout |
+|------------|---------|---------|----------------------|
+| FFmpeg audio extraction (`audio_utils.extract_audio`) | `VIDEO2TEXT_FFMPEG_TIMEOUT` | 600 s | raises `subprocess.TimeoutExpired` |
+| MCP batch transcribe (`mcp_server._tool_batch_transcribe_creator`) | `VIDEO2TEXT_BATCH_TIMEOUT` | 1800 s | returns `{ok: false, error: "batch transcribe timed out ..."}` |
+
+Invalid env values fall back to the default and emit a `WARNING` log
+line so misconfiguration is observable.
+
 ## Benchmarking
 
 The repo ships a mock-mode benchmark that runs in any sandbox:

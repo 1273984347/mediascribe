@@ -35,6 +35,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -149,6 +150,20 @@ def test_bash_wrapper_exists_and_parses():
     assert "one_click_up.py" in text
     # bash -n is the static-syntax check; available on Linux / macOS / WSL.
     if shutil.which("bash"):
+        # Git-Bash on Windows can hang inside sandboxed envs.  Probe with
+        # ``bash --version`` first (cheap exit) and only run the heavy
+        # ``bash -n`` if a quick ``--version`` returns within 3s.
+        try:
+            probe = subprocess.run(
+                ["bash", "--version"],
+                capture_output=True, text=True, timeout=3,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            pytest.skip("bash on PATH is unresponsive in this environment")
+            return
+        if probe.returncode != 0:
+            pytest.skip(f"bash --version failed: {probe.stderr[:200]}")
+            return
         # On Windows, backslashes in the absolute path are interpreted as
         # escape characters by Git-Bash.  Pipe the script body to bash via
         # stdin so we don't depend on a specific path representation.
