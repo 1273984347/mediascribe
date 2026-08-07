@@ -3,9 +3,12 @@
 """
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any, Dict, Optional
+
+_logger = logging.getLogger(__name__)
 
 
 class Settings:
@@ -127,8 +130,8 @@ def _parse_cookie_string(text: str) -> Dict[str, str]:
             data = json.loads(text)
             if isinstance(data, dict):
                 return {str(k): str(v) for k, v in data.items()}
-        except Exception:
-            pass
+        except Exception as exc:  # JSON 解析失败 → 回退 Netscape 解析
+            _logger.debug("cookie JSON 解析失败, 回退 Netscape 解析: %r", exc)
 
     cookies: Dict[str, str] = {}
     for raw in text.splitlines():

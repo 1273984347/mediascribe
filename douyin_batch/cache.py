@@ -64,11 +64,13 @@ class ProcessCache:
 
     def get_user_videos(self, user_url: str) -> list:
         """获取缓存的某用户的所有视频"""
+        # nosec B324 - 仅作缓存键去重用，非安全敏感哈希
         user_hash = hashlib.md5(user_url.encode()).hexdigest()[:12]
         return self._cache_data["users"].get(user_hash, {}).get("videos", [])
 
     def save_user_videos(self, user_url: str, videos: list):
         """保存用户视频列表到缓存"""
+        # nosec B324 - 仅作缓存键去重用，非安全敏感哈希
         user_hash = hashlib.md5(user_url.encode()).hexdigest()[:12]
         self._cache_data["users"][user_hash] = {
             "user_url": user_url,

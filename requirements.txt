@@ -1,4 +1,4 @@
-# Core dependencies
+# Core dependencies (keep in sync with [project.dependencies] in pyproject.toml)
 openai-whisper>=20231117
 yt-dlp>=2023.12.30
 ffmpeg-python>=0.2.0
@@ -6,3 +6,8 @@ requests>=2.31.0
 playwright>=1.40.0
 torch>=2.0.0
 torchaudio>=2.0.0
+tqdm>=4.66.0
+pyyaml>=6.0
+# Optional extras (whisperx / faster-whisper / ocr / mcp / web / vad) are
+# declared in pyproject.toml [project.optional-dependencies]; install via
+# `pip install "video2text[all]"` or pick individual extras.

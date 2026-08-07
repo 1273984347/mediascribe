@@ -19,7 +19,7 @@ Video2Text 是一个面向 GitHub 全球开源的**离线视频转录工具**，
 - **多引擎转录**: openai-whisper / faster-whisper / whisperx，自动选择
 - **GPU 加速**: 自动检测 CUDA / Metal / ROCm，RTX 4060 实测可用
 - **ASR 自动学习**: 从用户校对中累积术语库，越用越准 (v3.2.0b 新增)
-- **异步批处理**: `AsyncPipeline` 支持并发转录 + 单视频失败隔离
+- **异步批处理**: `AsyncPipeline` 已实现（并发转录 + 单视频失败隔离），但 Web / CLI 尚未接线（当前 Web 仍用 ThreadPoolExecutor）
 - **Web Dashboard**: FastAPI Web UI + WebSocket 实时进度 + 速率限制
 - **MCP 工具**: Model Context Protocol 服务器，供 AI agent 调用
 - **Chrome 扩展**: Side Panel 支持，一键 ZIP 下载
@@ -181,7 +181,7 @@ Pipeline.transcribe()
 
 | 功能 | 状态 | 关键文件 |
 |------|------|---------|
-| AsyncPipeline | ✅ | [pipeline_async.py](file:///d:/1/video2text/video2text/pipeline_async.py) |
+| AsyncPipeline | ⚠️ 已实现·未接线 | [pipeline_async.py](file:///d:/1/video2text/video2text/pipeline_async.py) |
 | Stage 链解耦 | ✅ | [pipeline_stages.py](file:///d:/1/video2text/video2text/pipeline_stages.py) |
 | GPU 设备解析 | ✅ | [pipeline.py](file:///d:/1/video2text/video2text/pipeline.py) `resolve_device()` + `gpu_health()` |
 | /api/health GPU | ✅ | [web/app.py](file:///d:/1/video2text/video2text/web/app.py) |
@@ -202,7 +202,7 @@ Pipeline.transcribe()
 |------|------|---------|
 | profile 装饰器 | ✅ | `Pipeline(profile=True)` 包装各 stage,输出 JSONL 性能报告 |
 | UI GPU pill | ✅ | 前端 Dashboard GPU 状态徽章 (读 `/api/health`) |
-| cancel WS 桥接 | ✅ | 浏览器 cancel → WebSocket → `AsyncPipeline.cancel()` |
+| cancel WS 桥接 | ✅ | 浏览器 cancel → WebSocket → ThreadPoolExecutor 任务取消（非 AsyncPipeline） |
 | 隐性内存泄漏修复 | ✅ | ThreadPoolExecutor 未 shutdown 问题 |
 | REST 404 风险修复 | ✅ | 路由顺序问题 |
 | DeprecationWarning 修复 | ✅ | asyncio API 升级 |

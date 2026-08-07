@@ -607,8 +607,8 @@ def create_app(workspace: Optional[Path] = None,
         if executor is not None:
             try:
                 executor.shutdown(wait=False, cancel_futures=True)
-            except Exception:  # pragma: no cover - defensive
-                pass
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("executor 关闭异常: %r", exc)
 
     app = FastAPI(
         title="Video2Text Web UI",
@@ -648,8 +648,16 @@ def create_app(workspace: Optional[Path] = None,
     # The executor lives for the lifetime of the app; on shutdown the
     # pending tasks are abandoned (cooperative cancel inside
     # ``with_progress`` checks ``job.cancelled`` between stages).
+    # 并发度可通过环境变量覆盖（参考 AsyncPipeline._default_max_concurrent）。
+    # 默认 2：转录是 GPU/IO 密集型，过多并发反而争抢显存。
+    try:
+        _max_workers = int(os.environ.get("VIDEO2TEXT_MAX_WORKERS", "2"))
+    except ValueError:
+        _max_workers = 2
+    if _max_workers <= 0:
+        _max_workers = 2
     app.state.job_executor = ThreadPoolExecutor(
-        max_workers=2, thread_name_prefix="v2t-job"
+        max_workers=_max_workers, thread_name_prefix="v2t-job"
     )
     app.state.job_results: Dict[str, Dict[str, Any]] = {}
     # v3.2.0c-fix (P3-2): lock guarding ``app.state.job_results`` against
@@ -1063,8 +1071,8 @@ def create_app(workspace: Optional[Path] = None,
         if ap is not None and hasattr(ap, "cancel"):
             try:
                 ap.cancel()
-            except Exception:  # pragma: no cover - defensive
-                pass
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.debug("AsyncPipeline.cancel 异常: %r", exc)
         return {"job_id": job_id, "cancelled": True}
 
     @app.get("/api/jobs/{job_id}", dependencies=[Depends(_require_api_token)])
