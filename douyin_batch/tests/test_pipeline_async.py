@@ -391,5 +391,83 @@ class TestGpuHealthCache(unittest.TestCase):
             self.assertEqual(m.call_count, 1)
 
 
+# ---------------------------------------------------------------------------
+# v3.2.0e: runner / runners 注入(Web 接线契约)
+# ---------------------------------------------------------------------------
+class TestRunnerInjection(unittest.TestCase):
+    """``runner=`` / ``runners=`` 让调用方注入自定义可调用(如 with_progress
+    封装的带进度 thunk),替代默认 ``self._sync.transcribe``。这是 Web 层
+    ``submit_jobs`` 走 ``AsyncPipeline.run_batch`` 的关键契约。
+    """
+
+    def test_run_honors_custom_runner(self):
+        sync = mock.MagicMock()
+        sync.settings = mock.MagicMock()
+        ap = AsyncPipeline(sync)
+        captured = {}
+        def my_runner():
+            captured["hit"] = True
+            return "CUSTOM"
+        result = _run_coro(ap.run("u", runner=my_runner))
+        self.assertEqual(result, "CUSTOM")
+        self.assertTrue(captured.get("hit"))
+        # 自定义 runner 时不应调用底层 transcribe
+        sync.transcribe.assert_not_called()
+
+    def test_run_batch_uses_per_source_runners(self):
+        sync = mock.MagicMock()
+        sync.settings = mock.MagicMock()
+        ap = AsyncPipeline(sync, max_concurrent=2)
+        calls: dict = {}
+
+        def ok(sentinel):
+            def _r():
+                calls[sentinel] = True
+                return f"ok:{sentinel}"
+            return _r
+
+        def bad():
+            calls["bad"] = True
+            raise RuntimeError("boom")
+
+        runners = {"a": ok("a"), "bad": bad, "c": ok("c")}
+        results = _run_coro(ap.run_batch(["a", "bad", "c"], runners=runners))
+        self.assertEqual(len(results), 3)
+        self.assertEqual(results[0], "ok:a")
+        self.assertEqual(results[2], "ok:c")
+        # 失败位置隔离为 _FailedResult
+        self.assertIsInstance(results[1], _FailedResult)
+        self.assertIn("boom", str(results[1].exc))
+        # 三个 runner 都被调用
+        self.assertEqual(set(calls.keys()), {"a", "bad", "c"})
+        # 底层 transcribe 不应被直接调用
+        sync.transcribe.assert_not_called()
+
+    def test_run_batch_mixed_runners_and_default(self):
+        # 部分 source 提供 runner,其余走默认 transcribe
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            for i in range(3):
+                _audio_file(tmp, f"a{i}.wav")
+            sync = Pipeline(
+                settings=_fake_settings(tmp), transcriber=_fake_transcriber()
+            )
+            ap = AsyncPipeline(sync, max_concurrent=2)
+            src1 = str(tmp / "a1.wav")
+            custom = {src1: (lambda: "CUSTOM")}
+            results = _run_coro(
+                ap.run_batch(
+                    [str(tmp / "a0.wav"), src1, str(tmp / "a2.wav")],
+                    runners=custom,
+                )
+            )
+            self.assertEqual(len(results), 3)
+            # a1 走自定义 runner
+            self.assertEqual(results[1], "CUSTOM")
+            # a0 / a2 走默认 transcribe
+            self.assertIsInstance(results[0], TranscriptResult)
+            self.assertIsInstance(results[2], TranscriptResult)
+
+
 if __name__ == "__main__":
     unittest.main()
