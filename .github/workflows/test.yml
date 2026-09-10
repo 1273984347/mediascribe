@@ -28,6 +28,9 @@ permissions:
 env:
   PYTHONDONTWRITEBYTECODE: "1"
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  # Windows runner 默认 cp1252 — CLI help 里的 emoji 会让子进程
+  # UnicodeEncodeError 崩溃;统一 UTF-8。
+  PYTHONUTF8: "1"
 
 jobs:
   # -------------------------------------------------------------------------

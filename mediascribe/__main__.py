@@ -381,6 +381,18 @@ def _run_legacy(argv: Optional[List[str]]) -> int:
     return 0
 
 
+def _force_utf8_stdio() -> None:
+    """CLI 输出大量中文 + emoji,而 Windows 经典控制台默认 cp1252/cp936，
+    ``--help`` 直接 UnicodeEncodeError 崩溃 — 重配 stdio 为 UTF-8
+    （不可编码字符降级替换,绝不因输出崩溃）。测试/管道场景同样受益。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:  # pragma: no cover - 已重配/非常规流
+            pass
+
+
 def _print_quickstart() -> None:
     """无参数调用时打印的快速开始引导（exit 0，不吓退新用户）。"""
     print(
@@ -419,6 +431,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     pass an explicit list (including an empty list) without
     side-effects from the surrounding shell argv.
     """
+    _force_utf8_stdio()
     if argv is None:
         argv = sys.argv[1:]
     if argv and argv[0] == "profile":
