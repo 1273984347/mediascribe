@@ -66,15 +66,16 @@ class TestPersistentCacheDir(unittest.TestCase):
         # On Windows, %LOCALAPPDATA% takes precedence.  On Linux/macOS
         # the .cache fallback is used.  Either way it should point
         # inside the user's home / appdata, not at /tmp.
+        os.environ.pop("MEDIASCRIBE_CACHE_DIR", None)
+        os.environ.pop("XDG_CACHE_HOME", None)  # test_app_name 泄漏的变量
         with mock.patch.object(Path, "home", return_value=Path("/home/x")):
             p = persistent_cache_dir()
-        self.assertIn(
-            str(p),
-            [
-                str(Path("/home/x/.cache/mediascribe")),
-                str(Path("C:/Users/12739/AppData/Local/mediascribe/Cache")),
-            ],
-        )
+        if os.name == "nt":
+            # Windows 分支读 %LOCALAPPDATA%（不受 mock 的 home 影响）
+            expected = Path(os.environ["LOCALAPPDATA"]) / "mediascribe" / "Cache"
+        else:
+            expected = Path("/home/x/.cache/mediascribe")
+        self.assertEqual(p, expected)
 
 
 # ---------------------------------------------------------------------------
