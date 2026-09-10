@@ -3,6 +3,7 @@ Unit tests for the agent_output module (JSON output for AI agents).
 
 These tests are run by `run_tests.py` automatically via unittest discovery.
 """
+
 import io
 import json
 import sys
@@ -22,15 +23,28 @@ class TestAgentOutput(unittest.TestCase):
         self.out = AgentOutput(command="douyin_batch_v3")
         self.out.set_config({"max_videos": 5, "workers": 1, "headless": True})
         self.out.set_user_url("https://www.douyin.com/user/test")
-        self.out.add_video({
-            "video_id": "v1", "url": "https://...", "status": "success",
-            "stage": None, "transcript": "out/v1.md", "audio": "out/v1.mp4", "error": None
-        })
-        self.out.add_video({
-            "video_id": "v2", "url": "https://...", "status": "failed",
-            "stage": "download", "transcript": None, "audio": None,
-            "error": "404 not found"
-        })
+        self.out.add_video(
+            {
+                "video_id": "v1",
+                "url": "https://...",
+                "status": "success",
+                "stage": None,
+                "transcript": "out/v1.md",
+                "audio": "out/v1.mp4",
+                "error": None,
+            }
+        )
+        self.out.add_video(
+            {
+                "video_id": "v2",
+                "url": "https://...",
+                "status": "failed",
+                "stage": "download",
+                "transcript": None,
+                "audio": None,
+                "error": "404 not found",
+            }
+        )
         self.out.set_summary_report("out/reports/summary.md")
         self.out.add_error("test", "test error")
         self.out.finish(ok=False)
@@ -44,9 +58,19 @@ class TestAgentOutput(unittest.TestCase):
     def test_02_required_fields(self):
         d = self.out.to_dict()
         required = [
-            "schema", "ok", "command", "version", "started_at", "finished_at",
-            "elapsed_seconds", "config", "user_url", "videos", "stats",
-            "summary_report", "errors",
+            "schema",
+            "ok",
+            "command",
+            "version",
+            "started_at",
+            "finished_at",
+            "elapsed_seconds",
+            "config",
+            "user_url",
+            "videos",
+            "stats",
+            "summary_report",
+            "errors",
         ]
         for k in required:
             self.assertIn(k, d, f"Missing field: {k}")
@@ -81,8 +105,17 @@ class TestAgentOutput(unittest.TestCase):
     def test_06_all_status_values_accepted(self):
         for status in ["success", "failed", "skipped"]:
             o = AgentOutput(command="test")
-            o.add_video({"video_id": "x", "status": status, "url": "", "stage": None,
-                         "transcript": None, "audio": None, "error": None})
+            o.add_video(
+                {
+                    "video_id": "x",
+                    "status": status,
+                    "url": "",
+                    "stage": None,
+                    "transcript": None,
+                    "audio": None,
+                    "error": None,
+                }
+            )
             o.finish(ok=True)
             s = o.to_dict()["stats"]
             self.assertEqual(s[status], 1, f"Status {status} not counted: {s}")
@@ -131,11 +164,17 @@ class TestAgentOutput(unittest.TestCase):
     def test_13_chinese_in_output(self):
         """Output should preserve Unicode (Chinese, emoji, etc.) for international use."""
         o = AgentOutput(command="test")
-        o.add_video({
-            "video_id": "v1", "url": "", "status": "success",
-            "stage": None, "transcript": "测试字幕.md",
-            "audio": "音频.mp4", "error": "测试错误"
-        })
+        o.add_video(
+            {
+                "video_id": "v1",
+                "url": "",
+                "status": "success",
+                "stage": None,
+                "transcript": "测试字幕.md",
+                "audio": "音频.mp4",
+                "error": "测试错误",
+            }
+        )
         o.finish(ok=True)
         buf = io.StringIO()
         o.emit(stream=buf)

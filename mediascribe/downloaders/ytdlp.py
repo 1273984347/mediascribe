@@ -7,6 +7,7 @@ v3.2.0g:
   （原来先 ``extract_info(download=False)`` 预取一遍，同样信息请求两次）
 - 进度钩子按 5% 分桶节流，避免逐 chunk 刷屏
 """
+
 from __future__ import annotations
 
 import logging
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 class YtDlpDownloader(Downloader):
     """yt-dlp 下载器"""
+
     name = "yt-dlp"
 
     def __init__(self):
@@ -64,10 +66,13 @@ class YtDlpDownloader(Downloader):
                         last_bucket[0] = bucket
                         logger.info(
                             "下载进度: %.0f%% (%d / %d 字节)",
-                            downloaded / total * 100, downloaded, total,
+                            downloaded / total * 100,
+                            downloaded,
+                            total,
                         )
                 else:
                     logger.info("下载进度: %d 字节", downloaded)
+
             ydl_opts["progress_hooks"] = [progress_hook]
 
         # 执行下载（一次 extract_info 拿到信息 + 文件）

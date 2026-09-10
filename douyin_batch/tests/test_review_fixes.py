@@ -18,6 +18,7 @@
 - P2-13 get_user_videos 滚动节奏参数注入
 - P2-15 汇总报告 ASCII 文件名
 """
+
 from __future__ import annotations
 
 import json
@@ -56,9 +57,7 @@ class TestDouyinNoPlaywrightFallback:
         from mediascribe.models import SourceRef
 
         d = DouyinDownloader()
-        with patch.object(
-            d, "_extract_media_url_with_browser", return_value=(None, None)
-        ):
+        with patch.object(d, "_extract_media_url_with_browser", return_value=(None, None)):
             with pytest.raises(RuntimeError, match="媒体 URL"):
                 d.download(
                     SourceRef(raw_input="x", kind="douyin", url="https://www.douyin.com/video/1"),
@@ -310,7 +309,11 @@ class TestXiaohongshuImageNote:
         ):
             with pytest.raises(RuntimeError, match="图文笔记"):
                 d.download(
-                    SourceRef(raw_input="x", kind="xiaohongshu", url="https://www.xiaohongshu.com/explore/1"),
+                    SourceRef(
+                        raw_input="x",
+                        kind="xiaohongshu",
+                        url="https://www.xiaohongshu.com/explore/1",
+                    ),
                     Settings(workspace_root=tmp_path),
                 )
 
@@ -362,6 +365,7 @@ class TestStreamDownload:
         dest = tmp_path / "out.mp4"
         dest.write_bytes(b"OLD-GOOD")
         broken = _FakeSession([b"partial"], error=None)
+
         # iter_content 中途抛错
         def _iter(chunk_size=8192):
             yield b"partial-data"
@@ -465,9 +469,7 @@ class TestOcrImagesOrder:
 
         with patch.object(d, "_ocr_image", side_effect=fake_ocr):
             with patch("mediascribe.downloaders.wechat_mp.logger") as mock_log:
-                texts, success, total = d._ocr_images(
-                    ["slow", "fast1", "fast2"], Path(".")
-                )
+                texts, success, total = d._ocr_images(["slow", "fast1", "fast2"], Path("."))
         assert texts == ["slow-text", "text-fast1", "text-fast2"]
         assert (success, total) == (3, 3)
         # 进度日志为独立 done 计数：依次 1/3、2/3、3/3（原公式恒为 1/3）
@@ -496,8 +498,12 @@ class TestMergeCliArgs:
         from douyin_batch.config import BatchConfig
 
         cfg = BatchConfig(
-            max_videos=5, headless=False, keep_audio=True,
-            output_dir="orig", log_level="DEBUG", max_retries=9,
+            max_videos=5,
+            headless=False,
+            keep_audio=True,
+            output_dir="orig",
+            log_level="DEBUG",
+            max_retries=9,
         )
 
         class Args:

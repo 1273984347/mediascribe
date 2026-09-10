@@ -24,6 +24,7 @@ The tests deliberately avoid actually starting a server.  Integration
 coverage for the live launcher lives in scripts that require a real
 Web UI install.
 """
+
 from __future__ import annotations
 
 import ast
@@ -70,10 +71,22 @@ def test_one_click_launcher_module_imports():
     mod = _load_launcher_module()
     # The CLI must expose the public helpers we depend on from tests.
     for name in (
-        "PID_FILE", "LOG_FILE", "_port_free", "_read_pid", "_write_pid",
-        "_clear_pid", "_process_alive", "_wait_for_health",
-        "check_prereqs", "launch_local", "launch_docker", "extension_hints",
-        "cmd_up", "cmd_stop", "cmd_status", "main",
+        "PID_FILE",
+        "LOG_FILE",
+        "_port_free",
+        "_read_pid",
+        "_write_pid",
+        "_clear_pid",
+        "_process_alive",
+        "_wait_for_health",
+        "check_prereqs",
+        "launch_local",
+        "launch_docker",
+        "extension_hints",
+        "cmd_up",
+        "cmd_stop",
+        "cmd_status",
+        "main",
     ):
         assert hasattr(mod, name), f"one_click_up.py is missing {name!r}"
 
@@ -86,7 +99,9 @@ def test_one_click_launcher_subcommands():
         return
     proc = subprocess.run(
         [sys.executable, str(launcher), "--help"],
-        capture_output=True, text=True, timeout=15,
+        capture_output=True,
+        text=True,
+        timeout=15,
     )
     assert proc.returncode == 0, proc.stderr
     out = proc.stdout
@@ -103,7 +118,9 @@ def test_one_click_launcher_status_when_stopped():
         pid_file.unlink()
     proc = subprocess.run(
         [sys.executable, str(launcher), "status"],
-        capture_output=True, text=True, timeout=10,
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     assert proc.returncode != 0, "status should exit non-zero when no pid file exists"
     assert "not running" in proc.stdout
@@ -116,7 +133,9 @@ def test_one_click_launcher_stop_idempotent():
         pid_file.unlink()
     proc = subprocess.run(
         [sys.executable, str(launcher), "stop"],
-        capture_output=True, text=True, timeout=10,
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     assert proc.returncode == 0, "stop must be idempotent (no pid file)"
     assert "not running" in proc.stdout
@@ -156,7 +175,9 @@ def test_bash_wrapper_exists_and_parses():
         try:
             probe = subprocess.run(
                 ["bash", "--version"],
-                capture_output=True, text=True, timeout=3,
+                capture_output=True,
+                text=True,
+                timeout=3,
             )
         except (subprocess.TimeoutExpired, OSError):
             pytest.skip("bash on PATH is unresponsive in this environment")
@@ -169,7 +190,9 @@ def test_bash_wrapper_exists_and_parses():
         # stdin so we don't depend on a specific path representation.
         proc = subprocess.run(
             ["bash", "-n", sh.name],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
             cwd=str(SCRIPTS),
         )
         assert proc.returncode == 0, proc.stderr
@@ -201,7 +224,9 @@ def test_powershell_wrapper_is_parseable():
     )
     proc = subprocess.run(
         [binary, "-NoProfile", "-Command", inline],
-        capture_output=True, text=True, timeout=20,
+        capture_output=True,
+        text=True,
+        timeout=20,
     )
     # We only need to know the file parses; non-zero rc means a parse error.
     assert "PS1 parse OK" in proc.stdout or proc.returncode == 0, proc.stderr
@@ -212,15 +237,14 @@ def test_powershell_wrapper_is_parseable():
 # ---------------------------------------------------------------------------
 def _yaml_load_with_python_name(path: Path):
     """Load a YAML file that uses ``!!python/name`` tags (mkdocs does)."""
+
     class _Loader(yaml.SafeLoader):
         pass
 
     def _py_name(loader, suffix, node):  # noqa: ARG001
         return None
 
-    _Loader.add_multi_constructor(
-        "tag:yaml.org,2002:python/name", _py_name
-    )
+    _Loader.add_multi_constructor("tag:yaml.org,2002:python/name", _py_name)
     return yaml.load(path.read_text(encoding="utf-8"), Loader=_Loader)
 
 
@@ -273,13 +297,9 @@ def test_justfile_one_click_recipes():
 # 5. Browser extension manifest
 # ---------------------------------------------------------------------------
 def test_extension_manifest_lists_docker_internal_host():
-    manifest = json.loads(
-        (ROOT / "extension" / "manifest.json").read_text(encoding="utf-8")
-    )
+    manifest = json.loads((ROOT / "extension" / "manifest.json").read_text(encoding="utf-8"))
     hosts = manifest.get("host_permissions", [])
-    assert any("localhost" in h for h in hosts), (
-        "host_permissions must include localhost"
-    )
+    assert any("localhost" in h for h in hosts), "host_permissions must include localhost"
     assert any("host.docker.internal" in h for h in hosts), (
         "host_permissions must include host.docker.internal so the "
         "extension can talk to a dockerised Web UI"
@@ -304,9 +324,7 @@ def test_mkdocs_nav_links_one_click_doc():
         return out
 
     flat = _flatten(nav)
-    assert any("one-click.md" in x for x in flat), (
-        "mkdocs.yml nav must include one-click.md"
-    )
+    assert any("one-click.md" in x for x in flat), "mkdocs.yml nav must include one-click.md"
 
 
 # ---------------------------------------------------------------------------
@@ -317,7 +335,9 @@ def test_one_click_doc_covers_all_lifecycles():
     for token in (
         "## TL;DR",
         "## Lifecycle commands",
-        "up", "stop", "status",
+        "up",
+        "stop",
+        "status",
         "docker compose up",
         "## Loading the browser extension",
         "## Troubleshooting",

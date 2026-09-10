@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """从视频URL提取作者主页"""
+
 import re
 import time
 
@@ -30,8 +31,8 @@ def get_user_url_from_video(video_url, headless=True):
             # 抖音真实的 sec_uid 是类似 MS4wLjABAAAA... 的 base64 编码
             patterns = [
                 r'"sec_uid":"(MS4wLjABAAAA[A-Za-z0-9_\-]+)"',
-                r'sec_uid=(MS4wLjABAAAA[A-Za-z0-9_\-]+)',
-                r'/user/(MS4wLjABAAAA[A-Za-z0-9_\-]+)',
+                r"sec_uid=(MS4wLjABAAAA[A-Za-z0-9_\-]+)",
+                r"/user/(MS4wLjABAAAA[A-Za-z0-9_\-]+)",
             ]
             for pattern in patterns:
                 matches = re.findall(pattern, html)
@@ -62,6 +63,7 @@ def get_user_url_from_video(video_url, headless=True):
                 pass
 
     return user_url, user_info
+
 
 if __name__ == "__main__":
     url = "https://www.douyin.com/video/7647042350057661873"

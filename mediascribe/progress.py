@@ -20,6 +20,7 @@ Cancellation is cooperative: clients call
 to ``True``.  The pipeline checks this flag between stages and bails
 out cleanly with a status of ``"cancelled"``.
 """
+
 from __future__ import annotations
 
 import queue
@@ -195,8 +196,7 @@ class ProgressRegistry:
         cutoff = time.time() - older_than_seconds
         with self._lock:
             victims = [
-                j.job_id for j in self._jobs.values()
-                if j.finished and j.created_at < cutoff
+                j.job_id for j in self._jobs.values() if j.finished and j.created_at < cutoff
             ]
             for k in victims:
                 self._jobs.pop(k, None)
@@ -221,6 +221,7 @@ def with_progress(
     The function checks :attr:`JobProgress.cancelled` between stages
     and raises :class:`JobCancelled` if the user cancelled.
     """
+
     def _check_cancel() -> None:
         if job.cancelled:
             raise JobCancelled(f"job {job.job_id} cancelled")
@@ -250,10 +251,12 @@ def with_progress(
             job.start_stage("merge", total=1)
             job.advance(1)
             job.finish_stage()
-            job.succeed({
-                "engine": getattr(result, "engine", None),
-                "out_path": str(out_path) if out_path else None,
-            })
+            job.succeed(
+                {
+                    "engine": getattr(result, "engine", None),
+                    "out_path": str(out_path) if out_path else None,
+                }
+            )
         except JobCancelled:
             # v3.2.0c-note: ``cancelled_done`` is emitted for direct
             # ``job.events`` subscribers (e.g. tests, in-process

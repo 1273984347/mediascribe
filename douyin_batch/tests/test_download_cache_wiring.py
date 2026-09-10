@@ -8,6 +8,7 @@ P2-5 — PersistentDownloadCache 接入 DownloadStage 的最小单测。
 2. ``MEDIASCRIBE_DOWNLOAD_CACHE=1`` → 未命中时下载并回写缓存。
 3. ``=1`` 且 URL 已缓存 → 直接用缓存文件,downloader 不被调用。
 """
+
 from __future__ import annotations
 
 import os
@@ -38,8 +39,7 @@ class TestDownloadCacheWiring(unittest.TestCase):
         self._media_file = self._media / "video.mp4"
         self._media_file.write_bytes(b"fake video bytes")
         self._saved_env = {
-            k: os.environ.get(k)
-            for k in ("MEDIASCRIBE_DOWNLOAD_CACHE", "MEDIASCRIBE_CACHE_DIR")
+            k: os.environ.get(k) for k in ("MEDIASCRIBE_DOWNLOAD_CACHE", "MEDIASCRIBE_CACHE_DIR")
         }
         os.environ["MEDIASCRIBE_CACHE_DIR"] = str(self._tmp / "cache")
         os.environ.pop("MEDIASCRIBE_DOWNLOAD_CACHE", None)

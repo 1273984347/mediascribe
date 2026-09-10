@@ -2,6 +2,7 @@
 
 All Playwright interactions are mocked. We never start a real browser.
 """
+
 from __future__ import annotations
 
 import sys
@@ -202,16 +203,14 @@ class TestGetUserVideos(unittest.TestCase):
             out = br_mod.get_user_videos("https://www.douyin.com/user/ABC", max_videos=5)
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["video_id"], "100")
-        self.assertEqual(
-            out[0]["url"], "https://www.douyin.com/video/100"
-        )
+        self.assertEqual(out[0]["url"], "https://www.douyin.com/video/100")
         page.close.assert_called()
 
     def test_collects_multiple_videos(self):
         from douyin_batch import browser as br_mod
 
         html = (
-            '<html><body>'
+            "<html><body>"
             '<a href="/video/1">a</a>'
             '<a href="/video/2">b</a>'
             '<a href="/video/3">c</a>'
@@ -257,9 +256,7 @@ class TestGetUserVideos(unittest.TestCase):
         from douyin_batch import browser as br_mod
 
         # always new content each scroll
-        htmls = [
-            f'<html><a href="/video/{i}">v</a></html>' for i in range(1, 100)
-        ]
+        htmls = [f'<html><a href="/video/{i}">v</a></html>' for i in range(1, 100)]
         page = _make_mock_page(htmls)
         _fake_browser_manager(page)
         with mock.patch("douyin_batch.browser.time.sleep"), mock.patch(

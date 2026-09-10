@@ -1,6 +1,7 @@
 """
 日志系统 - 彩色输出、文件日志、统一的日志接口
 """
+
 import logging
 import sys
 from datetime import datetime
@@ -13,10 +14,10 @@ class ColoredFormatter(logging.Formatter):
 
     # ANSI 颜色代码
     COLORS = {
-        "DEBUG": "\033[36m",     # 青色
-        "INFO": "\033[32m",      # 绿色
-        "WARNING": "\033[33m",   # 黄色
-        "ERROR": "\033[31m",     # 红色
+        "DEBUG": "\033[36m",  # 青色
+        "INFO": "\033[32m",  # 绿色
+        "WARNING": "\033[33m",  # 黄色
+        "ERROR": "\033[31m",  # 红色
         "CRITICAL": "\033[35m",  # 紫色
         "RESET": "\033[0m",
     }
@@ -78,9 +79,7 @@ class Logger:
         log_file.parent.mkdir(parents=True, exist_ok=True)
         file_handler = logging.FileHandler(log_file, encoding="utf-8")
         file_handler.setLevel(level)
-        file_handler.setFormatter(
-            logging.Formatter("%(asctime)s | %(levelname)-7s | %(message)s")
-        )
+        file_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)-7s | %(message)s"))
         self.logger.addHandler(file_handler)
 
     def set_level(self, level: str):
@@ -98,15 +97,11 @@ class Logger:
         if quiet:
             # Disable all console handlers but keep file handlers intact.
             for h in self.logger.handlers:
-                if isinstance(h, logging.StreamHandler) and not isinstance(
-                    h, logging.FileHandler
-                ):
+                if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler):
                     h.setLevel(logging.CRITICAL + 1)
         else:
             for h in self.logger.handlers:
-                if isinstance(h, logging.StreamHandler) and not isinstance(
-                    h, logging.FileHandler
-                ):
+                if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler):
                     h.setLevel(logging.INFO)
 
     def debug(self, msg: str):

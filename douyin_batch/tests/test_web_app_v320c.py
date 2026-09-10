@@ -11,6 +11,7 @@ Coverage:
 
 FastAPI is required; tests skip cleanly when it is missing.
 """
+
 from __future__ import annotations
 
 import os
@@ -42,6 +43,7 @@ def tearDownModule():
 def _fastapi_or_skip():
     try:
         import fastapi  # noqa: F401
+
         return True
     except Exception:
         return False
@@ -68,6 +70,7 @@ class TestCachedGpuHealth(unittest.TestCase):
 
     def setUp(self) -> None:
         import app
+
         # Start every test with a clean cache + a fresh module reference.
         app._reset_gpu_health_cache()
         self.app = app
@@ -145,6 +148,7 @@ def _make_client(tmp: Path):
     """Build a TestClient backed by a mocked ``_build_pipeline``."""
     import app as app_module
     from fastapi.testclient import TestClient
+
     app_module._reset_gpu_health_cache()
     client_app = app_module.create_app(workspace=tmp)
     client = TestClient(client_app)
@@ -218,11 +222,16 @@ class TestSubmitJobs(unittest.TestCase):
             client, _ = _make_client(Path(td))
             fake = _fake_pipeline()
             with mock.patch("app._build_pipeline", return_value=fake):
-                r = client.post("/api/jobs", json={"urls": [
-                    "https://example.com/a",
-                    "https://example.com/b",
-                    "https://example.com/a",
-                ]})
+                r = client.post(
+                    "/api/jobs",
+                    json={
+                        "urls": [
+                            "https://example.com/a",
+                            "https://example.com/b",
+                            "https://example.com/a",
+                        ]
+                    },
+                )
             self.assertEqual(r.status_code, 200, r.text)
             data = r.json()
             self.assertEqual(len(data["jobs"]), 2)
@@ -332,8 +341,11 @@ class TestCancelJob(unittest.TestCase):
             app_obj.state.async_pipelines[job_id] = FakeAsync()
             cr = client.post(f"/api/jobs/{job_id}/cancel")
             self.assertEqual(cr.status_code, 200)
-            self.assertEqual(cancel_calls["n"], 1,
-                             "cancel_job must invoke AsyncPipeline.cancel() when registered")
+            self.assertEqual(
+                cancel_calls["n"],
+                1,
+                "cancel_job must invoke AsyncPipeline.cancel() when registered",
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -376,8 +388,9 @@ class TestWsCancelMessage(unittest.TestCase):
                     # the WS delivered the cancelled event in time.
                     job = client.app.state.jobs.get(job_id)
                     self.assertIsNotNone(job)
-                    self.assertTrue(job.cancelled,
-                                    "registry.cancel must be called on WS cancel message")
+                    self.assertTrue(
+                        job.cancelled, "registry.cancel must be called on WS cancel message"
+                    )
             except Exception as exc:
                 # Some TestClient versions close the WS hard on cancel;
                 # check the registry flag directly.
@@ -487,7 +500,9 @@ class TestJobResultsLock(unittest.TestCase):
                     j.finished = True
                     with lock:
                         app_obj.state.job_results[j.job_id] = {
-                            "markdown": "", "engine": None, "title": None,
+                            "markdown": "",
+                            "engine": None,
+                            "title": None,
                             "url": f"https://example.com/w{i}",
                         }
 
@@ -500,15 +515,16 @@ class TestJobResultsLock(unittest.TestCase):
 
             t1 = threading.Thread(target=worker_writes)
             t2 = threading.Thread(target=health_calls)
-            t1.start(); t2.start()
-            t1.join(); t2.join()
+            t1.start()
+            t2.start()
+            t1.join()
+            t2.join()
             self.assertEqual(errors, [], "concurrent access raised errors")
             # P2-2 fix: also assert no orphans — every entry in
             # job_results must correspond to a live job in registry.
             live_ids = {j.job_id for j in registry.list()}
             orphans = [k for k in app_obj.state.job_results if k not in live_ids]
-            self.assertEqual(orphans, [],
-                             f"orphan entries left in job_results: {orphans}")
+            self.assertEqual(orphans, [], f"orphan entries left in job_results: {orphans}")
 
     def test_concurrent_purge_with_backdated_jobs_no_orphan(self):
         """R6: TOCTOU race — purge concurrent with worker write leaves no orphan.
@@ -554,7 +570,9 @@ class TestJobResultsLock(unittest.TestCase):
                         if registry.get(j.job_id) is None:
                             continue  # purged, skip write, try next
                         app_obj.state.job_results[j.job_id] = {
-                            "markdown": "", "engine": None, "title": None,
+                            "markdown": "",
+                            "engine": None,
+                            "title": None,
                             "url": f"https://example.com/old{i}",
                         }
 
@@ -567,20 +585,24 @@ class TestJobResultsLock(unittest.TestCase):
 
             t1 = threading.Thread(target=worker_writes_old_jobs)
             t2 = threading.Thread(target=health_calls)
-            t1.start(); t2.start()
-            t1.join(); t2.join()
+            t1.start()
+            t2.start()
+            t1.join()
+            t2.join()
             self.assertEqual(errors, [], "concurrent access raised errors")
             # Worker must have run at least one iteration — otherwise
             # the orphan assertion is vacuously true (R3 finding F-R3-1).
-            self.assertGreater(len(attempts), 0,
-                               "worker never ran any iteration — test "
-                               "passed vacuously without exercising the race")
+            self.assertGreater(
+                len(attempts),
+                0,
+                "worker never ran any iteration — test "
+                "passed vacuously without exercising the race",
+            )
             # Final state: NO orphan entries. Every entry in job_results
             # must correspond to a live (non-purged) job in registry.
             live_ids = {j.job_id for j in registry.list()}
             orphans = [k for k in app_obj.state.job_results if k not in live_ids]
-            self.assertEqual(orphans, [],
-                             f"TOCTOU race left orphan entries: {orphans}")
+            self.assertEqual(orphans, [], f"TOCTOU race left orphan entries: {orphans}")
 
     def test_result_read_during_purge_does_not_inconsist(self):
         """P3-2 regression: /api/jobs/{id}/result read while /api/health pops."""
@@ -591,7 +613,9 @@ class TestJobResultsLock(unittest.TestCase):
             # Plant a job + result.
             job = registry.create("https://example.com/x")
             app_obj.state.job_results[job.job_id] = {
-                "markdown": "md", "engine": "e", "title": None,
+                "markdown": "md",
+                "engine": "e",
+                "title": None,
                 "url": "https://example.com/x",
             }
             # Read should return stored value cleanly even if a
@@ -633,8 +657,7 @@ class TestRunJobSafelyPurgeCheck(unittest.TestCase):
             results_lock=lock,
             registry=registry,
         )
-        self.assertEqual(results_store, {},
-                         "must NOT write results_store for a purged job")
+        self.assertEqual(results_store, {}, "must NOT write results_store for a purged job")
 
     def test_writes_when_job_still_in_registry(self):
         """Regression: when job is still in registry, write happens normally."""

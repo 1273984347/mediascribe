@@ -9,6 +9,7 @@ torch 2.6+ 兼容补丁（仅作用于模型加载窗口，不污染全局）：
 ``torch.load`` / ``default_restore_location``，finally 恢复原函数，
 进程内其他库不受影响。
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -33,9 +34,7 @@ def _whisper_load_patch() -> Iterator[None]:
     - ``default_restore_location``：将 "auto" 标签映射到 cpu。
     """
     original_load = torch.load
-    original_restore = getattr(
-        torch.serialization, "default_restore_location", None
-    )
+    original_restore = getattr(torch.serialization, "default_restore_location", None)
 
     def _patched_default_restore_location(storage, location):
         if location in ("auto", "cpu"):
@@ -63,9 +62,7 @@ def _whisper_load_patch() -> Iterator[None]:
 
     torch.load = _safe_torch_load
     if original_restore is not None:
-        torch.serialization.default_restore_location = (
-            _patched_default_restore_location
-        )
+        torch.serialization.default_restore_location = _patched_default_restore_location
     try:
         yield
     finally:
@@ -76,6 +73,7 @@ def _whisper_load_patch() -> Iterator[None]:
 
 class WhisperTranscriber(Transcriber):
     """OpenAI Whisper 转录器"""
+
     name = "whisper"
 
     def __init__(self, model: str = "small", device: Optional[str] = None):
@@ -126,6 +124,7 @@ class WhisperTranscriber(Transcriber):
 
         if self.device is None or self.device == "auto":
             import torch as _torch
+
             self.device = "cuda" if _torch.cuda.is_available() else "cpu"
 
         print(f"加载 Whisper 模型: {self.model_name} (设备: {self.device})")

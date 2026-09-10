@@ -6,6 +6,7 @@ which chunk paths it was called with and returns a deterministic
 text.  The ffmpeg dependency is bypassed by providing pre-made
 chunk files via the ``split_audio`` substitute.
 """
+
 import sys
 import unittest
 from pathlib import Path
@@ -39,9 +40,7 @@ class FakeInner:
         language: Optional[str] = None,
         **kwargs: Any,
     ) -> dict:
-        self.calls.append(
-            (str(audio_path), {"prompt": prompt, "language": language})
-        )
+        self.calls.append((str(audio_path), {"prompt": prompt, "language": language}))
         # Pretend we have one 2-second segment per chunk.
         text = f"text for {Path(audio_path).stem}"
         return {
@@ -56,9 +55,9 @@ class FakeInner:
 # Tests
 # ---------------------------------------------------------------------------
 class TestMergeHelpers(unittest.TestCase):
-
     def test_merge_texts_skips_empty(self):
         from mediascribe.transcribers.chunked import Chunk, ChunkResult, merge_texts
+
         r1 = ChunkResult(chunk=Chunk(0, 0, 10, Path("a")), text="hello", segments=[])
         r2 = ChunkResult(chunk=Chunk(1, 10, 20, Path("b")), text="", segments=[])
         r3 = ChunkResult(chunk=Chunk(2, 20, 30, Path("c")), text="world", segments=[])
@@ -66,13 +65,16 @@ class TestMergeHelpers(unittest.TestCase):
 
     def test_merge_segments_sorts_by_start(self):
         from mediascribe.transcribers.chunked import Chunk, ChunkResult, merge_segments
+
         r1 = ChunkResult(
             chunk=Chunk(0, 0, 10, Path("a")),
-            text="", segments=[{"start": 5.0, "end": 6.0, "text": "B"}],
+            text="",
+            segments=[{"start": 5.0, "end": 6.0, "text": "B"}],
         )
         r2 = ChunkResult(
             chunk=Chunk(1, 10, 20, Path("b")),
-            text="", segments=[{"start": 0.0, "end": 1.0, "text": "A"}],
+            text="",
+            segments=[{"start": 0.0, "end": 1.0, "text": "A"}],
         )
         merged = merge_segments([r1, r2])
         self.assertEqual([s["text"] for s in merged], ["A", "B"])
@@ -84,6 +86,7 @@ class TestMergeHelpers(unittest.TestCase):
             ChunkResult,
             merge_segments,
         )
+
         # chunk0 窗口 (0, 20)，chunk1 窗口 (15, 35)：15-20 的重叠区
         # 内的 "dup" 被两个 chunk 各转写一次。
         r1 = ChunkResult(
@@ -99,7 +102,7 @@ class TestMergeHelpers(unittest.TestCase):
             text="",
             segments=[
                 {"start": 15.0, "end": 20.0, "text": "dup"},  # 与 r1 重复
-                {"start": 20.0, "end": 25.0, "text": "C"},    # 首尾相接，保留
+                {"start": 20.0, "end": 25.0, "text": "C"},  # 首尾相接，保留
             ],
         )
         merged = merge_segments([r1, r2])
@@ -112,6 +115,7 @@ class TestMergeHelpers(unittest.TestCase):
             ChunkResult,
             merge_texts,
         )
+
         r1 = ChunkResult(
             chunk=Chunk(0, 0.0, 20.0, Path("a")),
             text="A dup",
@@ -132,13 +136,13 @@ class TestMergeHelpers(unittest.TestCase):
 
 
 class TestChunkedTranscriber(unittest.TestCase):
-
     def setUp(self):
         # Build a synthetic 60-second WAV.  We never call ffmpeg;
         # we patch ``split_audio`` to return fake chunks pointing at
         # this file.
         import struct
         import wave
+
         tmp = Path("test_chunked_src.wav")
         with wave.open(str(tmp), "wb") as w:
             w.setnchannels(1)
@@ -175,6 +179,7 @@ class TestChunkedTranscriber(unittest.TestCase):
             ChunkedTranscriber,
             split_audio,
         )
+
         # Patch split_audio: 3 chunks of 20s each
         chunks = [
             Chunk(0, 0.0, 20.0, self.src),
@@ -183,14 +188,13 @@ class TestChunkedTranscriber(unittest.TestCase):
         ]
         # Monkey-patch split_audio for the duration of the test
         import mediascribe.transcribers.chunked as m
+
         original = m.split_audio
         m.split_audio = lambda *a, **kw: chunks
         try:
             inner = FakeInner()
             ct = ChunkedTranscriber(inner, chunk_seconds=20, overlap_seconds=2)
-            result = ct.transcribe(
-                str(self.src), output_dir=str(self.tmpdir), language="zh"
-            )
+            result = ct.transcribe(str(self.src), output_dir=str(self.tmpdir), language="zh")
         finally:
             m.split_audio = original
         self.assertEqual(len(inner.calls), 3)
@@ -211,6 +215,7 @@ class TestChunkedTranscriber(unittest.TestCase):
         sidecar = out_md.with_suffix(out_md.suffix + ".chunks.json")
         self.assertTrue(sidecar.exists())
         import json
+
         meta = json.loads(sidecar.read_text(encoding="utf-8"))
         self.assertEqual(meta["chunk_count"], 3)
         self.assertEqual(meta["engine"], "fake")
@@ -227,13 +232,16 @@ class TestChunkedTranscriber(unittest.TestCase):
             ChunkedTranscriber,
             split_audio,
         )
+
         bad_chunk = Chunk(0, 0.0, 10.0, Path("does_not_exist.wav"))
         good_chunk = Chunk(1, 10.0, 20.0, self.src)
         original_split_audio = m.split_audio
         m.split_audio = lambda *a, **kw: [bad_chunk, good_chunk]
         try:
+
             class RaisingOnMissing:
                 name = "boom"
+
                 def transcribe(self, audio_path, *a, **kw):
                     # Raise ONLY when the chunk file is missing; this
                     # simulates the real-world "ffmpeg truncated this
@@ -265,6 +273,7 @@ class TestChunkedTranscriber(unittest.TestCase):
             Chunk,
             ChunkedTranscriber,
         )
+
         created: List[Path] = []
 
         def fake_split(src, *, out_dir=None, **kw):
@@ -294,10 +303,10 @@ class TestChunkedTranscriber(unittest.TestCase):
 
 
 class TestProbeDuration(unittest.TestCase):
-
     def test_wav_fallback(self):
         import struct
         import wave
+
         tmp = Path("test_probe.wav")
         try:
             with wave.open(str(tmp), "wb") as w:
@@ -306,6 +315,7 @@ class TestProbeDuration(unittest.TestCase):
                 w.setframerate(16000)
                 w.writeframes(struct.pack("<" + "h" * 16000, *([0] * 16000)))
             from mediascribe.transcribers.chunked import probe_duration
+
             # 1 second of silence
             self.assertAlmostEqual(probe_duration(tmp), 1.0, places=1)
         finally:

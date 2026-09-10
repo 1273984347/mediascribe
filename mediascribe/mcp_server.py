@@ -35,6 +35,7 @@ This module uses the official `mcp` Python SDK if available; if not, it
 falls back to a minimal stdio-JSON-RPC implementation that still works
 with the most common MCP clients.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -62,8 +63,7 @@ TOOL_LIST = [
                 "source": {
                     "type": "string",
                     "description": (
-                        "Video URL (Bilibili / Douyin / YouTube / Xiaohongshu) "
-                        "or local file path"
+                        "Video URL (Bilibili / Douyin / YouTube / Xiaohongshu) or local file path"
                     ),
                 },
                 "language": {
@@ -209,8 +209,7 @@ TOOL_LIST = [
                 "cookies_file": {
                     "type": "string",
                     "description": (
-                        "Optional path to a cookie file. Accepts Netscape "
-                        "or JSON formats."
+                        "Optional path to a cookie file. Accepts Netscape or JSON formats."
                     ),
                 },
                 "whisper_model": {
@@ -258,12 +257,14 @@ TOOL_LIST = [
 
 def _tool_validate_url(args: Dict[str, Any]) -> Dict[str, Any]:
     from douyin_batch.security import is_safe_url
+
     url = args.get("url", "")
     return {"url": url, "safe": is_safe_url(url)}
 
 
 def _tool_sanitize_filename(args: Dict[str, Any]) -> Dict[str, Any]:
     from douyin_batch.platform_compat import safe_filename
+
     return {"name": args.get("name", ""), "safe": safe_filename(args.get("name", ""))}
 
 
@@ -291,6 +292,7 @@ def _tool_detect_platform(args: Dict[str, Any]) -> Dict[str, Any]:
 
 def _tool_get_cache_stats(_: Dict[str, Any]) -> Dict[str, Any]:
     from douyin_batch.cache import ProcessCache
+
     cache = ProcessCache()
     return cache.get_stats()
 
@@ -318,9 +320,11 @@ def _tool_get_transcript(args: Dict[str, Any]) -> Dict[str, Any]:
           metadata without the full content.
     """
     max_bytes = 5 * 1024 * 1024  # 5 MiB
-    root = Path(
-        os.environ.get("MEDIASCRIBE_TRANSCRIPT_ROOT", "output/transcripts")
-    ).expanduser().resolve()
+    root = (
+        Path(os.environ.get("MEDIASCRIBE_TRANSCRIPT_ROOT", "output/transcripts"))
+        .expanduser()
+        .resolve()
+    )
 
     raw = str(args.get("path", "")).strip()
     if not raw:
@@ -441,6 +445,7 @@ def _tool_batch_transcribe_creator(args: Dict[str, Any]) -> Dict[str, Any]:
         MCP 工具调用链。
     """
     import subprocess
+
     env_val = os.environ.get("MEDIASCRIBE_BATCH_TIMEOUT", "").strip()
     if env_val:
         try:
@@ -451,9 +456,11 @@ def _tool_batch_transcribe_creator(args: Dict[str, Any]) -> Dict[str, Any]:
         timeout = _BATCH_DEFAULT_TIMEOUT_SECONDS
 
     cmd = [
-        sys.executable, "douyin_batch_v3.py",
+        sys.executable,
+        "douyin_batch_v3.py",
         "--json",
-        "--lang", "en",
+        "--lang",
+        "en",
     ]
     if args.get("user_url"):
         cmd.extend(["--user", args["user_url"]])
@@ -491,7 +498,12 @@ def _tool_batch_transcribe_creator(args: Dict[str, Any]) -> Dict[str, Any]:
     try:
         return json.loads(proc.stdout)
     except json.JSONDecodeError:
-        return {"ok": False, "error": "non-JSON output", "stdout": proc.stdout, "stderr": proc.stderr}
+        return {
+            "ok": False,
+            "error": "non-JSON output",
+            "stdout": proc.stdout,
+            "stderr": proc.stderr,
+        }
 
 
 def _tool_transcribe_wechat_mp(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -542,9 +554,7 @@ def _tool_transcribe_wechat_mp(args: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "ok": True,
             "url": url,
-            "mode": (
-                "video" if result.engine != "wechat_mp_text" else "text"
-            ),
+            "mode": ("video" if result.engine != "wechat_mp_text" else "text"),
             "transcript_path": str(result.transcript_path),
             "audio_path": str(result.audio_path) if result.audio_path else None,
             "engine": result.engine,
@@ -596,11 +606,14 @@ def _handle_request(req: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return _make_error(req_id, -32602, "Invalid params: params must be an object")
 
     if method == "initialize":
-        return _make_response(req_id, {
-            "protocolVersion": "2024-11-05",
-            "serverInfo": {"name": "mediascribe", "version": "2.1.0"},
-            "capabilities": {"tools": {}},
-        })
+        return _make_response(
+            req_id,
+            {
+                "protocolVersion": "2024-11-05",
+                "serverInfo": {"name": "mediascribe", "version": "2.1.0"},
+                "capabilities": {"tools": {}},
+            },
+        )
 
     if method == "notifications/initialized":
         return None  # notification, no response
@@ -614,21 +627,32 @@ def _handle_request(req: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         handler = TOOL_HANDLERS.get(name)
         if handler is None:
             # Per MCP spec, tool-not-found is reported as a result with isError=true
-            return _make_response(req_id, {
-                "content": [{"type": "text", "text": f"Unknown tool: {name}"}],
-                "isError": True,
-            })
+            return _make_response(
+                req_id,
+                {
+                    "content": [{"type": "text", "text": f"Unknown tool: {name}"}],
+                    "isError": True,
+                },
+            )
         try:
             result = handler(args)
         except Exception as exc:
-            return _make_response(req_id, {
-                "content": [{"type": "text", "text": f"Error: {type(exc).__name__}: {exc}"}],
-                "isError": True,
-            })
-        return _make_response(req_id, {
-            "content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, indent=2)}],
-            "isError": False,
-        })
+            return _make_response(
+                req_id,
+                {
+                    "content": [{"type": "text", "text": f"Error: {type(exc).__name__}: {exc}"}],
+                    "isError": True,
+                },
+            )
+        return _make_response(
+            req_id,
+            {
+                "content": [
+                    {"type": "text", "text": json.dumps(result, ensure_ascii=False, indent=2)}
+                ],
+                "isError": False,
+            },
+        )
 
     if method == "ping":
         return _make_response(req_id, {})
@@ -701,6 +725,7 @@ def _mcp_token_ok(headers: Any) -> bool:
     if not presented:
         return False
     import hmac
+
     return hmac.compare_digest(presented, expected)
 
 
@@ -768,7 +793,8 @@ def _make_http_server(host: str, port: int) -> Any:
                 return
             if not _mcp_token_ok(self.headers):
                 self._reply_plain(
-                    401, "missing or invalid MCP token",
+                    401,
+                    "missing or invalid MCP token",
                     WWW_Authenticate="Bearer",
                 )
                 return
@@ -833,7 +859,9 @@ def main() -> None:
         description="MediaScribe MCP server — expose transcription as MCP tools"
     )
     parser.add_argument(
-        "--transport", choices=["stdio", "http"], default="stdio",
+        "--transport",
+        choices=["stdio", "http"],
+        default="stdio",
         help="Transport protocol (default: stdio)",
     )
     parser.add_argument("--host", default="127.0.0.1")

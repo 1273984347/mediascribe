@@ -1,4 +1,5 @@
 """Tests for mediascribe.learn v2 — ASR auto-learning module."""
+
 from __future__ import annotations
 
 import json

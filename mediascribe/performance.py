@@ -15,6 +15,7 @@ Three layers:
 A separate ``download_cache`` provides a URL → on-disk-path cache
 so the same URL is not re-downloaded within a single pipeline run.
 """
+
 from __future__ import annotations
 
 import contextvars
@@ -38,8 +39,8 @@ STEP_TIMES: Dict[str, List[float]] = {}
 # context 里持有一份注册表,不再互相清空/混写进程级 ``STEP_TIMES``。
 # ``None`` 表示无 run 上下文 — 所有 API 回退到全局 ``STEP_TIMES``
 # (向后兼容:老调用方直接读写 ``STEP_TIMES`` 的行为不变)。
-_RUN_TIMES: contextvars.ContextVar[Optional[Dict[str, List[float]]]] = (
-    contextvars.ContextVar("mediascribe_step_times_run", default=None)
+_RUN_TIMES: contextvars.ContextVar[Optional[Dict[str, List[float]]]] = contextvars.ContextVar(
+    "mediascribe_step_times_run", default=None
 )
 
 
@@ -79,6 +80,7 @@ def profile_step(name: Optional[str] = None, *, log_to: Optional[Path] = None) -
     With ``log_to`` set, every call also appends a JSONL line to the
     given file for offline analysis by ``python -m mediascribe.profile``.
     """
+
     def deco(fn: Callable) -> Callable:
         label = name or fn.__qualname__
 
@@ -92,7 +94,9 @@ def profile_step(name: Optional[str] = None, *, log_to: Optional[Path] = None) -
                 _current_registry().setdefault(label, []).append(dur)
                 if log_to is not None:
                     _append_jsonl(log_to, label, dur)
+
         return wrapper
+
     return deco
 
 
@@ -100,6 +104,7 @@ def _append_jsonl(path: Path, label: str, duration: float) -> None:
     """Append a single timing record to ``path`` as a JSONL line."""
     import json
     from datetime import datetime, timezone
+
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     record = {
@@ -133,6 +138,7 @@ def get_step_times() -> Dict[str, List[float]]:
 @dataclass
 class PerformanceReport:
     """A serialisable snapshot of per-step timings."""
+
     generated_at: str = ""
     steps: Dict[str, Dict[str, float]] = field(default_factory=dict)
     total_sec: float = 0.0
@@ -140,6 +146,7 @@ class PerformanceReport:
     @classmethod
     def from_registry(cls) -> "PerformanceReport":
         from datetime import datetime, timezone
+
         steps: Dict[str, Dict[str, float]] = {}
         for label, durations in _current_registry().items():
             if not durations:
@@ -163,10 +170,13 @@ class PerformanceReport:
     def to_markdown(self) -> str:
         if not self.steps:
             return "_No steps recorded._\n"
-        lines = ["| Step | Count | Total (s) | Mean (s) | Min (s) | Max (s) |",
-                 "|------|-------|-----------|----------|---------|---------|"]
+        lines = [
+            "| Step | Count | Total (s) | Mean (s) | Min (s) | Max (s) |",
+            "|------|-------|-----------|----------|---------|---------|",
+        ]
         for label, s in sorted(
-            self.steps.items(), key=lambda x: -x[1]["total_sec"],
+            self.steps.items(),
+            key=lambda x: -x[1]["total_sec"],
         ):
             lines.append(
                 f"| {label} | {int(s['count'])} | {s['total_sec']:.3f} | "
@@ -252,10 +262,10 @@ class DownloadCache:
 
     def put(self, url: str, src: Path) -> Path:
         """Copy ``src`` into the cache under a stable name and remember it."""
-        safe = "".join(
-            c if c.isalnum() or c in ("-", "_", ".") else "_"
-            for c in url
-        )[:200] or "unnamed"
+        safe = (
+            "".join(c if c.isalnum() or c in ("-", "_", ".") else "_" for c in url)[:200]
+            or "unnamed"
+        )
         dst = self._root / safe
         if not dst.exists():
             shutil.copy2(src, dst)
@@ -263,8 +273,7 @@ class DownloadCache:
         return dst
 
     def stats(self) -> Dict[str, int]:
-        return {"hits": self._hits, "misses": self._misses,
-                "entries": len(self._seen)}
+        return {"hits": self._hits, "misses": self._misses, "entries": len(self._seen)}
 
     def clear(self) -> None:
         if self._root.exists():

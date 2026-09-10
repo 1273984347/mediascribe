@@ -12,6 +12,7 @@ v3.2.0e 优化：
 v3.2.0g: 下载逻辑收敛到 ``_http_download.stream_download``（与
 wechat_mp / xiaohongshu 共享同一实现：.part 临时文件 + 失败清理 + 重试）。
 """
+
 from __future__ import annotations
 
 import logging
@@ -37,6 +38,7 @@ _build_session = _build_http_session
 
 class DouyinDownloader(Downloader):
     """抖音专用下载器"""
+
     name = "douyin"
 
     def __init__(self):
@@ -67,8 +69,10 @@ class DouyinDownloader(Downloader):
 
         if not media_url:
             logger.warning("无法自动获取媒体 URL")
-            logger.warning("手动方案: 浏览器 F12 → Network → 播放视频 → "
-                           "找 douyinvod.com 请求 → 复制 URL 直接作为输入")
+            logger.warning(
+                "手动方案: 浏览器 F12 → Network → 播放视频 → "
+                "找 douyinvod.com 请求 → 复制 URL 直接作为输入"
+            )
             raise RuntimeError("无法获取抖音视频的真实媒体 URL，请尝试手动获取")
 
         # 下载媒体文件
@@ -107,9 +111,7 @@ class DouyinDownloader(Downloader):
             },
         )
 
-    def _extract_media_url_with_browser(
-        self, url: str
-    ) -> tuple[Optional[str], Optional[str]]:
+    def _extract_media_url_with_browser(self, url: str) -> tuple[Optional[str], Optional[str]]:
         """使用 Playwright 浏览器自动化提取真实媒体 URL。
 
         v3.2.0e: Playwright 解析失败时重试最多 ``_PLAYWRIGHT_MAX_ATTEMPTS`` 次。
@@ -139,13 +141,16 @@ class DouyinDownloader(Downloader):
                     return self._pick_best_urls(media_urls)
                 logger.warning(
                     "Playwright 尝试 %d/%d 未捕获到 douyinvod 媒体链接",
-                    attempt, _PLAYWRIGHT_MAX_ATTEMPTS,
+                    attempt,
+                    _PLAYWRIGHT_MAX_ATTEMPTS,
                 )
             except Exception as e:
                 last_error = e
                 logger.warning(
                     "Playwright 尝试 %d/%d 失败: %r",
-                    attempt, _PLAYWRIGHT_MAX_ATTEMPTS, e,
+                    attempt,
+                    _PLAYWRIGHT_MAX_ATTEMPTS,
+                    e,
                 )
             if attempt < _PLAYWRIGHT_MAX_ATTEMPTS:
                 time.sleep(1.0)
@@ -161,9 +166,7 @@ class DouyinDownloader(Downloader):
 
         def handle_response(response):
             rurl = response.url
-            if "douyinvod.com" in rurl and (
-                ".mp4" in rurl or ".m3u8" in rurl or "video" in rurl
-            ):
+            if "douyinvod.com" in rurl and (".mp4" in rurl or ".m3u8" in rurl or "video" in rurl):
                 media_urls.append(rurl)
 
         with sync_playwright() as p:
@@ -284,11 +287,18 @@ class DouyinDownloader(Downloader):
 
         ffmpeg = shutil.which("ffmpeg") or "ffmpeg"
         cmd = [
-            ffmpeg, "-y",
-            "-i", str(video_path),
-            "-i", str(audio_path),
-            "-c", "copy",
-            "-map", "0:v:0", "-map", "1:a:0",
+            ffmpeg,
+            "-y",
+            "-i",
+            str(video_path),
+            "-i",
+            str(audio_path),
+            "-c",
+            "copy",
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
             str(out_path),
         ]
         try:
@@ -303,7 +313,8 @@ class DouyinDownloader(Downloader):
                     else str(e.stderr)
                 )[-2000:]
             logger.warning(
-                "ffmpeg 合并音视频失败: %r%s", e,
+                "ffmpeg 合并音视频失败: %r%s",
+                e,
                 f"\nffmpeg stderr 末尾:\n{stderr_tail}" if stderr_tail else "",
             )
             if out_path.exists():

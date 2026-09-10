@@ -23,6 +23,7 @@ and max.  Filtering options:
 * ``--by-stage S``   keep only records whose label contains "S"
 * ``--since YYYY-MM-DD`` drop records older than the date (uses ``ts``)
 """
+
 from __future__ import annotations
 
 import argparse
@@ -95,6 +96,7 @@ def filter_records(
             # Normalise cutoff to naive UTC if records are tz-aware
             if ts.tzinfo is not None and cutoff.tzinfo is None:
                 from datetime import timezone
+
                 cutoff = cutoff.replace(tzinfo=timezone.utc)
             if ts >= cutoff:
                 kept.append(r)
@@ -117,26 +119,30 @@ def aggregate(records: List[dict]) -> List[AggregatedStage]:
             continue
         sorted_d = sorted(durations)
         n = len(sorted_d)
+
         # p50 / p95 via simple percentile
         def pct(p: float) -> float:
             if n == 1:
                 return sorted_d[0]
             k = int(round(p / 100.0 * (n - 1)))
             return sorted_d[k]
+
         try:
             p50 = statistics.median(sorted_d)
         except statistics.StatisticsError:
             p50 = sorted_d[0]
-        out.append(AggregatedStage(
-            label=label,
-            count=n,
-            total_sec=sum(sorted_d),
-            mean_sec=sum(sorted_d) / n,
-            p50_sec=p50,
-            p95_sec=pct(95),
-            max_sec=max(sorted_d),
-            min_sec=min(sorted_d),
-        ))
+        out.append(
+            AggregatedStage(
+                label=label,
+                count=n,
+                total_sec=sum(sorted_d),
+                mean_sec=sum(sorted_d) / n,
+                p50_sec=p50,
+                p95_sec=pct(95),
+                max_sec=max(sorted_d),
+                min_sec=min(sorted_d),
+            )
+        )
     out.sort(key=lambda s: s.total_sec, reverse=True)
     return out
 
@@ -189,11 +195,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--top", type=int, default=None, help="Keep top N slowest stages")
     parser.add_argument("--by-stage", type=str, default=None, help="Filter by label substring")
     parser.add_argument(
-        "--since", type=str, default=None,
+        "--since",
+        type=str,
+        default=None,
         help="Drop records before YYYY-MM-DD",
     )
     parser.add_argument(
-        "--json", action="store_true", help="Emit JSON instead of Markdown",
+        "--json",
+        action="store_true",
+        help="Emit JSON instead of Markdown",
     )
     args = parser.parse_args(argv)
 

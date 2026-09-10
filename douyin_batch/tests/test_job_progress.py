@@ -1,4 +1,5 @@
 """Tests for v3.2.0a WebSocket-friendly job progress module."""
+
 from __future__ import annotations
 
 import sys
@@ -121,9 +122,7 @@ class TestJobProgress(unittest.TestCase):
     def test_stages_in_order(self):
         from mediascribe.progress import STAGES
 
-        self.assertEqual(
-            STAGES, ("download", "extract_audio", "transcribe", "merge")
-        )
+        self.assertEqual(STAGES, ("download", "extract_audio", "transcribe", "merge"))
 
 
 # ---------------------------------------------------------------------------
@@ -216,8 +215,7 @@ class TestBoundedEventsQueue(unittest.TestCase):
         events = []
         while not job.events.empty():
             events.append(job.events.get_nowait()["event"])
-        self.assertEqual(events[-1], "succeeded",
-                         "终态事件必须保留在队尾(丢最旧策略)")
+        self.assertEqual(events[-1], "succeeded", "终态事件必须保留在队尾(丢最旧策略)")
 
 
 # ---------------------------------------------------------------------------
@@ -251,10 +249,8 @@ class TestWithProgress(unittest.TestCase):
         # called for it — the pipeline.transcribe() call below is
         # what produces the audio.  Only the transcribe + merge
         # stages end with finish_stage().
-        self.assertEqual([e["stage"] for e in starts],
-                         ["download", "transcribe", "merge"])
-        self.assertEqual([e["stage"] for e in dones],
-                         ["transcribe", "merge"])
+        self.assertEqual([e["stage"] for e in starts], ["download", "transcribe", "merge"])
+        self.assertEqual([e["stage"] for e in dones], ["transcribe", "merge"])
         self.assertTrue(any(e["event"] == "succeeded" for e in events))
 
     def test_cancellation_raises_and_marks_job(self):

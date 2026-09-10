@@ -11,6 +11,7 @@ v3.2.0b — :class:`AsyncPipeline` unit tests.
 6. ``cancel()`` 把 in-flight 任务取消
 7. :class:`Pipeline` 公共契约 (v3.2.0a) 仍可用
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -46,6 +47,7 @@ def _run_coro(coro):
     if loop and loop.is_running():
         # 已有 event loop (pytest-asyncio 等),用新线程跑
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             return pool.submit(asyncio.run, coro).result()
     return asyncio.run(coro)
@@ -122,9 +124,7 @@ class TestAsyncPipelineRun(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             audio = _audio_file(tmp)
-            sync = Pipeline(
-                settings=_fake_settings(tmp), transcriber=_fake_transcriber()
-            )
+            sync = Pipeline(settings=_fake_settings(tmp), transcriber=_fake_transcriber())
             ap = from_sync(sync)
             result = _run_coro(ap.run(str(audio)))
             self.assertIsInstance(result, TranscriptResult)
@@ -138,9 +138,7 @@ class TestAsyncPipelineRunBatch(unittest.TestCase):
     def test_empty_input_returns_empty(self):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
-            sync = Pipeline(
-                settings=_fake_settings(tmp), transcriber=_fake_transcriber()
-            )
+            sync = Pipeline(settings=_fake_settings(tmp), transcriber=_fake_transcriber())
             ap = from_sync(sync)
             self.assertEqual(_run_coro(ap.run_batch([])), [])
 
@@ -150,9 +148,7 @@ class TestAsyncPipelineRunBatch(unittest.TestCase):
             tmp = Path(td)
             for i in range(6):
                 _audio_file(tmp, f"a{i}.wav")
-            sync = Pipeline(
-                settings=_fake_settings(tmp), transcriber=_fake_transcriber()
-            )
+            sync = Pipeline(settings=_fake_settings(tmp), transcriber=_fake_transcriber())
             ap = AsyncPipeline(sync, max_concurrent=2)
             in_flight = 0
             peak = 0
@@ -185,9 +181,7 @@ class TestAsyncPipelineRunBatch(unittest.TestCase):
             tmp = Path(td)
             for i in range(3):
                 _audio_file(tmp, f"a{i}.wav")
-            sync = Pipeline(
-                settings=_fake_settings(tmp), transcriber=_fake_transcriber()
-            )
+            sync = Pipeline(settings=_fake_settings(tmp), transcriber=_fake_transcriber())
             ap = AsyncPipeline(sync, max_concurrent=2)
             # 让 transcribe 在第二个文件抛异常
             transcriber = sync.transcriber
@@ -251,9 +245,7 @@ class TestSharedGpuSemaphore(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
-            sync = Pipeline(
-                settings=_fake_settings(tmp), transcriber=_fake_transcriber()
-            )
+            sync = Pipeline(settings=_fake_settings(tmp), transcriber=_fake_transcriber())
             cpu_health = {
                 "available": False,
                 "device": "cpu",
@@ -262,15 +254,14 @@ class TestSharedGpuSemaphore(unittest.TestCase):
             }
 
             async def driver():
-                with mock.patch(
-                    "mediascribe.pipeline_async._GPU_HEALTH_CACHE"
-                ) as cache:
+                with mock.patch("mediascribe.pipeline_async._GPU_HEALTH_CACHE") as cache:
                     cache.get.return_value = cpu_health
                     aps = [AsyncPipeline(sync, max_concurrent=4) for _ in range(2)]
                     in_flight = 0
                     peak = 0
 
                     for ap in aps:
+
                         async def tracked_run(src, **kw):
                             nonlocal in_flight, peak
                             in_flight += 1
@@ -283,10 +274,7 @@ class TestSharedGpuSemaphore(unittest.TestCase):
 
                         ap.run = tracked_run  # type: ignore[assignment]
 
-                    batches = [
-                        ap.run_batch([f"src{i}" for i in range(6)])
-                        for ap in aps
-                    ]
+                    batches = [ap.run_batch([f"src{i}" for i in range(6)]) for ap in aps]
                     await asyncio.gather(*batches)
                 return peak
 
@@ -351,9 +339,7 @@ class TestAsyncPipelineCancel(unittest.TestCase):
     def test_cancel_returns_n_when_tasks_in_flight(self):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
-            sync = Pipeline(
-                settings=_fake_settings(tmp), transcriber=_fake_transcriber()
-            )
+            sync = Pipeline(settings=_fake_settings(tmp), transcriber=_fake_transcriber())
             ap = AsyncPipeline(sync, max_concurrent=2)
 
             async def fake_run(src, **kw):
@@ -385,9 +371,7 @@ class TestPipelinePublicContract(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             audio = _audio_file(tmp)
-            sync = Pipeline(
-                settings=_fake_settings(tmp), transcriber=_fake_transcriber()
-            )
+            sync = Pipeline(settings=_fake_settings(tmp), transcriber=_fake_transcriber())
             r = sync.transcribe(str(audio))
             self.assertIsInstance(r, TranscriptResult)
             self.assertEqual(r.text, "hello world")
@@ -415,39 +399,32 @@ class TestGpuAwareConcurrency(unittest.TestCase):
 
     # -- 非 CUDA 不收紧 ----------------------------------------------------
     def test_cpu_device_returns_base_unchanged(self):
-        health = {"available": False, "device": "cpu",
-                  "vram_total_mb": None, "vram_used_mb": None}
+        health = {"available": False, "device": "cpu", "vram_total_mb": None, "vram_used_mb": None}
         self.assertEqual(_gpu_aware_concurrency(4, health=health), 4)
 
     def test_metal_device_returns_base_unchanged(self):
         # metal / rocm 等非 cuda 后备,不参与 VRAM 计算
-        health = {"available": True, "device": "metal",
-                  "vram_total_mb": None, "vram_used_mb": None}
+        health = {"available": True, "device": "metal", "vram_total_mb": None, "vram_used_mb": None}
         self.assertEqual(_gpu_aware_concurrency(4, health=health), 4)
 
     def test_cuda_but_no_vram_info_returns_base(self):
         # CUDA 可用但 mem_get_info 探测失败 → 保守不收紧
-        health = {"available": True, "device": "cuda",
-                  "vram_total_mb": None, "vram_used_mb": None}
+        health = {"available": True, "device": "cuda", "vram_total_mb": None, "vram_used_mb": None}
         self.assertEqual(_gpu_aware_concurrency(4, health=health), 4)
 
     # -- CUDA 收紧逻辑 -----------------------------------------------------
     def test_cuda_tightens_to_free_vram_div_vram_per_task(self):
         # free = 24576 - 6144 = 18432 MB;18432 // 3000 = 6;min(4, 6) = 4
-        self.assertEqual(
-            _gpu_aware_concurrency(4, health=self._CUDA_HEALTH), 4
-        )
+        self.assertEqual(_gpu_aware_concurrency(4, health=self._CUDA_HEALTH), 4)
 
     def test_cuda_low_vram_caps_below_base(self):
         # free = 5000 MB;5000 // 3000 = 1;min(4, 1) = 1
-        health = {**self._CUDA_HEALTH, "vram_total_mb": 8192,
-                  "vram_used_mb": 3192}  # free = 5000
+        health = {**self._CUDA_HEALTH, "vram_total_mb": 8192, "vram_used_mb": 3192}  # free = 5000
         self.assertEqual(_gpu_aware_concurrency(4, health=health), 1)
 
     def test_cuda_vram_just_below_two_tasks_caps_to_one(self):
         # free = 5999 MB;5999 // 3000 = 1(差 1MB 到 2)
-        health = {**self._CUDA_HEALTH, "vram_total_mb": 12000,
-                  "vram_used_mb": 6001}  # free = 5999
+        health = {**self._CUDA_HEALTH, "vram_total_mb": 12000, "vram_used_mb": 6001}  # free = 5999
         self.assertEqual(_gpu_aware_concurrency(4, health=health), 1)
 
     def test_cuda_zero_free_vram_still_returns_one(self):
@@ -457,25 +434,19 @@ class TestGpuAwareConcurrency(unittest.TestCase):
 
     def test_base_one_returns_one_regardless_of_gpu(self):
         # base=1 (串行) 时直接返回 1,跳过 GPU 探测
-        self.assertEqual(
-            _gpu_aware_concurrency(1, health=self._CUDA_HEALTH), 1
-        )
+        self.assertEqual(_gpu_aware_concurrency(1, health=self._CUDA_HEALTH), 1)
 
     def test_custom_vram_per_task_overrides_default(self):
         # free = 18432;18432 // 5000 = 3;min(4, 3) = 3
         self.assertEqual(
-            _gpu_aware_concurrency(
-                4, vram_per_task_mb=5000, health=self._CUDA_HEALTH
-            ),
+            _gpu_aware_concurrency(4, vram_per_task_mb=5000, health=self._CUDA_HEALTH),
             3,
         )
 
     def test_zero_vram_per_task_returns_base(self):
         # 非法 vram_per_task → 保守不收紧
         self.assertEqual(
-            _gpu_aware_concurrency(
-                4, vram_per_task_mb=0, health=self._CUDA_HEALTH
-            ),
+            _gpu_aware_concurrency(4, vram_per_task_mb=0, health=self._CUDA_HEALTH),
             4,
         )
 
@@ -487,8 +458,7 @@ class TestVramPerTaskEnv(unittest.TestCase):
 
     def test_invalid_env_falls_back(self):
         for bad in ("0", "-1", "abc", ""):
-            env = {k: v for k, v in os.environ.items()
-                   if k != "MEDIASCRIBE_VRAM_PER_TASK_MB"}
+            env = {k: v for k, v in os.environ.items() if k != "MEDIASCRIBE_VRAM_PER_TASK_MB"}
             env["MEDIASCRIBE_VRAM_PER_TASK_MB"] = bad
             with mock.patch.dict(os.environ, env, clear=True):
                 self.assertGreater(_vram_per_task_mb(), 0)
@@ -539,9 +509,11 @@ class TestRunnerInjection(unittest.TestCase):
         sync.settings = mock.MagicMock()
         ap = AsyncPipeline(sync)
         captured = {}
+
         def my_runner():
             captured["hit"] = True
             return "CUSTOM"
+
         result = _run_coro(ap.run("u", runner=my_runner))
         self.assertEqual(result, "CUSTOM")
         self.assertTrue(captured.get("hit"))
@@ -558,6 +530,7 @@ class TestRunnerInjection(unittest.TestCase):
             def _r():
                 calls[sentinel] = True
                 return f"ok:{sentinel}"
+
             return _r
 
         def bad():
@@ -583,9 +556,7 @@ class TestRunnerInjection(unittest.TestCase):
             tmp = Path(td)
             for i in range(3):
                 _audio_file(tmp, f"a{i}.wav")
-            sync = Pipeline(
-                settings=_fake_settings(tmp), transcriber=_fake_transcriber()
-            )
+            sync = Pipeline(settings=_fake_settings(tmp), transcriber=_fake_transcriber())
             ap = AsyncPipeline(sync, max_concurrent=2)
             src1 = str(tmp / "a1.wav")
             custom = {src1: (lambda: "CUSTOM")}

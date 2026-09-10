@@ -5,6 +5,7 @@ The detector previously required ``/s?`` in the URL, which rejected
 the more common ``/s/<id>`` form found in the wild.  This test pins
 both shapes to ``wechat_mp``.
 """
+
 import os
 import sys
 import unittest
@@ -19,6 +20,7 @@ class TestWechatMpDetector(unittest.TestCase):
 
     def test_s_question_mark_form(self):
         from mediascribe.inputs import parse_source
+
         url = "https://mp.weixin.qq.com/s?__biz=MzA&mid=123&idx=1"
         ref = parse_source(url)
         self.assertEqual(ref.kind, "wechat_mp")
@@ -26,6 +28,7 @@ class TestWechatMpDetector(unittest.TestCase):
 
     def test_s_slash_id_form(self):
         from mediascribe.inputs import parse_source
+
         url = "https://mp.weixin.qq.com/s/abc123def456?__biz=MzB&mid=456"
         ref = parse_source(url)
         self.assertEqual(ref.kind, "wechat_mp")
@@ -34,6 +37,7 @@ class TestWechatMpDetector(unittest.TestCase):
         # The /s/ substring alone is enough to disambiguate from
         # any other mp.weixin.qq.com path (e.g. /cgi-bin/...).
         from mediascribe.inputs import parse_source
+
         url = "https://mp.weixin.qq.com/s/abc123def456"
         ref = parse_source(url)
         self.assertEqual(ref.kind, "wechat_mp")
@@ -42,6 +46,7 @@ class TestWechatMpDetector(unittest.TestCase):
         # A non-article path on the same host must NOT be classified
         # as wechat_mp.
         from mediascribe.inputs import parse_source
+
         url = "https://mp.weixin.qq.com/cgi-bin/appmsg"
         ref = parse_source(url)
         self.assertNotEqual(ref.kind, "wechat_mp")

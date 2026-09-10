@@ -52,6 +52,7 @@ Security:
       ``MEDIASCRIBE_WS_MAX_SESSION_SECONDS`` /
       ``MEDIASCRIBE_WS_IDLE_TIMEOUT_SECONDS`` (WebSocket lifetime caps).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -82,6 +83,7 @@ try:
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import HTMLResponse
     from pydantic import BaseModel, Field, field_validator
+
     _FASTAPI_AVAILABLE = True
 except ImportError:  # pragma: no cover - optional
     _FASTAPI_AVAILABLE = False
@@ -101,6 +103,7 @@ def _configure_logging_from_env() -> None:
     level = getattr(logging, raw, None)
     if isinstance(level, int):
         logging.getLogger().setLevel(level)
+
 
 ROOT = Path(__file__).parent.parent.parent
 STATIC_DIR = Path(__file__).parent / "static"
@@ -122,6 +125,7 @@ def _read_extension_manifest_version() -> str:
         return "0.0.0"
     try:
         import json as _json
+
         data = _json.loads(manifest_path.read_text(encoding="utf-8"))
         v = str(data.get("version", "0.0.0")).strip()
         return v or "0.0.0"
@@ -157,11 +161,25 @@ if _FASTAPI_AVAILABLE:
             # 允许: http(s) URL / 本地文件路径 / 抖音短链接文本(无 "://")
             DANGEROUS = (
                 # 网络协议
-                "file://", "ftp://", "ftps://", "data:", "gopher://",
-                "dict://", "ldap://", "ldaps://", "jar://", "netdoc://",
+                "file://",
+                "ftp://",
+                "ftps://",
+                "data:",
+                "gopher://",
+                "dict://",
+                "ldap://",
+                "ldaps://",
+                "jar://",
+                "netdoc://",
                 # DRL R2 补全 (F-1): 浏览器/脚本 scheme (XSS 反射 + 浏览器协议误用)
-                "javascript:", "vbscript:", "blob:", "view-source:",
-                "about:", "chrome:", "chrome-extension:", "moz-extension:",
+                "javascript:",
+                "vbscript:",
+                "blob:",
+                "view-source:",
+                "about:",
+                "chrome:",
+                "chrome-extension:",
+                "moz-extension:",
             )
             for url in v:
                 low = url.strip().lower()
@@ -297,13 +315,15 @@ def _run_one(pipeline, url: str, out_dir: Path, req: "TranscribeRequest") -> "Tr
         )
         if not out_path.exists():
             return TranscribeItem(
-                url=url, ok=False,
+                url=url,
+                ok=False,
                 error="Pipeline returned but no .md file produced",
             )
         md = out_path.read_text(encoding="utf-8", errors="replace")
         meta = result.metadata or {}
         return TranscribeItem(
-            url=url, ok=True,
+            url=url,
+            ok=True,
             engine=result.engine,
             markdown=md,
             title=meta.get("title"),
@@ -369,6 +389,7 @@ def _require_api_token(authorization: Optional[str] = Header(default=None)) -> N
     to prevent timing oracles against the secret.
     """
     import hmac
+
     expected = os.environ.get("MEDIASCRIBE_API_TOKEN", "").strip()
     if not expected:
         return  # auth disabled
@@ -399,6 +420,7 @@ def _verify_api_token(presented: Optional[str]) -> bool:
     if not presented or not presented.strip():
         return False
     import hmac
+
     return hmac.compare_digest(presented.strip(), expected)
 
 
@@ -480,12 +502,14 @@ def _validate_public_url(url: str) -> str:
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
         if (
-            ip.is_private or ip.is_loopback or ip.is_link_local
-            or ip.is_reserved or ip.is_multicast or ip.is_unspecified
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
         ):
-            raise ValueError(
-                f"URL 指向私有/环回/链路本地/保留地址, 已拒绝 (SSRF 防护): {hostname}"
-            )
+            raise ValueError(f"URL 指向私有/环回/链路本地/保留地址, 已拒绝 (SSRF 防护): {hostname}")
     return url
 
 
@@ -616,10 +640,7 @@ class _RateLimiter:
 
         Caller must hold ``_lock``.
         """
-        dead = [
-            k for k, b in self._buckets.items()
-            if not b or b[-1] <= cutoff
-        ]
+        dead = [k for k, b in self._buckets.items() if not b or b[-1] <= cutoff]
         for k in dead:
             self._buckets.pop(k, None)
         return len(dead)
@@ -750,6 +771,7 @@ def _cached_gpu_health(ttl_seconds: float = 1.0) -> Dict[str, Any]:
         return cached
     # Local import — keeps the module importable without torch.
     from mediascribe.pipeline import gpu_health
+
     fresh = gpu_health()
     with _gpu_health_lock:
         _gpu_health_cache["ts"] = time.monotonic()
@@ -856,9 +878,7 @@ def _run_job_safely(
     v3.2.0e:批量提交已改走 :func:`_run_batch_job`(``AsyncPipeline.run_batch``),
     此处保留以兼容单 URL 直接 ``ThreadPoolExecutor.submit`` 的调用方。
     """
-    _store_job_result(
-        runner, job_id, out_path, url, results_store, results_lock, registry
-    )
+    _store_job_result(runner, job_id, out_path, url, results_store, results_lock, registry)
 
 
 def _run_batch_job(
@@ -920,7 +940,9 @@ class _JobEventBridge:
         self._subscribers: "set[asyncio.Queue]" = set()
         self._subscribers_lock = threading.Lock()
         self._thread = threading.Thread(
-            target=self._drain, daemon=True, name="v2t-ws-bridge",
+            target=self._drain,
+            daemon=True,
+            name="v2t-ws-bridge",
         )
         self._thread.start()
 
@@ -956,7 +978,9 @@ class _JobEventBridge:
             for q in subs:
                 try:
                     self._loop.call_soon_threadsafe(
-                        _aio_queue_put_drop_oldest, q, event,
+                        _aio_queue_put_drop_oldest,
+                        q,
+                        event,
                     )
                 except RuntimeError:
                     # 事件循环已关闭(应用停机)— 退出线程。
@@ -966,9 +990,11 @@ class _JobEventBridge:
                 break
 
 
-def create_app(workspace: Optional[Path] = None,
-               api_token: Optional[str] = None,
-               cors_origins: Optional[List[str]] = None):
+def create_app(
+    workspace: Optional[Path] = None,
+    api_token: Optional[str] = None,
+    cors_origins: Optional[List[str]] = None,
+):
     """Build the FastAPI app.  ``workspace`` is the temp dir for transcripts.
 
     Args:
@@ -983,9 +1009,7 @@ def create_app(workspace: Optional[Path] = None,
             extension-friendly defaults.
     """
     if not _FASTAPI_AVAILABLE:
-        raise RuntimeError(
-            "FastAPI is not installed. Run: pip install mediascribe[web]"
-        )
+        raise RuntimeError("FastAPI is not installed. Run: pip install mediascribe[web]")
     # 附加修复: docker-compose 已设 ``MEDIASCRIBE_LOG_LEVEL=info`` 但代码
     # 此前不读 — 在应用装配处应用一次(幂等)。
     _configure_logging_from_env()
@@ -1154,12 +1178,11 @@ def create_app(workspace: Optional[Path] = None,
             "Enter your Bearer token on the options page after loading "
             "the extension. The server you are talking to requires one."
             if auth_on
-            else "No token is required by the server, so the extension "
-            "options page is optional."
+            else "No token is required by the server, so the extension options page is optional."
         )
         # Render the same dark theme as the main UI for visual consistency.
         html = (
-            "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+            '<!doctype html><html lang="en"><head><meta charset="utf-8">'
             "<title>MediaScribe Browser Extension</title>"
             "<style>"
             "body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"
@@ -1178,18 +1201,18 @@ def create_app(workspace: Optional[Path] = None,
             "color:#94a3b8;padding:2px 8px;border-radius:99px;font-size:11px;margin-left:6px;}"
             ".ok{color:#22c55e;}.warn{color:#f59e0b;}"
             "</style></head><body>"
-            "<div class=\"card\">"
+            '<div class="card">'
             "<h1>MediaScribe Browser Extension"
-            f"<span class=\"tag\">manifest v{_EXTENSION_MANIFEST_VERSION}</span>"
+            f'<span class="tag">manifest v{_EXTENSION_MANIFEST_VERSION}</span>'
             "</h1>"
             "<p>Send the URL of the page you are reading straight to this "
             "Web UI and read the transcript in a toolbar popup or the "
             "browser's right-side panel.</p>"
             f"<p>{token_hint}</p>"
-            "<a class=\"btn\" href=\"/api/extension/download\">Download "
+            '<a class="btn" href="/api/extension/download">Download '
             "extension (.zip)</a> "
-            "<a class=\"btn\" href=\"/api/extension/install.md\" "
-            "style=\"background:#0b1220;color:#e2e8f0;border:1px solid #334155;\">"
+            '<a class="btn" href="/api/extension/install.md" '
+            'style="background:#0b1220;color:#e2e8f0;border:1px solid #334155;">'
             "Install guide (markdown)</a>"
             "<h2>Install in 30 seconds</h2>"
             "<ol>"
@@ -1231,10 +1254,9 @@ def create_app(workspace: Optional[Path] = None,
             # Tolerate both ``app`` (loaded as a script module by the
             # test client) and the proper package import.
             import importlib
+
             try:
-                builder = importlib.import_module(
-                    "mediascribe.web.extension_builder"
-                )
+                builder = importlib.import_module("mediascribe.web.extension_builder")
             except Exception:
                 builder = importlib.import_module("extension_builder")
             build_extension_zip = builder.build_extension_zip
@@ -1262,6 +1284,7 @@ def create_app(workspace: Optional[Path] = None,
             )
         # Use a Response so we can set Content-Disposition explicitly.
         from fastapi.responses import Response
+
         return Response(
             content=zip_bytes,
             media_type="application/zip",
@@ -1284,10 +1307,9 @@ def create_app(workspace: Optional[Path] = None,
         """
         try:
             import importlib
+
             try:
-                builder = importlib.import_module(
-                    "mediascribe.web.extension_builder"
-                )
+                builder = importlib.import_module("mediascribe.web.extension_builder")
             except Exception:
                 builder = importlib.import_module("extension_builder")
             build_install_markdown = builder.build_install_markdown
@@ -1301,6 +1323,7 @@ def create_app(workspace: Optional[Path] = None,
         md = build_install_markdown(web_ui_origin=origin)
         if request.query_params.get("raw") == "1":
             from fastapi.responses import Response
+
             return Response(
                 content=md,
                 media_type="text/markdown; charset=utf-8",
@@ -1309,8 +1332,9 @@ def create_app(workspace: Optional[Path] = None,
         # Otherwise wrap the markdown in a tiny HTML shim so the
         # browser renders something readable.
         from html import escape
+
         body = (
-            "<!doctype html><meta charset=\"utf-8\">"
+            '<!doctype html><meta charset="utf-8">'
             "<title>MediaScribe — Install guide</title>"
             "<style>body{font-family:-apple-system,BlinkMacSystemFont,"
             "'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;"
@@ -1318,7 +1342,7 @@ def create_app(workspace: Optional[Path] = None,
             "pre,code{background:#0b1220;border:1px solid #334155;"
             "border-radius:4px;padding:2px 6px;}"
             "a{color:#38bdf8;}</style>"
-            "<a href=\"/extension\">&larr; Back</a>"
+            '<a href="/extension">&larr; Back</a>'
             f"<pre>{escape(md)}</pre>"
         )
         return HTMLResponse(content=body)
@@ -1328,9 +1352,11 @@ def create_app(workspace: Optional[Path] = None,
         html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
         return HTMLResponse(content=html)
 
-    @app.post("/api/transcribe", response_model=TranscribeResponse,
-              dependencies=[Depends(_require_api_token),
-                            Depends(_require_json_content_type)])
+    @app.post(
+        "/api/transcribe",
+        response_model=TranscribeResponse,
+        dependencies=[Depends(_require_api_token), Depends(_require_json_content_type)],
+    )
     def transcribe(req: TranscribeRequest, request: Request) -> TranscribeResponse:
         # Rate limit is applied after auth so unauthenticated callers
         # cannot exhaust the limiter for legitimate users.
@@ -1424,12 +1450,10 @@ def create_app(workspace: Optional[Path] = None,
                 bridge = _JobEventBridge(job, loop)
                 app.state.ws_bridges[job.job_id] = bridge
         subscriber_queue = bridge.subscribe()
-        max_session_seconds = _env_float(
-            "MEDIASCRIBE_WS_MAX_SESSION_SECONDS", 3600.0)
+        max_session_seconds = _env_float("MEDIASCRIBE_WS_MAX_SESSION_SECONDS", 3600.0)
         if max_session_seconds <= 0:
             max_session_seconds = float("inf")  # 显式禁用会话上限
-        idle_timeout = _env_float(
-            "MEDIASCRIBE_WS_IDLE_TIMEOUT_SECONDS", 300.0)
+        idle_timeout = _env_float("MEDIASCRIBE_WS_IDLE_TIMEOUT_SECONDS", 300.0)
         # ping 周期取空闲超时与 30s 的较小者 — 让客户端能探测连接活性。
         ping_interval = min(30.0, idle_timeout) if idle_timeout > 0 else 30.0
 
@@ -1500,10 +1524,12 @@ def create_app(workspace: Optional[Path] = None,
                         else:
                             # P1-1: 未鉴权连接不允许驱动 cancel。
                             try:
-                                await websocket.send_json({
-                                    "event": "error",
-                                    "message": "cancel requires an authenticated connection",
-                                })
+                                await websocket.send_json(
+                                    {
+                                        "event": "error",
+                                        "message": "cancel requires an authenticated connection",
+                                    }
+                                )
                             except Exception:
                                 return
                     client_task = asyncio.create_task(websocket.receive_text())
@@ -1570,10 +1596,12 @@ def create_app(workspace: Optional[Path] = None,
     # -----------------------------------------------------------------
     # v3.2.0c Tier 1 — async job submission + result retrieval
     # -----------------------------------------------------------------
-    @app.post("/api/jobs", dependencies=[Depends(_require_api_token),
-                                         Depends(_require_json_content_type)])
+    @app.post(
+        "/api/jobs", dependencies=[Depends(_require_api_token), Depends(_require_json_content_type)]
+    )
     def submit_jobs(
-        req: TranscribeRequest, request: Request,
+        req: TranscribeRequest,
+        request: Request,
     ) -> Dict[str, Any]:
         """Submit URLs as background jobs; returns immediately with job_ids.
 
@@ -1642,13 +1670,15 @@ def create_app(workspace: Optional[Path] = None,
                 app.state.jobs_state_lock,
                 registry,
             )
-            jobs_out.append({
-                "job_id": job.job_id,
-                "url": url,
-                "status": "queued",
-                "ws": f"/ws/progress/{job.job_id}",
-                "result": f"/api/jobs/{job.job_id}/result",
-            })
+            jobs_out.append(
+                {
+                    "job_id": job.job_id,
+                    "url": url,
+                    "status": "queued",
+                    "ws": f"/ws/progress/{job.job_id}",
+                    "result": f"/api/jobs/{job.job_id}/result",
+                }
+            )
             job_ids.append(job.job_id)
         # 注册 AP 到本批所有 job_id — cancel 任一 job 都能命中并中止整批
         # 尚未启动的排队任务(已启动的仍由 registry.cancel 协作取消)。

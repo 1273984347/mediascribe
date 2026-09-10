@@ -11,6 +11,7 @@ v3.2.0e 优化：
 缓存为 LRU（容量 ``_MODEL_CACHE_MAX``），多模型轮换时自动淘汰最久未用的
 实例，避免显存只增不减。
 """
+
 from __future__ import annotations
 
 import logging
@@ -44,9 +45,7 @@ def _resolve_compute_type(device: str) -> str:
     return "int8"
 
 
-def _get_cached_model(
-    model_name: str, device: str, compute_type: str
-) -> Any:
+def _get_cached_model(model_name: str, device: str, compute_type: str) -> Any:
     """从 ``_MODEL_CACHE`` 取或新建 ``WhisperModel``（LRU，容量 2）。
 
     线程安全：多 Web 请求并发加载同一模型时只有一个会真正 ``__init__``。
@@ -62,12 +61,12 @@ def _get_cached_model(
         try:
             from faster_whisper import WhisperModel
         except ImportError as e:
-            raise RuntimeError(
-                "faster-whisper 未安装，请运行: pip install faster-whisper"
-            ) from e
+            raise RuntimeError("faster-whisper 未安装，请运行: pip install faster-whisper") from e
         logger.info(
             "加载 faster-whisper 模型: %s (device=%s, compute_type=%s)",
-            model_name, device, compute_type,
+            model_name,
+            device,
+            compute_type,
         )
         model = WhisperModel(
             model_name,
@@ -122,9 +121,7 @@ class FasterWhisperTranscriber(Transcriber):
     def _ensure_model(self) -> Any:
         """懒加载 / 取缓存模型。"""
         if self._model is None:
-            self._model = _get_cached_model(
-                self.model_name, self.device, self.compute_type
-            )
+            self._model = _get_cached_model(self.model_name, self.device, self.compute_type)
         return self._model
 
     def transcribe(

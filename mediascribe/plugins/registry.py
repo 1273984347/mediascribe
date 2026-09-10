@@ -24,6 +24,7 @@ which is the modern, recommended replacement for
 ``pkg_resources``.  Lookups are cached in the module-level
 ``_CACHE`` dict so repeated calls are O(1).
 """
+
 from __future__ import annotations
 
 import importlib
@@ -144,8 +145,14 @@ class TranscriberHookSpec:
 
     name: str = ""
 
-    def transcribe(self, audio_or_video_path: str, output_path: str,
-                   *, language: Optional[str] = None, **kwargs: Any) -> Any:
+    def transcribe(
+        self,
+        audio_or_video_path: str,
+        output_path: str,
+        *,
+        language: Optional[str] = None,
+        **kwargs: Any,
+    ) -> Any:
         """Transcribe and write the result to ``output_path``."""
         raise NotImplementedError
 
@@ -158,6 +165,7 @@ class URLTransformerHookSpec:
         def transform(url: str) -> Optional[str]:
             '''Return the canonical URL, or None to skip.'''
     """
+
     name: str = ""
 
     def transform(self, url: str) -> Optional[str]:

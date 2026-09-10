@@ -6,6 +6,7 @@ The benchmark is mostly an I/O / timing wrapper around the
 the parts that are easy to break: cost profile integrity, table
 renderer, and the JSON report shape.
 """
+
 import json
 import sys
 import types
@@ -50,12 +51,18 @@ class TestRenderTable(unittest.TestCase):
     def test_renders_all_engines(self):
         results = [
             benchmark_transcribers.BenchResult(
-                engine="whisper", available=True,
-                cold_start_ms=10, per_call_ms=[100, 110], peak_mem_mb=1.0,
+                engine="whisper",
+                available=True,
+                cold_start_ms=10,
+                per_call_ms=[100, 110],
+                peak_mem_mb=1.0,
             ),
             benchmark_transcribers.BenchResult(
-                engine="faster-whisper", available=True,
-                cold_start_ms=5, per_call_ms=[20, 25], peak_mem_mb=0.5,
+                engine="faster-whisper",
+                available=True,
+                cold_start_ms=5,
+                per_call_ms=[20, 25],
+                peak_mem_mb=0.5,
             ),
         ]
         text = benchmark_transcribers.render_table(results)
@@ -70,12 +77,15 @@ class TestWriteReports(unittest.TestCase):
 
     def test_writes_three_files(self):
         import tempfile
+
         with tempfile.TemporaryDirectory() as td:
             out_dir = Path(td)
             results = [
                 benchmark_transcribers.BenchResult(
-                    engine="whisper", available=True,
-                    per_call_ms=[100.0], peak_mem_mb=1.0,
+                    engine="whisper",
+                    available=True,
+                    per_call_ms=[100.0],
+                    peak_mem_mb=1.0,
                 )
             ]
             benchmark_transcribers.write_reports(results, out_dir)
@@ -96,6 +106,7 @@ class TestFasterWhisperLRUCache(unittest.TestCase):
 
     def setUp(self):
         from mediascribe.transcribers import faster_whisper as fw
+
         self.fw = fw
         fw.clear_model_cache()
         self.addCleanup(fw.clear_model_cache)
@@ -144,6 +155,7 @@ class TestWhisperXModelCache(unittest.TestCase):
 
     def test_models_reused_across_calls(self):
         from mediascribe.transcribers import whisperx as wx
+
         wx.clear_model_cache()
         self.addCleanup(wx.clear_model_cache)
 
@@ -156,12 +168,10 @@ class TestWhisperXModelCache(unittest.TestCase):
         fake_whisperx.load_model.return_value = fake_model
         fake_whisperx.load_audio.return_value = "fake-audio"
         fake_whisperx.load_align_model.return_value = ("align-model", {"d": 1})
-        fake_whisperx.align.side_effect = (
-            lambda segments, align_model, meta, audio, device: {
-                "segments": [{"start": 0.0, "end": 1.0, "text": "hi"}],
-                "language": "zh",
-            }
-        )
+        fake_whisperx.align.side_effect = lambda segments, align_model, meta, audio, device: {
+            "segments": [{"start": 0.0, "end": 1.0, "text": "hi"}],
+            "language": "zh",
+        }
 
         tx = wx.WhisperXTranscriber(model="small", device="cpu")
         with mock.patch.dict(sys.modules, {"whisperx": fake_whisperx}):

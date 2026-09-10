@@ -37,6 +37,7 @@ ASR 自动学习模块 v2 (v3.2.0b)
     from mediascribe.post_process import post_process_transcript
     fixed = post_process_transcript(raw_text)
 """
+
 from __future__ import annotations
 
 import difflib
@@ -151,11 +152,7 @@ class LearnedTermsDB:
 
     def get_active_terms(self) -> dict[str, str]:
         """获取应生效的术语映射 (已确认 + 达到阈值)。"""
-        return {
-            c.wrong: c.right
-            for c in self.terms.values()
-            if c.should_apply()
-        }
+        return {c.wrong: c.right for c in self.terms.values() if c.should_apply()}
 
     def get_unconfirmed(self) -> list[Correction]:
         """获取待确认的校正列表。"""
@@ -209,12 +206,11 @@ def _save_db(db: LearnedTermsDB, path: Optional[Path] = None) -> None:
     （原 ``.tmp`` 名固定，多进程同时写会互相覆盖）。"""
     import os
     import uuid
+
     store = path or learned_terms_path()
     data = {
         "version": db.version,
-        "terms": {
-            key: asdict(c) for key, c in db.terms.items()
-        },
+        "terms": {key: asdict(c) for key, c in db.terms.items()},
     }
     store.parent.mkdir(parents=True, exist_ok=True)
     tmp = store.with_suffix(f".{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
@@ -269,10 +265,7 @@ def _edit_distance(s1: str, s2: str) -> int:
     for i, c1 in enumerate(s1):
         curr = [i + 1]
         for j, c2 in enumerate(s2):
-            curr.append(
-                prev[j] if c1 == c2
-                else 1 + min(prev[j], prev[j + 1], curr[j])
-            )
+            curr.append(prev[j] if c1 == c2 else 1 + min(prev[j], prev[j + 1], curr[j]))
         prev = curr
     return prev[-1]
 

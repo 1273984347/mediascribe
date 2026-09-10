@@ -2,6 +2,7 @@
 Internationalization (i18n) - English/Chinese bilingual support
 国际化支持 - 中英文双语
 """
+
 import locale
 import os
 from typing import Optional

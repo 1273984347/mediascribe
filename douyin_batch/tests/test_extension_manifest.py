@@ -9,6 +9,7 @@ extension-development errors:
   ``action``) are present
 * every file referenced from the manifest exists on disk
 """
+
 import json
 import sys
 import unittest
@@ -18,7 +19,6 @@ EXT = Path(__file__).parent.parent.parent / "extension"
 
 
 class TestExtensionManifest(unittest.TestCase):
-
     def setUp(self):
         self.manifest_path = EXT / "manifest.json"
         self.assertTrue(self.manifest_path.exists(), f"missing {self.manifest_path}")

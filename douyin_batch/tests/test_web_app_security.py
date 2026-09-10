@@ -21,6 +21,7 @@ Covers:
 * P2-10: INSTALL.md origin prefers ``MEDIASCRIBE_PUBLIC_BASE_URL`` and
   never reflects Host userinfo.
 """
+
 import json
 import os
 import sys
@@ -43,6 +44,7 @@ try:
         create_app,
     )
     from fastapi.testclient import TestClient  # type: ignore
+
     _HAS_FASTAPI = True
 except Exception:  # pragma: no cover
     _HAS_FASTAPI = False
@@ -200,6 +202,7 @@ class TestJobIdUniqueness(unittest.TestCase):
         import inspect
 
         from app import _run_one
+
         src = inspect.getsource(_run_one)
         tree = ast.parse(src)
         # The historical anti-pattern is gone from the *executable* code
@@ -258,9 +261,7 @@ class TestWsAuth(unittest.TestCase):
         job = self._make_job()
         rejected = False
         try:
-            with self.client.websocket_connect(
-                f"/ws/progress/{job.job_id}?token=wrong"
-            ):
+            with self.client.websocket_connect(f"/ws/progress/{job.job_id}?token=wrong"):
                 pass
         except Exception:
             rejected = True
@@ -269,9 +270,7 @@ class TestWsAuth(unittest.TestCase):
     def test_ws_accepts_query_token(self):
         os.environ["MEDIASCRIBE_API_TOKEN"] = "tok-123"
         job = self._make_job()
-        with self.client.websocket_connect(
-            f"/ws/progress/{job.job_id}?token=tok-123"
-        ) as ws:
+        with self.client.websocket_connect(f"/ws/progress/{job.job_id}?token=tok-123") as ws:
             msg = ws.receive_json()
         self.assertEqual(msg["event"], "snapshot")
 
@@ -279,7 +278,8 @@ class TestWsAuth(unittest.TestCase):
         os.environ["MEDIASCRIBE_API_TOKEN"] = "tok-123"
         job = self._make_job()
         with self.client.websocket_connect(
-            f"/ws/progress/{job.job_id}", subprotocols=["tok-123"],
+            f"/ws/progress/{job.job_id}",
+            subprotocols=["tok-123"],
         ) as ws:
             msg = ws.receive_json()
         self.assertEqual(msg["event"], "snapshot")
@@ -288,9 +288,7 @@ class TestWsAuth(unittest.TestCase):
         os.environ["MEDIASCRIBE_API_TOKEN"] = "tok-123"
         job = self._make_job()
         try:
-            with self.client.websocket_connect(
-                f"/ws/progress/{job.job_id}?token=tok-123"
-            ) as ws:
+            with self.client.websocket_connect(f"/ws/progress/{job.job_id}?token=tok-123") as ws:
                 ws.receive_json()  # snapshot
                 ws.send_text('{"event": "cancel"}')
                 deadline = time.time() + 3.0
@@ -305,8 +303,7 @@ class TestWsAuth(unittest.TestCase):
             pass
         current = self.app_obj.state.jobs.get(job.job_id)
         self.assertIsNotNone(current)
-        self.assertTrue(current.cancelled,
-                        "authenticated WS cancel must hit the registry")
+        self.assertTrue(current.cancelled, "authenticated WS cancel must hit the registry")
 
 
 # ---------------------------------------------------------------------------
@@ -422,7 +419,8 @@ class TestLocalPathSource(unittest.TestCase):
             inside.write_bytes(b"x")
             fake = mock.MagicMock(name="Pipeline")
             fake.transcribe.return_value = SimpleNamespace(
-                engine="fake", metadata={},
+                engine="fake",
+                metadata={},
             )
             with mock.patch.object(app_module, "_build_pipeline", return_value=fake):
                 r = client.post("/api/jobs", json={"urls": [str(inside)]})
@@ -456,7 +454,9 @@ class TestJsonContentTypeRequired(unittest.TestCase):
         body = json.dumps({"urls": ["https://example.com/v"]})
         for path in ("/api/jobs", "/api/transcribe"):
             r = self.client.post(
-                path, content=body, headers={"Content-Type": "text/plain"},
+                path,
+                content=body,
+                headers={"Content-Type": "text/plain"},
             )
             self.assertEqual(r.status_code, 415, path)
 

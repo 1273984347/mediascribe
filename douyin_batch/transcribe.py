@@ -6,6 +6,7 @@ v3.2.0g (P1-7): ``TranscriberPool`` 接受 ``BatchConfig``（或任何带
 ``whisper_model`` / ``language`` 配置真正映射进核心 ``Settings`` /
 ``Pipeline.transcribe``；不再硬编码 ``Settings()`` + ``language="zh"``。
 """
+
 import logging
 import sys
 from pathlib import Path

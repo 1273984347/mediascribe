@@ -6,6 +6,7 @@
 - 支持滚动加载
 - 返回视频列表
 """
+
 import json
 import re
 import sys
@@ -74,13 +75,15 @@ def get_user_videos(user_url: str, max_videos: int = 30, headless: bool = False)
                     full_url = f"https://www.douyin.com{match}"
                     if full_url not in seen_urls:
                         seen_urls.add(full_url)
-                        videos.append({
-                            "url": full_url,
-                            "video_id": match.replace("/video/", ""),
-                        })
+                        videos.append(
+                            {
+                                "url": full_url,
+                                "video_id": match.replace("/video/", ""),
+                            }
+                        )
                         new_count += 1
 
-                print(f"   第 {round_idx+1} 轮: 新增 {new_count} 个，累计 {len(videos)} 个")
+                print(f"   第 {round_idx + 1} 轮: 新增 {new_count} 个，累计 {len(videos)} 个")
 
                 if len(videos) >= max_videos:
                     print(f"   ✅ 已达到目标数量 {max_videos}")

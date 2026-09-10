@@ -1,6 +1,7 @@
 """
 将已有的 .txt 转录文件转换为 .md 格式（完整内容）
 """
+
 import re
 import sys
 from datetime import datetime
@@ -15,6 +16,7 @@ transcripts_dir = Path(__file__).parent / "output" / "transcripts"
 txt_files = list(transcripts_dir.glob("*.txt"))
 print(f"📁 找到 {len(txt_files)} 个 .txt 文件")
 print()
+
 
 def build_markdown(title, text, metadata_path=None):
     """构建完整的 Markdown 内容"""
@@ -32,6 +34,7 @@ def build_markdown(title, text, metadata_path=None):
     meta = None
     if metadata_path and metadata_path.exists():
         import json
+
         try:
             meta = json.loads(metadata_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError, UnicodeDecodeError):
@@ -41,7 +44,7 @@ def build_markdown(title, text, metadata_path=None):
         if meta.get("download_metadata", {}).get("uploader"):
             lines.append(f"- **作者**: {meta['download_metadata']['uploader']}")
         if meta.get("download_metadata", {}).get("duration"):
-            duration = meta['download_metadata']['duration']
+            duration = meta["download_metadata"]["duration"]
             duration_min = int(duration // 60)
             duration_sec = int(duration % 60)
             lines.append(f"- **时长**: {duration_min}分{duration_sec}秒")
@@ -70,8 +73,8 @@ def build_markdown(title, text, metadata_path=None):
 def split_into_paragraphs(text):
     """将文本分割成段落"""
     # 按中文和英文标点分割
-    text = re.sub(r'([。！？!?])', r'\1\n', text)
-    sentences = [s.strip() for s in text.split('\n') if s.strip()]
+    text = re.sub(r"([。！？!?])", r"\1\n", text)
+    sentences = [s.strip() for s in text.split("\n") if s.strip()]
 
     # 组合成段落（每段 2-4 句）
     paragraphs = []
@@ -79,11 +82,11 @@ def split_into_paragraphs(text):
     for s in sentences:
         current.append(s)
         if len(current) >= 3:
-            paragraphs.append(''.join(current))
+            paragraphs.append("".join(current))
             current = []
 
     if current:
-        paragraphs.append(''.join(current))
+        paragraphs.append("".join(current))
 
     return paragraphs
 
@@ -98,7 +101,7 @@ for txt_file in txt_files:
     # 提取标题（去掉时间戳后缀）
     title = txt_file.stem
     # 去掉 -YYYYMMDD-HHMMSS 后缀
-    title = re.sub(r'-\d{8}-\d{6}$', '', title)
+    title = re.sub(r"-\d{8}-\d{6}$", "", title)
 
     # 查找对应的元数据文件
     metadata_dir = transcripts_dir.parent / "metadata"

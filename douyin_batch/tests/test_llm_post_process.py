@@ -10,6 +10,7 @@
 Mock 策略：用 ``unittest.mock.patch`` 替换 ``openai.OpenAI`` 客户端的
 ``chat.completions.create`` 方法，避免真实 API 调用。
 """
+
 from __future__ import annotations
 
 import sys
@@ -34,6 +35,7 @@ class TestLLMPostProcessorDisabled(unittest.TestCase):
 
     def test_no_api_key_returns_disabled(self):
         from mediascribe.llm_post_process import STATUS_DISABLED, LLMPostProcessor
+
         proc = LLMPostProcessor(api_key="", enabled=True)
         text, status = proc.post_process("这是一段足够长的中文文本用于测试。" * 5)
         self.assertEqual(status, STATUS_DISABLED)
@@ -41,6 +43,7 @@ class TestLLMPostProcessorDisabled(unittest.TestCase):
 
     def test_enabled_false_returns_disabled(self):
         from mediascribe.llm_post_process import STATUS_DISABLED, LLMPostProcessor
+
         proc = LLMPostProcessor(api_key="fake-key", enabled=False)
         text, status = proc.post_process("这是一段足够长的中文文本用于测试。" * 5)
         self.assertEqual(status, STATUS_DISABLED)
@@ -51,6 +54,7 @@ class TestLLMPostProcessorSkipped(unittest.TestCase):
 
     def test_short_text_returns_skipped(self):
         from mediascribe.llm_post_process import STATUS_SKIPPED, LLMPostProcessor
+
         proc = LLMPostProcessor(api_key="fake-key", enabled=True)
         text, status = proc.post_process("短文本")
         self.assertEqual(status, STATUS_SKIPPED)
@@ -58,6 +62,7 @@ class TestLLMPostProcessorSkipped(unittest.TestCase):
 
     def test_empty_text_returns_skipped(self):
         from mediascribe.llm_post_process import STATUS_SKIPPED, LLMPostProcessor
+
         proc = LLMPostProcessor(api_key="fake-key", enabled=True)
         text, status = proc.post_process("")
         self.assertEqual(status, STATUS_SKIPPED)
@@ -68,6 +73,7 @@ class TestLLMPostProcessorReviewed(unittest.TestCase):
 
     def test_successful_call_returns_reviewed(self):
         from mediascribe.llm_post_process import STATUS_REVIEWED, LLMPostProcessor
+
         proc = LLMPostProcessor(api_key="fake-key", enabled=True)
         original = "佛尔摩斯蹲下身审视太武士河边的钢国死尸。" * 5
         fixed = "福尔摩斯蹲下身审视泰晤士河边的刚果死尸。" * 5
@@ -98,6 +104,7 @@ class TestLLMPostProcessorReviewed(unittest.TestCase):
     def test_strips_code_fences_from_response(self):
         """模型可能输出 ```markdown ... ``` 包裹,应剥离。"""
         from mediascribe.llm_post_process import STATUS_REVIEWED, LLMPostProcessor
+
         proc = LLMPostProcessor(api_key="fake-key", enabled=True)
         original = "原始 ASR 文本需要修正的内容。" * 5
         fixed_content = "修正后的 ASR 文本内容。" * 5
@@ -121,6 +128,7 @@ class TestLLMPostProcessorFailed(unittest.TestCase):
 
     def test_api_exception_returns_failed_and_original_text(self):
         from mediascribe.llm_post_process import STATUS_FAILED, LLMPostProcessor
+
         proc = LLMPostProcessor(api_key="fake-key", enabled=True)
         original = "原始 ASR 文本需要修正的内容。" * 5
 
@@ -137,6 +145,7 @@ class TestLLMPostProcessorFailed(unittest.TestCase):
 
     def test_empty_api_response_returns_failed(self):
         from mediascribe.llm_post_process import STATUS_FAILED, LLMPostProcessor
+
         proc = LLMPostProcessor(api_key="fake-key", enabled=True)
         original = "原始 ASR 文本需要修正的内容。" * 5
 
@@ -156,6 +165,7 @@ class TestLLMPostProcessorFromEnv(unittest.TestCase):
 
     def test_from_env_reads_all_vars(self):
         from mediascribe.llm_post_process import LLMPostProcessor
+
         env = {
             "MEDIASCRIBE_LLM_API_KEY": "env-key-123",
             "MEDIASCRIBE_LLM_API_BASE": "https://api.example.com",
@@ -176,6 +186,7 @@ class TestLLMPostProcessorFromEnv(unittest.TestCase):
     def test_from_env_disabled_by_default(self):
         """无 api_key 时 enabled=False。"""
         from mediascribe.llm_post_process import LLMPostProcessor
+
         # 清空所有相关环境变量
         env_keys = [
             "MEDIASCRIBE_LLM_API_KEY",
@@ -189,10 +200,12 @@ class TestLLMPostProcessorFromEnv(unittest.TestCase):
         with mock.patch.dict("os.environ", clean_env, clear=False):
             # patch os.environ.get to return "" for our keys
             with mock.patch("os.environ.get") as mock_get:
+
                 def side_effect(key, default=""):
                     if key in env_keys:
                         return ""
                     return default
+
                 mock_get.side_effect = side_effect
                 proc = LLMPostProcessor.from_env()
         self.assertFalse(proc.enabled)
@@ -239,6 +252,7 @@ class TestBuildStatusBanner(unittest.TestCase):
 
     def test_reviewed_with_model(self):
         from mediascribe.llm_post_process import STATUS_REVIEWED, build_status_banner
+
         banner = build_status_banner(STATUS_REVIEWED, "deepseek-chat")
         self.assertEqual(
             banner,
@@ -247,12 +261,14 @@ class TestBuildStatusBanner(unittest.TestCase):
 
     def test_disabled_banner(self):
         from mediascribe.llm_post_process import STATUS_DISABLED, build_status_banner
+
         banner = build_status_banner(STATUS_DISABLED)
         self.assertIn("llm-disabled", banner)
         self.assertIn("not LLM-reviewed", banner)
 
     def test_failed_banner(self):
         from mediascribe.llm_post_process import STATUS_FAILED, build_status_banner
+
         banner = build_status_banner(STATUS_FAILED)
         self.assertIn("llm-failed", banner)
         self.assertIn("fell back", banner)
@@ -284,6 +300,7 @@ class TestAssembleStageIntegration(unittest.TestCase):
 
     def test_reviewed_llm_injects_reviewed_banner(self):
         from mediascribe.pipeline_stages import AssembleStage
+
         stage = AssembleStage(lambda *a: None, lambda *a: None, lambda *a: "")
         result = stage._inject_status_banner("修正后", "llm-reviewed", "deepseek-chat")
         self.assertIn("llm-reviewed", result)

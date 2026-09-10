@@ -1,6 +1,7 @@
 """
 Unit tests for the performance utilities.
 """
+
 import sys
 import time
 import unittest
@@ -11,9 +12,9 @@ sys.path.insert(0, str(ROOT))
 
 
 class TestProfileStep(unittest.TestCase):
-
     def test_records_duration(self):
         from mediascribe.performance import STEP_TIMES, clear_step_times, profile_step
+
         clear_step_times()
 
         @profile_step("test_sleep")
@@ -28,6 +29,7 @@ class TestProfileStep(unittest.TestCase):
 
     def test_records_on_exception(self):
         from mediascribe.performance import STEP_TIMES, clear_step_times, profile_step
+
         clear_step_times()
 
         @profile_step("test_boom")
@@ -40,7 +42,6 @@ class TestProfileStep(unittest.TestCase):
 
 
 class TestPerformanceReport(unittest.TestCase):
-
     def test_from_registry(self):
         from mediascribe.performance import (
             STEP_TIMES,
@@ -48,31 +49,36 @@ class TestPerformanceReport(unittest.TestCase):
             clear_step_times,
             profile_step,
         )
+
         clear_step_times()
 
         @profile_step("alpha")
         def a():
             time.sleep(0.001)
+
         @profile_step("beta")
         def b():
             time.sleep(0.002)
 
-        a(); a(); b()
+        a()
+        a()
+        b()
         report = PerformanceReport.from_registry()
         self.assertIn("alpha", report.steps)
         self.assertIn("beta", report.steps)
         self.assertEqual(report.steps["alpha"]["count"], 2)
         self.assertEqual(report.steps["beta"]["count"], 1)
-        self.assertGreater(report.steps["beta"]["total_sec"],
-                           report.steps["alpha"]["mean_sec"])
+        self.assertGreater(report.steps["beta"]["total_sec"], report.steps["alpha"]["mean_sec"])
 
     def test_markdown_output(self):
         from mediascribe.performance import PerformanceReport, clear_step_times, profile_step
+
         clear_step_times()
 
         @profile_step("x")
         def x():
             time.sleep(0.001)
+
         x()
         md = PerformanceReport.from_registry().to_markdown()
         self.assertIn("| Step |", md)
@@ -84,10 +90,13 @@ class TestPerformanceReport(unittest.TestCase):
         import tempfile
 
         from mediascribe.performance import PerformanceReport, clear_step_times, profile_step
+
         clear_step_times()
+
         @profile_step("y")
         def y():
             time.sleep(0.001)
+
         y()
         with tempfile.TemporaryDirectory() as td:
             p = Path(td) / "perf.json"
@@ -97,25 +106,26 @@ class TestPerformanceReport(unittest.TestCase):
 
 
 class TestParallelMap(unittest.TestCase):
-
     def test_empty_input(self):
         from mediascribe.performance import parallel_map
+
         self.assertEqual(parallel_map(lambda x: x * 2, []), [])
 
     def test_preserves_order(self):
         from mediascribe.performance import parallel_map
+
         out = parallel_map(lambda x: x * 2, [1, 2, 3, 4])
         self.assertEqual(out, [2, 4, 6, 8])
 
     def test_thread_pool_used(self):
         from mediascribe.performance import parallel_map
+
         # Multiple workers should make 4 sleeps of 0.05s finish
         # faster than the serial 0.20s would.
         t0 = time.perf_counter()
         parallel_map(lambda x: time.sleep(0.05), range(4), max_workers=4)
         dur = time.perf_counter() - t0
-        self.assertLess(dur, 0.18,
-                        f"parallel map should be faster than serial: {dur}")
+        self.assertLess(dur, 0.18, f"parallel map should be faster than serial: {dur}")
 
 
 class TestRunScopedTimings(unittest.TestCase):
@@ -124,10 +134,12 @@ class TestRunScopedTimings(unittest.TestCase):
 
     def setUp(self):
         from mediascribe.performance import clear_step_times
+
         clear_step_times()
 
     def tearDown(self):
         from mediascribe.performance import clear_step_times
+
         clear_step_times()
 
     def test_run_registry_isolated_from_global(self):
@@ -168,7 +180,8 @@ class TestRunScopedTimings(unittest.TestCase):
             time.sleep(0.001)
 
         begin_run_registry()
-        f(); f()
+        f()
+        f()
         first = get_step_times()
         self.assertEqual(len(first["iso2"]), 2)
 
@@ -199,9 +212,9 @@ class TestRunScopedTimings(unittest.TestCase):
 
 
 class TestDownloadCache(unittest.TestCase):
-
     def test_put_and_get(self):
         from mediascribe.performance import DownloadCache
+
         with __import__("tempfile").TemporaryDirectory() as td:
             src = Path(td) / "source.txt"
             src.write_text("hi", encoding="utf-8")

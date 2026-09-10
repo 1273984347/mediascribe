@@ -8,6 +8,7 @@ P2-8 — extract_audio 输出文件名防覆盖 + 失败路径清理 的单测�
    不再互相覆盖(需 ffmpeg,缺失则 skip)。
 3. 失败路径(ffmpeg returncode != 0)清理半写输出,不残留 .wav。
 """
+
 from __future__ import annotations
 
 import os
@@ -83,9 +84,7 @@ class TestExtractAudioNamingAndCleanup(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             extract_audio(video, out, "broken", timeout=30.0)
         wav_left = list(out.glob("*.wav")) if out.exists() else []
-        self.assertEqual(
-            wav_left, [], f"失败路径不应残留输出文件: {wav_left}"
-        )
+        self.assertEqual(wav_left, [], f"失败路径不应残留输出文件: {wav_left}")
 
     def test_failure_cleans_even_if_ffmpeg_left_partial_file(self):
         """失败时即使 ffmpeg 已写出半写文件也会被清理。"""
@@ -108,9 +107,7 @@ class TestExtractAudioNamingAndCleanup(unittest.TestCase):
 
 class TestExtractAudioMissingFfmpeg(unittest.TestCase):
     def test_raises_when_ffmpeg_missing(self):
-        with mock.patch(
-            "mediascribe.audio_utils.shutil.which", return_value=None
-        ):
+        with mock.patch("mediascribe.audio_utils.shutil.which", return_value=None):
             with self.assertRaises(RuntimeError) as ctx:
                 extract_audio(Path("x.mp4"), Path(os.devnull), "x")
             self.assertIn("FFmpeg", str(ctx.exception))

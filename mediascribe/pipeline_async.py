@@ -42,6 +42,7 @@ v3.2.0b Tier 1 — fully asynchronous pipeline.
 :mod:`douyin_batch.tests.test_pipeline_async` 覆盖并发数、
 ``asyncio.gather`` 隔离、cancellation 传播与 ``Pipeline`` 等价性。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -257,9 +258,7 @@ class AsyncPipeline:
             max_concurrent = _default_max_concurrent()
         self.max_concurrent = max_concurrent
         self._vram_per_task_mb = (
-            vram_per_task_mb
-            if vram_per_task_mb and vram_per_task_mb > 0
-            else _vram_per_task_mb()
+            vram_per_task_mb if vram_per_task_mb and vram_per_task_mb > 0 else _vram_per_task_mb()
         )
         self._tasks: List[asyncio.Task] = []
         self._cancel_event = threading.Event()
@@ -337,9 +336,7 @@ class AsyncPipeline:
             vram_per_task_mb=self._vram_per_task_mb,
             health=health,
         )
-        sem = _shared_gpu_semaphore(
-            str(health.get("device") or "cpu"), effective
-        )
+        sem = _shared_gpu_semaphore(str(health.get("device") or "cpu"), effective)
         runners = runners or {}
 
         async def _one(src: str) -> object:

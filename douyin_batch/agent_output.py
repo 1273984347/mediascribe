@@ -70,6 +70,7 @@ Stage values
 - ``ocr`` — running OCR on embedded images
   (WeChat MP image articles via paddleocr / pytesseract / easyocr)
 """
+
 from __future__ import annotations
 
 import json
@@ -335,9 +336,7 @@ class AgentOutput:
             active_lang = self._label_lang or get_language()
             videos = list(self._videos)
             if self._bilingual:
-                videos = [
-                    _apply_labels(v, lang=active_lang) for v in videos
-                ]
+                videos = [_apply_labels(v, lang=active_lang) for v in videos]
             return {
                 "schema": SCHEMA_VERSION,
                 "ok": self._ok,

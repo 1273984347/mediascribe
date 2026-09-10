@@ -3,6 +3,7 @@
 使用 Playwright 自动化获取抖音视频的真实媒体URL
 无需 cookies！完全自动化！
 """
+
 import sys
 import time
 from pathlib import Path
@@ -55,10 +56,12 @@ def get_douyin_media_url(url: str, headless: bool = False) -> dict:
                 resp_url = response.url
                 # 捕获 douyinvod.com 的请求
                 if "douyinvod.com" in resp_url:
-                    captured_urls.append({
-                        "url": resp_url,
-                        "type": response.request.resource_type,
-                    })
+                    captured_urls.append(
+                        {
+                            "url": resp_url,
+                            "type": response.request.resource_type,
+                        }
+                    )
                     print(f"   📡 捕获到: {resp_url[:100]}...")
             except Exception:
                 pass
@@ -78,9 +81,11 @@ def get_douyin_media_url(url: str, headless: bool = False) -> dict:
 
             # 尝试点击播放按钮（如果有）
             try:
-                play_button = page.query_selector("xg-icon[class*='play']") or \
-                              page.query_selector(".play-button") or \
-                              page.query_selector("video")
+                play_button = (
+                    page.query_selector("xg-icon[class*='play']")
+                    or page.query_selector(".play-button")
+                    or page.query_selector("video")
+                )
                 if play_button:
                     play_button.click()
                     print("   ▶️ 已点击播放")

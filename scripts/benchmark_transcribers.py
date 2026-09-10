@@ -36,6 +36,7 @@ JSON,schema 固定::
 ``douyin_batch/tests/test_benchmark_transcribers.py`` 验证 schema 稳定
 + ``--engines fake`` 假数据路径。
 """
+
 from __future__ import annotations
 
 import argparse
@@ -57,9 +58,9 @@ SCHEMA = "mediascribe-benchmark/v1"
 # v3.2.0b 不能移除;新写法的功能在 :func:`benchmark` / :class:`EngineResult`。
 # ---------------------------------------------------------------------------
 COST_PROFILE: Dict[str, Dict[str, float]] = {
-    "whisper":       {"cold_start_ms": 12_000.0, "ms_per_audio_sec": 1_500.0},
-    "faster-whisper": {"cold_start_ms":  1_500.0, "ms_per_audio_sec":   200.0},
-    "whisperx":      {"cold_start_ms":  3_500.0, "ms_per_audio_sec":   260.0},
+    "whisper": {"cold_start_ms": 12_000.0, "ms_per_audio_sec": 1_500.0},
+    "faster-whisper": {"cold_start_ms": 1_500.0, "ms_per_audio_sec": 200.0},
+    "whisperx": {"cold_start_ms": 3_500.0, "ms_per_audio_sec": 260.0},
 }
 
 
@@ -245,9 +246,9 @@ def char_wer(reference: str, hypothesis: str) -> float:
         for j in range(1, m + 1):
             cost = 0 if ref[i - 1] == hyp[j - 1] else 1
             cur[j] = min(
-                cur[j - 1] + 1,        # insert
-                prev[j] + 1,           # delete
-                prev[j - 1] + cost,    # substitute
+                cur[j - 1] + 1,  # insert
+                prev[j] + 1,  # delete
+                prev[j - 1] + cost,  # substitute
             )
         prev = cur
     return round(100.0 * prev[m] / n, 2)
@@ -291,8 +292,7 @@ def run_one(
     try:
         # 真实实现 import / transcribe / 算 WER
         raise NotImplementedError(
-            "real engine path is not yet implemented in v3.2.0b Tier 1; "
-            "use --engines fake for now"
+            "real engine path is not yet implemented in v3.2.0b Tier 1; use --engines fake for now"
         )
     finally:
         wall = time.perf_counter() - t0

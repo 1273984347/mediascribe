@@ -39,6 +39,7 @@ text, status = proc.post_process(raw_text, context={
 # status: "llm-reviewed" | "llm-failed" | "llm-disabled"
 ```
 """
+
 from __future__ import annotations
 
 import logging
@@ -53,10 +54,10 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Status constants — 写入 metadata + md banner
 # ---------------------------------------------------------------------------
-STATUS_REVIEWED = "llm-reviewed"      # LLM 后处理成功
-STATUS_FAILED = "llm-failed"          # LLM 调用失败，回退到原文
-STATUS_DISABLED = "llm-disabled"      # LLM 后处理未启用
-STATUS_SKIPPED = "llm-skipped"        # 启用但跳过（如文本太短）
+STATUS_REVIEWED = "llm-reviewed"  # LLM 后处理成功
+STATUS_FAILED = "llm-failed"  # LLM 调用失败，回退到原文
+STATUS_DISABLED = "llm-disabled"  # LLM 后处理未启用
+STATUS_SKIPPED = "llm-skipped"  # 启用但跳过（如文本太短）
 
 # 最短文本阈值：小于此长度不调用 LLM（避免无意义请求）
 MIN_TEXT_LENGTH = 50
@@ -154,9 +155,7 @@ class LLMPostProcessor:
         - ``MEDIASCRIBE_LLM_MAX_CHARS`` (默认 12000)
         """
         api_key = os.environ.get("MEDIASCRIBE_LLM_API_KEY", "").strip()
-        api_base = os.environ.get(
-            "MEDIASCRIBE_LLM_API_BASE", "https://api.deepseek.com"
-        ).strip()
+        api_base = os.environ.get("MEDIASCRIBE_LLM_API_BASE", "https://api.deepseek.com").strip()
         model = os.environ.get("MEDIASCRIBE_LLM_MODEL", "deepseek-chat").strip()
         enabled_env = os.environ.get("MEDIASCRIBE_LLM_ENABLED", "0").strip().lower()
         enabled = enabled_env in ("1", "true", "yes", "on")
@@ -249,9 +248,10 @@ class LLMPostProcessor:
         if len(text) > self.max_chars:
             logger.warning(
                 "LLM post-process: text %d chars exceeds max %d, truncating",
-                len(text), self.max_chars,
+                len(text),
+                self.max_chars,
             )
-            text = text[:self.max_chars]
+            text = text[: self.max_chars]
             truncated = True
 
         context = context or {}
@@ -299,9 +299,7 @@ class LLMPostProcessor:
         try:
             from openai import OpenAI
         except ImportError as e:
-            raise RuntimeError(
-                "openai 库未安装，请运行: pip install openai"
-            ) from e
+            raise RuntimeError("openai 库未安装，请运行: pip install openai") from e
         self._client = OpenAI(
             api_key=self.api_key,
             base_url=self.api_base,
@@ -325,7 +323,7 @@ class LLMPostProcessor:
                         {"role": "system", "content": SYSTEM_PROMPT},
                         {"role": "user", "content": user_prompt},
                     ],
-                    temperature=0.0,    # 确定性输出，避免润色
+                    temperature=0.0,  # 确定性输出，避免润色
                     max_tokens=4096,
                     stream=False,
                 )
@@ -342,20 +340,26 @@ class LLMPostProcessor:
                 if not self._is_retryable(exc):
                     logger.warning(
                         "LLM API 调用失败 (不可重试, attempt=%d/%d): %r",
-                        attempt, _API_MAX_RETRIES, exc,
+                        attempt,
+                        _API_MAX_RETRIES,
+                        exc,
                     )
                     raise
                 if attempt < _API_MAX_RETRIES:
                     backoff = _API_BACKOFF_BASE * (2 ** (attempt - 1))
                     logger.warning(
                         "LLM API 调用失败 (attempt=%d/%d, %.1fs 后重试): %r",
-                        attempt, _API_MAX_RETRIES, backoff, exc,
+                        attempt,
+                        _API_MAX_RETRIES,
+                        backoff,
+                        exc,
                     )
                     time.sleep(backoff)
                 else:
                     logger.warning(
                         "LLM API 调用失败 (已达最大重试 %d 次): %r",
-                        _API_MAX_RETRIES, exc,
+                        _API_MAX_RETRIES,
+                        exc,
                     )
         # 所有重试耗尽
         raise last_exc if last_exc else RuntimeError("LLM API 调用失败，未知原因")

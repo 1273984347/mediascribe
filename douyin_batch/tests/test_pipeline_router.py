@@ -7,6 +7,7 @@
 - WechatMpDownloader 的解析/下载
 - WechatMpDownloader 与 pipeline 的整合（mocked）
 """
+
 import sys
 import unittest
 from pathlib import Path
@@ -304,9 +305,7 @@ class TestWechatMpPipelineIntegration(unittest.TestCase):
             ):
                 d.mkdir(parents=True, exist_ok=True)
 
-            source = SourceRef(
-                raw_input="x", kind="wechat_mp", url="https://mp.weixin.qq.com/s?x"
-            )
+            source = SourceRef(raw_input="x", kind="wechat_mp", url="https://mp.weixin.qq.com/s?x")
             stub = self.pipeline.settings.audio_dir / "stub.txt"
             stub.write_text("", encoding="utf-8")
             downloaded = DownloadResult(

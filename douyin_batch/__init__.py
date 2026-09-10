@@ -8,6 +8,7 @@ bilingual UI support.
 中文：抖音作者主页批量转录模块，提供下载、转录、断点续传、进度跟踪、
 汇总报告等开箱即用能力，支持中英文双语界面。
 """
+
 __version__ = "3.3.0"
 __author__ = "MediaScribe Contributors"
 __license__ = "MIT"

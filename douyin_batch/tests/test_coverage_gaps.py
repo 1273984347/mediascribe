@@ -21,6 +21,7 @@ helper requires an external dep, we cover the happy path of the
 function the test can drive and leave the platform-specific
 branches to the existing e2e suite.
 """
+
 from __future__ import annotations
 
 import json
@@ -42,7 +43,9 @@ class TestUrlUtils:
         from mediascribe.url_utils import extract_bvid
 
         assert extract_bvid("https://www.bilibili.com/video/BV1Nd596vEyU") == "BV1Nd596vEyU"
-        assert extract_bvid("https://www.bilibili.com/video/BV1Nd596vEyU?p=1&t=42") == "BV1Nd596vEyU"
+        assert (
+            extract_bvid("https://www.bilibili.com/video/BV1Nd596vEyU?p=1&t=42") == "BV1Nd596vEyU"
+        )
         assert extract_bvid("just text BV1ABCDEFGHI more text") == "BV1ABCDEFGHI"
         assert extract_bvid("no bvid here") is None
         assert extract_bvid("") is None
@@ -75,8 +78,7 @@ class TestUrlUtils:
     def test_resolve_short_url_failure_returns_none(self):
         from mediascribe import url_utils
 
-        with mock.patch.object(url_utils.urllib.request, "urlopen",
-                               side_effect=Exception("boom")):
+        with mock.patch.object(url_utils.urllib.request, "urlopen", side_effect=Exception("boom")):
             assert url_utils.resolve_short_url("https://b23.tv/xxxxx") is None
 
     def test_resolve_short_url_http_error_403_retries_with_get(self):
@@ -91,8 +93,11 @@ class TestUrlUtils:
             if call_count["n"] == 1:
                 raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", {}, None)
             # Second call (GET fallback) succeeds
-            return mock.MagicMock(url="https://www.bilibili.com/video/BV1xxx",
-                                  __enter__=lambda s: s, __exit__=lambda s, *a: False)
+            return mock.MagicMock(
+                url="https://www.bilibili.com/video/BV1xxx",
+                __enter__=lambda s: s,
+                __exit__=lambda s, *a: False,
+            )
 
         with mock.patch.object(url_utils.urllib.request, "urlopen", side_effect=fake_urlopen):
             out = url_utils.resolve_short_url("https://b23.tv/xxxxx")
@@ -111,10 +116,11 @@ class TestUrlUtils:
     def test_normalize_url_bilibili_path(self):
         from mediascribe import url_utils
 
-        with mock.patch.object(url_utils, "resolve_short_url",
-                               side_effect=lambda u: u):
-            assert (url_utils.normalize_url("https://www.bilibili.com/video/BV1ABCDEFGHI")
-                    == "https://www.bilibili.com/video/BV1ABCDEFGHI")
+        with mock.patch.object(url_utils, "resolve_short_url", side_effect=lambda u: u):
+            assert (
+                url_utils.normalize_url("https://www.bilibili.com/video/BV1ABCDEFGHI")
+                == "https://www.bilibili.com/video/BV1ABCDEFGHI"
+            )
             # Non-bilibili URLs are passed through.
             assert url_utils.normalize_url("https://example.com/foo") == "https://example.com/foo"
 
@@ -181,13 +187,21 @@ class TestChunkedHelpers:
 
         c0 = Chunk(index=0, start=0.0, end=10.0, path=Path("/tmp/c0.wav"))
         results = [
-            ChunkResult(chunk=c0, text="x", segments=[
-                {"start": 5.0, "end": 6.0, "text": "b"},
-                {"start": 1.0, "end": 2.0, "text": "a"},
-            ]),
-            ChunkResult(chunk=c0, text="y", segments=[
-                {"start": 3.0, "end": 4.0, "text": "c"},
-            ]),
+            ChunkResult(
+                chunk=c0,
+                text="x",
+                segments=[
+                    {"start": 5.0, "end": 6.0, "text": "b"},
+                    {"start": 1.0, "end": 2.0, "text": "a"},
+                ],
+            ),
+            ChunkResult(
+                chunk=c0,
+                text="y",
+                segments=[
+                    {"start": 3.0, "end": 4.0, "text": "c"},
+                ],
+            ),
         ]
         merged = merge_segments(results)
         # Sorted by start; mutating a segment in the merged list must
@@ -514,6 +528,7 @@ class TestRetryExtras:
         # Patch time.sleep to record the delays without actually sleeping.
         delays: list[float] = []
         with mock.patch("douyin_batch.retry.time.sleep", side_effect=lambda d: delays.append(d)):
+
             def boom():
                 raise ValueError()
 
@@ -539,8 +554,7 @@ class TestRetryExtras:
             attempts.append((attempt, exc))
 
         with pytest.raises(RuntimeError) as excinfo:
-            retry(boom, max_retries=2, delay=0,
-                  exceptions=(RuntimeError,), on_retry=on_retry)
+            retry(boom, max_retries=2, delay=0, exceptions=(RuntimeError,), on_retry=on_retry)
         # on_retry is called *before* the sleep on attempts 0 and 1, so
         # we get two callbacks with attempt numbers 1 and 2 and exc args
         # 1 and 2.  The third attempt breaks out without calling on_retry

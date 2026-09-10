@@ -2,6 +2,7 @@
 Cross-platform compatibility utilities
 跨平台兼容性工具
 """
+
 import platform
 import shutil
 import subprocess
@@ -133,9 +134,28 @@ def safe_filename(name: str) -> str:
 
     # Avoid reserved names on Windows
     reserved = {
-        "CON", "PRN", "AUX", "NUL",
-        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
-        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        "COM1",
+        "COM2",
+        "COM3",
+        "COM4",
+        "COM5",
+        "COM6",
+        "COM7",
+        "COM8",
+        "COM9",
+        "LPT1",
+        "LPT2",
+        "LPT3",
+        "LPT4",
+        "LPT5",
+        "LPT6",
+        "LPT7",
+        "LPT8",
+        "LPT9",
     }
     if name.upper() in reserved:
         name = f"_{name}"
@@ -150,6 +170,7 @@ def safe_filename(name: str) -> str:
 def get_temp_dir() -> Path:
     """Get OS-appropriate temp directory"""
     import tempfile
+
     return Path(tempfile.gettempdir())
 
 

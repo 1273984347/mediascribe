@@ -8,6 +8,7 @@ Coverage:
 3. ``Pipeline(profile=True, profile_log=Path(...))`` writes JSONL
 4. Public contract preserved: signature, return type unchanged
 """
+
 from __future__ import annotations
 
 import json
@@ -141,7 +142,8 @@ class TestPipelineProfileFlag(unittest.TestCase):
             # called at the start of each run.
             for label in second_run:
                 self.assertEqual(
-                    len(second_run[label]), len(first_run.get(label, [])),
+                    len(second_run[label]),
+                    len(first_run.get(label, [])),
                     f"label {label!r} count drifted between runs",
                 )
 

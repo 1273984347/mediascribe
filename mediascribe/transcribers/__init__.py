@@ -1,6 +1,7 @@
 """
 转录器模块
 """
+
 from .base import Transcriber
 from .chunked import (
     DEFAULT_CHUNK_SECONDS,

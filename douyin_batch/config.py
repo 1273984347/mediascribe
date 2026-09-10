@@ -10,6 +10,7 @@ v3.2.0g:
   保留并真正接线到 BrowserManager（get_user_videos 的滚动节奏）
 - ``merge_cli_args`` 被 douyin_batch_v3 真正调用（不再是死代码）
 """
+
 import json
 import logging
 import os
@@ -110,7 +111,8 @@ class BatchConfig:
                 if legacy_value is not None:
                     logger.warning(
                         "环境变量 DOYIN_BATCH_%s 已弃用，请改用 DOUYIN_BATCH_%s",
-                        suffix, suffix,
+                        suffix,
+                        suffix,
                     )
                     env_value = legacy_value
             if env_value is not None:

@@ -6,6 +6,7 @@ PyYAML's safe loader does not understand; the test installs a
 stub multi-constructor before parsing so it can introspect the
 file without actually resolving the python objects.
 """
+
 import sys
 import unittest
 from pathlib import Path
@@ -27,7 +28,6 @@ def _safe_load_mkdocs(path: Path) -> dict:
 
 
 class TestMkdocsConfig(unittest.TestCase):
-
     def test_file_exists(self):
         self.assertTrue(MKDOCS_YML.exists(), f"missing {MKDOCS_YML}")
 
@@ -54,12 +54,10 @@ class TestMkdocsConfig(unittest.TestCase):
                     f = DOCS / fname
                     if not f.exists():
                         missing.append(f"{title} -> {fname}")
-        self.assertEqual(missing, [],
-                         f"missing docs files: {missing}")
+        self.assertEqual(missing, [], f"missing docs files: {missing}")
 
 
 class TestDocsContent(unittest.TestCase):
-
     def test_index_has_intro(self):
         text = (DOCS / "index.md").read_text(encoding="utf-8")
         for needle in ("MediaScribe", "Quick start", "Why MediaScribe?"):
@@ -72,8 +70,12 @@ class TestDocsContent(unittest.TestCase):
 
     def test_plugins_doc_has_hookspecs(self):
         text = (DOCS / "plugins.md").read_text(encoding="utf-8")
-        for needle in ("entry_points", "mediascribe.downloaders",
-                       "mediascribe.transcribers", "mediascribe.url_transformers"):
+        for needle in (
+            "entry_points",
+            "mediascribe.downloaders",
+            "mediascribe.transcribers",
+            "mediascribe.url_transformers",
+        ):
             self.assertIn(needle, text)
 
     def test_chunking_doc_explains_strategy(self):
@@ -88,7 +90,6 @@ class TestDocsContent(unittest.TestCase):
 
 
 class TestDocsWorkflow(unittest.TestCase):
-
     def test_github_pages_workflow_exists(self):
         wf = ROOT / ".github" / "workflows" / "docs.yml"
         self.assertTrue(wf.exists(), f"missing {wf}")

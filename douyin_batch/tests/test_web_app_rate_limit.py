@@ -15,6 +15,7 @@ Covers:
 * Auth runs *before* the rate limiter so an unauthenticated flooder
   cannot exhaust legitimate users' quota.
 """
+
 import os
 import sys
 import time
@@ -34,6 +35,7 @@ try:
         create_app,
     )
     from fastapi.testclient import TestClient  # type: ignore
+
     _HAS_FASTAPI = True
 except Exception:  # pragma: no cover
     _HAS_FASTAPI = False
@@ -136,6 +138,7 @@ class TestRateLimiterUnit(unittest.TestCase):
     def test_thread_safety(self):
         """Concurrent ``check()`` from many threads must not exceed the quota."""
         import threading
+
         lim = _RateLimiter(max_requests=50, window_seconds=60)
         allowed = []
         lock = threading.Lock()

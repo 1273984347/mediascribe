@@ -2,6 +2,7 @@
 Example plugin: a URL transformer that rewrites ``t.cn`` short links
 to their canonical form.  Registered via entry_points.
 """
+
 from __future__ import annotations
 
 import re

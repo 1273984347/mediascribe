@@ -2,6 +2,7 @@
 Security utilities
 安全工具
 """
+
 import re
 from pathlib import Path
 from typing import Optional
@@ -197,8 +198,7 @@ def check_url_safety(url: str, allowed_domains: Optional[set] = None) -> tuple:
 
         # Check if domain is trusted
         is_trusted = any(
-            domain == allowed_d or domain.endswith(f".{allowed_d}")
-            for allowed_d in allowed
+            domain == allowed_d or domain.endswith(f".{allowed_d}") for allowed_d in allowed
         )
 
         if not is_trusted:
