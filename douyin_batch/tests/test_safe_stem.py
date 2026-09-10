@@ -6,6 +6,7 @@ Verifies that ``safe_stem`` delegates to
 sanitization rules (Windows reserved names, control characters, OS-invalid
 characters).
 """
+
 import sys
 import unittest
 from pathlib import Path

@@ -1,4 +1,5 @@
 """Check Python 3.8+ compatibility for all .py files in the project."""
+
 import ast
 import sys
 from pathlib import Path

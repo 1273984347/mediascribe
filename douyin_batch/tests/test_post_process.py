@@ -9,6 +9,7 @@ v3.2.0b — post_process.py 测试。
 5. get_prompt_template domain + custom 拼接
 6. setup_hf_mirror 默认值 + 环境变量覆盖
 """
+
 from __future__ import annotations
 
 import os
@@ -35,16 +36,12 @@ class TestPostProcessTranscript(unittest.TestCase):
 
     def test_custom_terms_override_default(self):
         text = "某篇布局很重要"
-        result = post_process_transcript(
-            text, custom_terms={"某篇布局": "谋篇布局(定制)"}
-        )
+        result = post_process_transcript(text, custom_terms={"某篇布局": "谋篇布局(定制)"})
         self.assertEqual(result, "谋篇布局(定制)很重要")
 
     def test_custom_terms_merge_with_default(self):
         text = "霍去病和谋篇布局"
-        result = post_process_transcript(
-            text, custom_terms={"下水温": "下水文章"}
-        )
+        result = post_process_transcript(text, custom_terms={"下水温": "下水文章"})
         # custom_terms 合并后, DEFAULT 不变(文本已经是正确词,不应替换)
         self.assertIn("霍去病", result)
         self.assertIn("谋篇布局", result)

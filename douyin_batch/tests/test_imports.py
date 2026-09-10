@@ -1,4 +1,5 @@
 """Verify all main modules import cleanly without errors."""
+
 import importlib
 import sys
 from pathlib import Path
@@ -57,13 +58,12 @@ for mod_name in modules_to_test:
         print(f"  OK   {mod_name}")
     except Exception as e:
         if mod_name in OPTIONAL_MODULES:
-            print(f"  SKIP {mod_name} (optional extra not installed): "
-                  f"{type(e).__name__}: {e}")
+            print(f"  SKIP {mod_name} (optional extra not installed): {type(e).__name__}: {e}")
             continue
         print(f"  FAIL {mod_name}: {type(e).__name__}: {e}")
         failed.append((mod_name, e))
 
-print(f"\n{'='*60}")
+print(f"\n{'=' * 60}")
 if failed:
     print(f"FAILED: {len(failed)} modules failed to import")
     for name, err in failed:

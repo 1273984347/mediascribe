@@ -31,6 +31,7 @@ VAD is intentionally **not** used here because the optional
 detection via ``pydub`` / wave is used as a cheap proxy when
 available, but chunking falls back to fixed windows otherwise.
 """
+
 from __future__ import annotations
 
 import json
@@ -45,13 +46,14 @@ from typing import Any, List, Optional, Tuple
 from .base import Transcriber
 
 # Default chunking parameters; can be overridden per-instance.
-DEFAULT_CHUNK_SECONDS = 600     # 10 minutes
-DEFAULT_OVERLAP_SECONDS = 5     # 5 seconds of overlap between chunks
+DEFAULT_CHUNK_SECONDS = 600  # 10 minutes
+DEFAULT_OVERLAP_SECONDS = 5  # 5 seconds of overlap between chunks
 
 
 @dataclass
 class Chunk:
     """One slice of the long audio.  ``start`` is in seconds."""
+
     index: int
     start: float
     end: float
@@ -66,6 +68,7 @@ class Chunk:
 class ChunkResult:
     """A single chunk's transcript, with segments already offset to the
     timeline of the original (un-chunked) audio."""
+
     chunk: Chunk
     text: str
     segments: List[dict] = field(default_factory=list)
@@ -87,9 +90,13 @@ def probe_duration(path: Path) -> float:
         try:
             out = subprocess.check_output(
                 [
-                    "ffprobe", "-v", "error",
-                    "-show_entries", "format=duration",
-                    "-of", "default=noprint_wrappers=1:nokey=1",
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "default=noprint_wrappers=1:nokey=1",
                     str(path),
                 ],
                 stderr=subprocess.STDOUT,
@@ -149,7 +156,9 @@ def split_audio(
     if use_vad and _vad_segmentation_available(src):
         try:
             windows = _windows_from_vad(
-                src, chunk_seconds=chunk_seconds, overlap_seconds=overlap_seconds,
+                src,
+                chunk_seconds=chunk_seconds,
+                overlap_seconds=overlap_seconds,
                 aggressiveness=vad_aggressiveness,
             )
         except Exception as exc:  # noqa: BLE001
@@ -176,12 +185,24 @@ def split_audio(
         # 不再额外加 overlap，否则相邻块实际重叠约 2 倍、音频被
         # 转写两遍浪费 GPU。
         cmd = [
-            "ffmpeg", "-y", "-loglevel", "error",
-            "-ss", f"{start:.3f}",
-            "-i", str(src),
-            "-t", f"{end - start:.3f}",
-            "-vn", "-ac", "1", "-ar", "16000",
-            "-f", "wav", str(chunk_path),
+            "ffmpeg",
+            "-y",
+            "-loglevel",
+            "error",
+            "-ss",
+            f"{start:.3f}",
+            "-i",
+            str(src),
+            "-t",
+            f"{end - start:.3f}",
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            "-f",
+            "wav",
+            str(chunk_path),
         ]
         subprocess.run(cmd, check=True, timeout=300)
         chunks.append(Chunk(index=idx, start=start, end=end, path=chunk_path))
@@ -285,8 +306,7 @@ def merge_segments(results: List[ChunkResult]) -> List[dict]:
         seg_start = float(seg.get("start", 0.0))
         seg_end = float(seg.get("end", seg_start))
         is_duplicate = any(
-            seg_start < k_end - _SEGMENT_OVERLAP_EPS
-            and seg_end > k_start + _SEGMENT_OVERLAP_EPS
+            seg_start < k_end - _SEGMENT_OVERLAP_EPS and seg_end > k_start + _SEGMENT_OVERLAP_EPS
             for k_start, k_end in kept_ranges
         )
         if is_duplicate:
@@ -314,9 +334,7 @@ def merge_texts(results: List[ChunkResult]) -> str:
 # ---------------------------------------------------------------------------
 # The main wrapper
 # ---------------------------------------------------------------------------
-def _cleanup_chunk_files(
-    chunk_dir: Path, keep: Tuple[Optional[Path], ...] = ()
-) -> None:
+def _cleanup_chunk_files(chunk_dir: Path, keep: Tuple[Optional[Path], ...] = ()) -> None:
     """Delete the chunk WAVs (and any per-chunk leftovers, including
     those from failed chunks) inside ``chunk_dir``.
 
@@ -416,14 +434,14 @@ class ChunkedTranscriber(Transcriber):
             chunk_results: List[ChunkResult] = []
             for chunk in chunks:
                 try:
-                    chunk_result = self._run_one(
-                        chunk, language=language, prompt=prompt, **kwargs
-                    )
+                    chunk_result = self._run_one(chunk, language=language, prompt=prompt, **kwargs)
                 except Exception as exc:
                     # Continue with whatever we got; the user gets a
                     # partial transcript with the error recorded.
                     chunk_result = ChunkResult(
-                        chunk=chunk, text="", engine=self.inner.name,
+                        chunk=chunk,
+                        text="",
+                        engine=self.inner.name,
                         error=f"{exc.__class__.__name__}: {exc}",
                     )
                 chunk_results.append(chunk_result)
@@ -463,19 +481,23 @@ class ChunkedTranscriber(Transcriber):
                                 for r in chunk_results
                             ],
                         },
-                        ensure_ascii=False, indent=2,
+                        ensure_ascii=False,
+                        indent=2,
                     ),
                     encoding="utf-8",
                 )
             return _MergedResult(
-                text=full_text, segments=full_segments,
+                text=full_text,
+                segments=full_segments,
                 # 与内置转录器的 dict 返回值字段对齐（pipeline 会读
                 # "model" / "language"）；chunked 层拿不到各 chunk 的
                 # 检测语言，置 None 交由调用方处理。
                 language=None,
                 model=getattr(self.inner, "model_name", None),
-                engine=self.inner.name, chunks=chunk_results,
-                output_path=out, sidecar_path=sidecar,
+                engine=self.inner.name,
+                chunks=chunk_results,
+                output_path=out,
+                sidecar_path=sidecar,
             )
         finally:
             # P1-5: 无论成功失败都清理本次的 chunk 音频
@@ -497,9 +519,7 @@ class ChunkedTranscriber(Transcriber):
         """Call the inner transcriber on one chunk and offset the
         returned segments back into the global timeline."""
         # 基类契约：单个位置参数 + 关键字参数（内置转录器均如此）。
-        inner_result = self.inner.transcribe(
-            chunk.path, language=language, prompt=prompt, **kwargs
-        )
+        inner_result = self.inner.transcribe(chunk.path, language=language, prompt=prompt, **kwargs)
         # Inner result duck-typing: 内置转录器返回 dict，
         # 也兼容带 .text / .segments 属性的对象。
         if isinstance(inner_result, dict):
@@ -515,7 +535,9 @@ class ChunkedTranscriber(Transcriber):
             seg["end"] = float(seg.get("end", 0.0)) + chunk.start
             offset_segments.append(seg)
         return ChunkResult(
-            chunk=chunk, text=text, segments=offset_segments,
+            chunk=chunk,
+            text=text,
+            segments=offset_segments,
             engine=getattr(self.inner, "name", "unknown"),
         )
 

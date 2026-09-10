@@ -11,6 +11,7 @@ Each engine has its own strengths:
 - ``whisper``: the original OpenAI Whisper. Always available as a
   baseline.
 """
+
 from __future__ import annotations
 
 from typing import Optional
@@ -68,10 +69,7 @@ def get_transcriber(
         return FasterWhisperTranscriber(model=model, device=device)
     if name == "whisper":
         return WhisperTranscriber(model=model)
-    raise ValueError(
-        f"Unknown transcriber {name!r}. "
-        f"Allowed: whisper, faster-whisper, whisperx."
-    )
+    raise ValueError(f"Unknown transcriber {name!r}. Allowed: whisper, faster-whisper, whisperx.")
 
 
 def get_transcriber_with_fallback(
@@ -106,9 +104,7 @@ def get_transcriber_with_fallback(
 
     # Last resort: whisper. If even that fails, raise clearly.
     raise RuntimeError(
-        "No transcriber is available. "
-        "Please install at least one of: "
-        + ", ".join(chain)
+        "No transcriber is available. Please install at least one of: " + ", ".join(chain)
     )
 
 

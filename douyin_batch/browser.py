@@ -18,6 +18,7 @@ v3.2.0g:
 - 新增 ``BrowserManager.close_if_running()``：只在已有实例时关闭，
   不会凭空启动一次浏览器（收尾清理用）
 """
+
 import logging
 import re
 import time
@@ -42,7 +43,8 @@ class BrowserManager:
                 logger.warning(
                     "BrowserManager 已存在（headless=%s），忽略新的 headless=%s 参数，"
                     "沿用现有浏览器实例",
-                    self._headless, headless,
+                    self._headless,
+                    headless,
                 )
             return
 
@@ -103,7 +105,7 @@ def get_user_url_from_video(video_url: str, headless: bool = True) -> Optional[s
             html = page.content()
             patterns = [
                 r'"sec_uid":"(MS4wLjABAAAA[A-Za-z0-9_\-]+)"',
-                r'sec_uid=(MS4wLjABAAAA[A-Za-z0-9_\-]+)',
+                r"sec_uid=(MS4wLjABAAAA[A-Za-z0-9_\-]+)",
             ]
             for pattern in patterns:
                 matches = re.findall(pattern, html)
@@ -166,10 +168,12 @@ def get_user_videos(
                 full_url = f"https://www.douyin.com{match}"
                 if full_url not in seen_urls:
                     seen_urls.add(full_url)
-                    videos.append({
-                        "url": full_url,
-                        "video_id": match.replace("/video/", ""),
-                    })
+                    videos.append(
+                        {
+                            "url": full_url,
+                            "video_id": match.replace("/video/", ""),
+                        }
+                    )
                     new_count += 1
 
             logger.info("第 %d 轮: +%d 个 (累计 %d)", round_idx + 1, new_count, len(videos))

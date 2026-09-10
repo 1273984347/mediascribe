@@ -1,6 +1,7 @@
 """
 测试 i18n 平台标签、agent_output 状态/平台/阶段常量、WeChat MP cookies
 """
+
 import os
 import sys
 import tempfile
@@ -22,6 +23,7 @@ class TestAgentOutputConstants(unittest.TestCase):
             STATUS_SKIPPED,
             STATUS_SUCCESS,
         )
+
         # 必须是稳定字符串，永远不要本地化
         self.assertEqual(STATUS_SUCCESS, "success")
         self.assertEqual(STATUS_FAILED, "failed")
@@ -35,6 +37,7 @@ class TestAgentOutputConstants(unittest.TestCase):
             STAGE_TEXT_EXTRACT,
             STAGE_TRANSCRIBE,
         )
+
         self.assertEqual(STAGE_MEDIA_URL, "media_url")
         self.assertEqual(STAGE_DOWNLOAD, "download")
         self.assertEqual(STAGE_TRANSCRIBE, "transcribe")
@@ -51,6 +54,7 @@ class TestAgentOutputConstants(unittest.TestCase):
             PLATFORM_XIAOHONGSHU,
             PLATFORM_YOUTUBE,
         )
+
         self.assertEqual(PLATFORM_BILIBILI, "bilibili")
         self.assertEqual(PLATFORM_DOUYIN, "douyin")
         self.assertEqual(PLATFORM_YOUTUBE, "youtube")
@@ -316,9 +320,7 @@ class TestWechatMpDownloaderCookies(unittest.TestCase):
             tmp = f.name
         try:
             d = WechatMpDownloader()
-            d.attach_cookies(
-                cookies={"k": "fromdict"}, cookies_file=Path(tmp)
-            )
+            d.attach_cookies(cookies={"k": "fromdict"}, cookies_file=Path(tmp))
             self.assertEqual(d._active_cookies["k"], "fromdict")
         finally:
             os.unlink(tmp)
@@ -328,16 +330,14 @@ class TestWechatMpDownloaderCookies(unittest.TestCase):
         from mediascribe.config import Settings
 
         with patch.object(self.d, "_fetch_html", return_value="<html></html>") as m:
-            with patch.object(self.d, "_extract_text", return_value="hello"), \
-                 patch.object(self.d, "_extract_meta", return_value={"title": "t"}), \
-                 patch.object(self.d, "_extract_video_url", return_value=None):
+            with patch.object(self.d, "_extract_text", return_value="hello"), patch.object(
+                self.d, "_extract_meta", return_value={"title": "t"}
+            ), patch.object(self.d, "_extract_video_url", return_value=None):
                 s = Settings(wechat_cookies={"skey": "x"})
                 src_path = s.audio_dir / "stub.txt"
                 src_path.parent.mkdir(parents=True, exist_ok=True)
                 # 替换 write_text_stub 简化：mock 一下
-                with patch.object(
-                    self.d, "_write_text_stub", return_value=src_path
-                ):
+                with patch.object(self.d, "_write_text_stub", return_value=src_path):
                     from mediascribe.models import SourceRef
 
                     self.d.download(
@@ -378,9 +378,7 @@ class TestMcpWechatMpTool(unittest.TestCase):
     def test_non_wechat_url_rejected(self):
         from mediascribe.mcp_server import _tool_transcribe_wechat_mp
 
-        result = _tool_transcribe_wechat_mp(
-            {"url": "https://www.bilibili.com/video/BV1xx"}
-        )
+        result = _tool_transcribe_wechat_mp({"url": "https://www.bilibili.com/video/BV1xx"})
         self.assertFalse(result["ok"])
         self.assertIn("not a WeChat MP article", result["error"])
 

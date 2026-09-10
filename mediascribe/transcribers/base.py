@@ -1,6 +1,7 @@
 """
 转录器基类 - 参考 bili2text
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -10,6 +11,7 @@ from typing import Any, Optional
 
 class Transcriber(ABC):
     """转录器基类"""
+
     name: str = "base"
 
     @abstractmethod

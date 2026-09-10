@@ -4,6 +4,7 @@ Unit tests for the observability layer.
 The mini-SDK is exercised in isolation; the optional real-OTel
 upgrade is skipped when ``opentelemetry-sdk`` is not installed.
 """
+
 import os
 import sys
 import unittest
@@ -14,13 +15,14 @@ sys.path.insert(0, str(ROOT))
 
 
 class TestSpanAndContext(unittest.TestCase):
-
     def setUp(self):
         from mediascribe.observability import clear_observability
+
         clear_observability()
 
     def test_basic_span_lifecycle(self):
         from mediascribe.observability import OBSERVABILITY, get_tracer
+
         tracer = get_tracer()
         with tracer.start_as_current_span("test") as span:
             span.set_attribute("k", "v")
@@ -32,6 +34,7 @@ class TestSpanAndContext(unittest.TestCase):
 
     def test_nested_spans_share_trace_id(self):
         from mediascribe.observability import OBSERVABILITY, get_tracer
+
         tracer = get_tracer()
         with tracer.start_as_current_span("parent") as p:
             with tracer.start_as_current_span("child") as c:
@@ -48,6 +51,7 @@ class TestSpanAndContext(unittest.TestCase):
 
     def test_exception_marked_as_error(self):
         from mediascribe.observability import OBSERVABILITY, get_tracer
+
         tracer = get_tracer()
         with self.assertRaises(RuntimeError):
             with tracer.start_as_current_span("boom") as span:
@@ -58,6 +62,7 @@ class TestSpanAndContext(unittest.TestCase):
 
     def test_add_event(self):
         from mediascribe.observability import OBSERVABILITY, get_tracer
+
         tracer = get_tracer()
         with tracer.start_as_current_span("evt") as span:
             span.add_event("checkpoint", {"step": 1})
@@ -66,13 +71,14 @@ class TestSpanAndContext(unittest.TestCase):
 
 
 class TestMeter(unittest.TestCase):
-
     def setUp(self):
         from mediascribe.observability import clear_observability
+
         clear_observability()
 
     def test_counter_records(self):
         from mediascribe.observability import OBSERVABILITY, get_meter
+
         meter = get_meter()
         c = meter.create_counter("v2t.requests")
         c.add(1, {"platform": "youtube"})
@@ -82,15 +88,14 @@ class TestMeter(unittest.TestCase):
 
     def test_histogram_records(self):
         from mediascribe.observability import OBSERVABILITY, get_meter
+
         meter = get_meter()
         h = meter.create_histogram("v2t.duration_ms")
         h.record(123.4, {"engine": "whisper"})
-        self.assertEqual(OBSERVABILITY["metrics"]["v2t.duration_ms"][0]["value"],
-                         123.4)
+        self.assertEqual(OBSERVABILITY["metrics"]["v2t.duration_ms"][0]["value"], 123.4)
 
 
 class TestClearObservability(unittest.TestCase):
-
     def test_clear_resets_state(self):
         from mediascribe.observability import (
             OBSERVABILITY,
@@ -98,6 +103,7 @@ class TestClearObservability(unittest.TestCase):
             get_meter,
             get_tracer,
         )
+
         with get_tracer().start_as_current_span("x"):
             pass
         get_meter().create_counter("c").add(1)
@@ -113,6 +119,7 @@ class TestConcurrentSpanContexts(unittest.TestCase):
 
     def setUp(self):
         from mediascribe.observability import clear_observability
+
         clear_observability()
 
     def test_concurrent_tasks_do_not_cross_contaminate(self):
@@ -158,9 +165,9 @@ class TestConcurrentSpanContexts(unittest.TestCase):
 
 
 class TestOptionalOtelUpgrade(unittest.TestCase):
-
     def test_install_returns_bool(self):
         from mediascribe.observability import install_opentelemetry_exporter
+
         # No assertion on return value: depends on whether
         # opentelemetry-sdk is installed in the test env.
         result = install_opentelemetry_exporter()

@@ -1,4 +1,5 @@
 """Tests for report.py — generating summary markdown + JSON reports."""
+
 from __future__ import annotations
 
 import json
@@ -28,9 +29,7 @@ class TestGenerateSummaryReport(unittest.TestCase):
     def _write_transcript(self, body: str) -> Path:
         p = self.tmp / f"transcript_{abs(hash(body))}.md"
         p.write_text(
-            "# Video\n\n## 基本信息\n- 来源: Douyin\n\n## 转录内容\n\n"
-            + body
-            + "\n",
+            "# Video\n\n## 基本信息\n- 来源: Douyin\n\n## 转录内容\n\n" + body + "\n",
             encoding="utf-8",
         )
         return p

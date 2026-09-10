@@ -2,6 +2,7 @@
 Cross-platform compatibility tests
 跨平台兼容性测试
 """
+
 import sys
 import unittest
 from pathlib import Path
@@ -14,6 +15,7 @@ class TestPlatformDetection(unittest.TestCase):
 
     def test_get_os(self):
         from douyin_batch.platform_compat import get_os
+
         os_name = get_os()
         self.assertIn(os_name, ["windows", "macos", "linux", "unknown"])
 
@@ -30,12 +32,14 @@ class TestFFmpeg(unittest.TestCase):
 
     def test_check_ffmpeg(self):
         from douyin_batch.platform_compat import check_ffmpeg
+
         # Just test that it doesn't throw
         result = check_ffmpeg()
         self.assertIsInstance(result, bool)
 
     def test_find_ffmpeg(self):
         from douyin_batch.platform_compat import find_ffmpeg
+
         # Just test that it doesn't throw
         result = find_ffmpeg()
         # Could be None if not installed
@@ -43,6 +47,7 @@ class TestFFmpeg(unittest.TestCase):
 
     def test_install_instructions(self):
         from douyin_batch.platform_compat import install_ffmpeg_instructions
+
         result = install_ffmpeg_instructions()
         self.assertIsInstance(result, str)
         self.assertGreater(len(result), 0)
@@ -63,6 +68,7 @@ class TestPathNormalization(unittest.TestCase):
 
     def test_normalize_with_tilde(self):
         from douyin_batch.platform_compat import normalize_path
+
         p = normalize_path("~/test")
         self.assertIsInstance(p, Path)
 
@@ -112,6 +118,7 @@ class TestI18n(unittest.TestCase):
 
     def setUp(self):
         from douyin_batch.i18n import set_language
+
         set_language("en")
 
     def test_set_language(self):
@@ -125,6 +132,7 @@ class TestI18n(unittest.TestCase):
 
     def test_set_invalid_language(self):
         from douyin_batch.i18n import set_language
+
         with self.assertRaises(ValueError):
             set_language("fr")  # Not supported
 

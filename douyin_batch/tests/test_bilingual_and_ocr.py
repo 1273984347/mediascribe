@@ -5,6 +5,7 @@
 - mediascribe.__main__ 的 --wechat-cookies / --wechat-cookie-file CLI flag
 - douyin_batch_v3._detect_platform / process_single_video_safe.platform
 """
+
 import io
 import json
 import sys
@@ -144,41 +145,49 @@ class TestDetectPlatformInV3(unittest.TestCase):
 
     def test_douyin(self):
         from mediascribe.inputs import parse_source
+
         src = parse_source("https://www.douyin.com/video/abc")
         self.assertEqual(src.kind, "douyin")
 
     def test_bilibili(self):
         from mediascribe.inputs import parse_source
+
         src = parse_source("https://www.bilibili.com/video/BV1xx411c7mD")
         self.assertEqual(src.kind, "bilibili")
 
     def test_youtube(self):
         from mediascribe.inputs import parse_source
+
         src = parse_source("https://youtu.be/abc")
         self.assertEqual(src.kind, "youtube")
 
     def test_xiaohongshu(self):
         from mediascribe.inputs import parse_source
+
         src = parse_source("https://www.xiaohongshu.com/explore/abc")
         self.assertEqual(src.kind, "xiaohongshu")
 
     def test_wechat_mp(self):
         from mediascribe.inputs import parse_source
+
         src = parse_source("https://mp.weixin.qq.com/s?__biz=MzA&mid=1")
         self.assertEqual(src.kind, "wechat_mp")
 
     def test_tiktok(self):
         from mediascribe.inputs import parse_source
+
         src = parse_source("https://www.tiktok.com/@x/video/1")
         self.assertEqual(src.kind, "tiktok")
 
     def test_unknown(self):
         from mediascribe.inputs import parse_source
+
         src = parse_source("https://example.com/x")
         self.assertEqual(src.kind, "video")  # generic URL → video
 
     def test_local_path(self):
         from mediascribe.inputs import parse_source
+
         # 不存在的路径 → kind="video" (fallback)
         src = parse_source("Z:/path/video.mp4")
         self.assertIn(src.kind, ("video", "audio"))
@@ -262,7 +271,8 @@ class TestWechatMpOcrGracefulDegradation(unittest.TestCase):
             fake_resp.content = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
             fake_resp.raise_for_status = MagicMock()
             with patch.object(
-                self.d, "_ocr_image",
+                self.d,
+                "_ocr_image",
                 wraps=self.d._ocr_image,
             ) as m:
                 # requests.get 直接 mock 掉
@@ -288,9 +298,7 @@ class TestWechatMpOcrGracefulDegradation(unittest.TestCase):
             "_ocr_image",
             side_effect=["first", None, "third"],
         ):
-            texts, success, total = self.d._ocr_images(
-                ["a", "b", "c"], Path(".")
-            )
+            texts, success, total = self.d._ocr_images(["a", "b", "c"], Path("."))
             self.assertEqual(success, 2)
             self.assertEqual(total, 3)
             # The internal executor is multi-threaded; order is not
@@ -319,13 +327,13 @@ class TestWechatMpDownloadWithOcr(unittest.TestCase):
         </div>
         </body></html>
         """
-        with patch.object(d, "_fetch_html", return_value=html), \
-             patch.dict(sys.modules, {"paddleocr": None, "pytesseract": None, "easyocr": None}), \
-             patch.object(d, "_ocr_images", return_value=([], 0, 1)), \
-             patch.object(
-                 d, "_write_text_stub",
-                 return_value=s.audio_dir / "stub.txt",
-             ):
+        with patch.object(d, "_fetch_html", return_value=html), patch.dict(
+            sys.modules, {"paddleocr": None, "pytesseract": None, "easyocr": None}
+        ), patch.object(d, "_ocr_images", return_value=([], 0, 1)), patch.object(
+            d,
+            "_write_text_stub",
+            return_value=s.audio_dir / "stub.txt",
+        ):
             (s.audio_dir / "stub.txt").parent.mkdir(parents=True, exist_ok=True)
             result = d.download(
                 SourceRef(
@@ -359,15 +367,15 @@ class TestWechatMpDownloadWithOcr(unittest.TestCase):
         </div>
         </body></html>
         """
-        with patch.object(d, "_fetch_html", return_value=html), \
-             patch.object(
-                 d, "_ocr_images",
-                 return_value=(["text1", "text2"], 2, 2),
-             ), \
-             patch.object(
-                 d, "_write_text_stub",
-                 return_value=s.audio_dir / "stub.txt",
-             ):
+        with patch.object(d, "_fetch_html", return_value=html), patch.object(
+            d,
+            "_ocr_images",
+            return_value=(["text1", "text2"], 2, 2),
+        ), patch.object(
+            d,
+            "_write_text_stub",
+            return_value=s.audio_dir / "stub.txt",
+        ):
             (s.audio_dir / "stub.txt").parent.mkdir(parents=True, exist_ok=True)
             result = d.download(
                 SourceRef(
@@ -398,11 +406,11 @@ class TestWechatMpDownloadWithOcr(unittest.TestCase):
         <div id="js_content"><p>纯文本文章</p></div>
         </body></html>
         """
-        with patch.object(d, "_fetch_html", return_value=html), \
-             patch.object(
-                 d, "_write_text_stub",
-                 return_value=s.audio_dir / "stub.txt",
-             ):
+        with patch.object(d, "_fetch_html", return_value=html), patch.object(
+            d,
+            "_write_text_stub",
+            return_value=s.audio_dir / "stub.txt",
+        ):
             (s.audio_dir / "stub.txt").parent.mkdir(parents=True, exist_ok=True)
             result = d.download(
                 SourceRef(
@@ -425,12 +433,18 @@ class TestMediaScribeCliWechatFlags(unittest.TestCase):
         from mediascribe.__main__ import main
 
         # 避免 main 真实跑：mock 掉 Pipeline
-        with patch("mediascribe.__main__.Pipeline") as MockPipeline, patch("sys.argv", [
-            "mediascribe", "transcribe",
-            "https://mp.weixin.qq.com/s?__biz=MzA&mid=1",
-            "--wechat-cookies", "skey=abc,uin=123",
-            "--wechat-cookie-file", "Z:/cookies.txt",
-        ]):
+        with patch("mediascribe.__main__.Pipeline") as MockPipeline, patch(
+            "sys.argv",
+            [
+                "mediascribe",
+                "transcribe",
+                "https://mp.weixin.qq.com/s?__biz=MzA&mid=1",
+                "--wechat-cookies",
+                "skey=abc,uin=123",
+                "--wechat-cookie-file",
+                "Z:/cookies.txt",
+            ],
+        ):
             try:
                 main()
             except SystemExit:
@@ -448,9 +462,14 @@ class TestMediaScribeCliWechatFlags(unittest.TestCase):
     def test_argparser_no_cookies(self):
         from mediascribe.__main__ import main
 
-        with patch("mediascribe.__main__.Pipeline") as MockPipeline, patch("sys.argv", [
-            "mediascribe", "transcribe", "video.mp4",
-        ]):
+        with patch("mediascribe.__main__.Pipeline") as MockPipeline, patch(
+            "sys.argv",
+            [
+                "mediascribe",
+                "transcribe",
+                "video.mp4",
+            ],
+        ):
             try:
                 main()
             except SystemExit:
@@ -477,9 +496,7 @@ class TestPipelineWechatOcrMarkdown(unittest.TestCase):
             s.metadata_dir = Path(tmp) / "metadata"
             s.audio_dir = Path(tmp) / "audio"
             s.downloads_dir = Path(tmp) / "downloads"
-            for d in (
-                s.transcripts_dir, s.metadata_dir, s.audio_dir, s.downloads_dir
-            ):
+            for d in (s.transcripts_dir, s.metadata_dir, s.audio_dir, s.downloads_dir):
                 d.mkdir(parents=True, exist_ok=True)
 
             stub = s.audio_dir / "stub.txt"

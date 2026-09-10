@@ -1,6 +1,7 @@
 """
 数据模型 - 参考 bili2text 的设计
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -18,19 +19,27 @@ SourceKind = Literal[
     "xiaohongshu",
     "wechat_mp",
     "tiktok",
-    "video",      # local video file
-    "audio",      # local audio file
-    "unknown",    # parse_source() could not classify
+    "video",  # local video file
+    "audio",  # local audio file
+    "unknown",  # parse_source() could not classify
 ]
 KNOWN_SOURCE_KINDS: tuple[str, ...] = (
-    "bilibili", "youtube", "douyin", "xiaohongshu",
-    "wechat_mp", "tiktok", "video", "audio", "unknown",
+    "bilibili",
+    "youtube",
+    "douyin",
+    "xiaohongshu",
+    "wechat_mp",
+    "tiktok",
+    "video",
+    "audio",
+    "unknown",
 )
 
 
 @dataclass
 class SourceRef:
     """输入源引用"""
+
     raw_input: str
     # ``kind`` is intentionally a plain ``str`` so unknown URLs (e.g.
     # a brand-new platform we haven't taught the parser about) don't
@@ -66,6 +75,7 @@ class SourceRef:
 @dataclass
 class DownloadResult:
     """下载结果"""
+
     source: SourceRef
     video_path: Path
     title: Optional[str] = None
@@ -76,6 +86,7 @@ class DownloadResult:
 @dataclass
 class TranscriptResult:
     """转录结果"""
+
     source: SourceRef
     engine: str
     model: str

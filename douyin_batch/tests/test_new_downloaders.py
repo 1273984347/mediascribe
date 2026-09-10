@@ -8,6 +8,7 @@
 - mediascribe.models.SourceRef kind 字符串
 - downloaders/__init__.py 导出
 """
+
 import sys
 import unittest
 from pathlib import Path
@@ -83,18 +84,44 @@ class TestYouTubeDownloader(unittest.TestCase):
         from mediascribe.models import SourceRef
 
         d = YouTubeDownloader()
-        self.assertTrue(d.supports(SourceRef(raw_input="x", kind="youtube", url="https://www.youtube.com/watch?v=x")))
-        self.assertTrue(d.supports(SourceRef(raw_input="x", kind="video", url="https://youtu.be/abc")))
-        self.assertTrue(d.supports(SourceRef(raw_input="x", kind="video", url="https://m.youtube.com/watch?v=abc")))
-        self.assertTrue(d.supports(SourceRef(raw_input="x", kind="video", url="https://www.youtube-nocookie.com/embed/abc")))
+        self.assertTrue(
+            d.supports(
+                SourceRef(raw_input="x", kind="youtube", url="https://www.youtube.com/watch?v=x")
+            )
+        )
+        self.assertTrue(
+            d.supports(SourceRef(raw_input="x", kind="video", url="https://youtu.be/abc"))
+        )
+        self.assertTrue(
+            d.supports(
+                SourceRef(raw_input="x", kind="video", url="https://m.youtube.com/watch?v=abc")
+            )
+        )
+        self.assertTrue(
+            d.supports(
+                SourceRef(
+                    raw_input="x", kind="video", url="https://www.youtube-nocookie.com/embed/abc"
+                )
+            )
+        )
 
     def test_does_not_support_bilibili(self):
         from mediascribe.downloaders import YouTubeDownloader
         from mediascribe.models import SourceRef
 
         d = YouTubeDownloader()
-        self.assertFalse(d.supports(SourceRef(raw_input="x", kind="bilibili", url="https://www.bilibili.com/video/BV1xx")))
-        self.assertFalse(d.supports(SourceRef(raw_input="x", kind="douyin", url="https://www.douyin.com/video/1")))
+        self.assertFalse(
+            d.supports(
+                SourceRef(
+                    raw_input="x", kind="bilibili", url="https://www.bilibili.com/video/BV1xx"
+                )
+            )
+        )
+        self.assertFalse(
+            d.supports(
+                SourceRef(raw_input="x", kind="douyin", url="https://www.douyin.com/video/1")
+            )
+        )
 
     def test_player_clients_list(self):
         from mediascribe.downloaders import YouTubeDownloader
@@ -120,17 +147,43 @@ class TestXiaohongshuDownloader(unittest.TestCase):
         from mediascribe.models import SourceRef
 
         d = XiaohongshuDownloader()
-        self.assertTrue(d.supports(SourceRef(raw_input="x", kind="xiaohongshu", url="https://www.xiaohongshu.com/explore/abc")))
-        self.assertTrue(d.supports(SourceRef(raw_input="x", kind="video", url="https://xhslink.com/a/abcdef")))
-        self.assertTrue(d.supports(SourceRef(raw_input="x", kind="video", url="https://www.xiaohongshu.com/discovery/item/abc")))
+        self.assertTrue(
+            d.supports(
+                SourceRef(
+                    raw_input="x", kind="xiaohongshu", url="https://www.xiaohongshu.com/explore/abc"
+                )
+            )
+        )
+        self.assertTrue(
+            d.supports(SourceRef(raw_input="x", kind="video", url="https://xhslink.com/a/abcdef"))
+        )
+        self.assertTrue(
+            d.supports(
+                SourceRef(
+                    raw_input="x",
+                    kind="video",
+                    url="https://www.xiaohongshu.com/discovery/item/abc",
+                )
+            )
+        )
 
     def test_does_not_support_other(self):
         from mediascribe.downloaders import XiaohongshuDownloader
         from mediascribe.models import SourceRef
 
         d = XiaohongshuDownloader()
-        self.assertFalse(d.supports(SourceRef(raw_input="x", kind="youtube", url="https://www.youtube.com/watch?v=x")))
-        self.assertFalse(d.supports(SourceRef(raw_input="x", kind="bilibili", url="https://www.bilibili.com/video/BV1xx")))
+        self.assertFalse(
+            d.supports(
+                SourceRef(raw_input="x", kind="youtube", url="https://www.youtube.com/watch?v=x")
+            )
+        )
+        self.assertFalse(
+            d.supports(
+                SourceRef(
+                    raw_input="x", kind="bilibili", url="https://www.bilibili.com/video/BV1xx"
+                )
+            )
+        )
 
     def test_grep_video_url(self):
         from mediascribe.downloaders.xiaohongshu import XiaohongshuDownloader

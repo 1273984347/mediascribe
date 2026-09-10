@@ -6,6 +6,7 @@ the import-time and runtime fallback paths: ``create_app`` must
 raise a clear error when FastAPI is missing, and the Pydantic
 models must validate inputs the way we promise in the docs.
 """
+
 import os
 import sys
 import unittest
@@ -21,6 +22,7 @@ class TestOptionalFastAPIImport(unittest.TestCase):
 
     def test_module_imports_without_fastapi(self):
         import importlib
+
         # If fastapi is present the module imports fine; if not,
         # the import also succeeds but create_app() raises later.
         m = importlib.import_module("app")
@@ -28,6 +30,7 @@ class TestOptionalFastAPIImport(unittest.TestCase):
 
     def test_create_app_raises_when_fastapi_missing(self):
         import app
+
         # Simulate missing FastAPI
         original = app._FASTAPI_AVAILABLE
         app._FASTAPI_AVAILABLE = False

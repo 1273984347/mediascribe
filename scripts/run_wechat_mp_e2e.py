@@ -28,6 +28,7 @@ The script is opt-in: by default it expects a real host with
 network access.  Pass --dry-run to validate the local pipeline
 without making HTTP requests.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -139,12 +140,11 @@ def run_article(
     # 3.1 detection
     try:
         from mediascribe.inputs import parse_source
+
         ref = parse_source(url)
         res.detected_kind = ref.kind
         if ref.kind != "wechat_mp":
-            res.errors.append(
-                f"detector returned {ref.kind!r}, expected 'wechat_mp'"
-            )
+            res.errors.append(f"detector returned {ref.kind!r}, expected 'wechat_mp'")
     except Exception as exc:
         res.errors.append(f"parse_source failed: {exc}")
         res.finished_at = datetime.now(timezone.utc).isoformat()
@@ -154,6 +154,7 @@ def run_article(
     if dry_run:
         # Validate cookie parsing only, no network
         from mediascribe.config import _parse_cookie_string
+
         if cookies:
             parsed = _parse_cookie_string("; ".join(f"{k}={v}" for k, v in cookies.items()))
             res.cookie_source = "dict"
@@ -214,9 +215,12 @@ def run_article(
         res.errors.append(f"{exc.__class__.__name__}: {exc}\n{traceback.format_exc(limit=2)}")
 
     res.cookie_source = (
-        "dict" if cookies
-        else f"file:{cookie_file}" if cookie_file
-        else "env" if os.environ.get("MEDIASCRIBE_WECHAT_COOKIE")
+        "dict"
+        if cookies
+        else f"file:{cookie_file}"
+        if cookie_file
+        else "env"
+        if os.environ.get("MEDIASCRIBE_WECHAT_COOKIE")
         else "none"
     )
     res.finished_at = datetime.now(timezone.utc).isoformat()
@@ -249,19 +253,22 @@ def write_reports(results: List[WechatMpResult], out_root: Path) -> None:
     out_root.mkdir(parents=True, exist_ok=True)
     (out_root / "summary.json").write_text(
         json.dumps(
-            {"generated_at": datetime.now(timezone.utc).isoformat(),
-             "count": len(results),
-             "passed": sum(1 for r in results if r.pipeline_ok),
-             "results": [r.to_dict() for r in results]},
-            ensure_ascii=False, indent=2,
+            {
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "count": len(results),
+                "passed": sum(1 for r in results if r.pipeline_ok),
+                "results": [r.to_dict() for r in results],
+            },
+            ensure_ascii=False,
+            indent=2,
         ),
         encoding="utf-8",
     )
-    (out_root / "summary.txt").write_text(
-        render_summary(results), encoding="utf-8"
-    )
-    lines = ["| URL | Detect | Status | Cookie | OCR | MD chars | Time |",
-             "|-----|--------|--------|--------|-----|----------|------|"]
+    (out_root / "summary.txt").write_text(render_summary(results), encoding="utf-8")
+    lines = [
+        "| URL | Detect | Status | Cookie | OCR | MD chars | Time |",
+        "|-----|--------|--------|--------|-----|----------|------|",
+    ]
     for r in results:
         det = r.detected_kind or "-"
         st = r.wechat_mp_status or ("OK" if r.pipeline_ok else "FAIL")
@@ -280,29 +287,36 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--url", help="A single WeChat MP article URL to test")
     parser.add_argument(
-        "--wechat-cookies", default=None,
-        help='Inline cookies, e.g. \'wxuin=abc123; pass_ticket=xyz\'',
+        "--wechat-cookies",
+        default=None,
+        help="Inline cookies, e.g. 'wxuin=abc123; pass_ticket=xyz'",
     )
     parser.add_argument(
-        "--wechat-cookies-file", default=None, type=Path,
+        "--wechat-cookies-file",
+        default=None,
+        type=Path,
         help="Path to a cookie file (JSON or Netscape format)",
     )
     parser.add_argument(
-        "--from-fixture", action="store_true",
+        "--from-fixture",
+        action="store_true",
         help="Load URLs from scripts/wechat_mp_urls.txt",
     )
     parser.add_argument(
-        "--output-dir", default="./e2e-wechat",
+        "--output-dir",
+        default="./e2e-wechat",
         help="Workspace for downloaded files + summary reports",
     )
     parser.add_argument(
-        "--ocr-engine", default="auto",
+        "--ocr-engine",
+        default="auto",
         choices=["auto", "paddleocr", "pytesseract", "easyocr", "none"],
     )
     parser.add_argument("--save-images", action="store_true")
     parser.add_argument("--bilingual", action="store_true")
     parser.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="Validate cookie parsing and URL detection without HTTP",
     )
     args = parser.parse_args(argv)
@@ -330,7 +344,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"\n>>> [{label}] {url}")
         try:
             r = run_article(
-                url, workspace,
+                url,
+                workspace,
                 cookies=cookies,
                 cookie_file=args.wechat_cookies_file,
                 ocr_engine=args.ocr_engine,
@@ -340,7 +355,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             )
         except Exception as exc:
             r = WechatMpResult(
-                url=url, label=label,
+                url=url,
+                label=label,
                 started_at=datetime.now(timezone.utc).isoformat(),
             )
             r.errors.append(f"runner exception: {exc}")

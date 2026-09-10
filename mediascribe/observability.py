@@ -39,6 +39,7 @@ subset.  When a user installs the full ``opentelemetry-sdk`` and
 :func:`install_opentelemetry_exporter`, the same calls start
 shipping to their collector / Jaeger / Tempo backend.
 """
+
 from __future__ import annotations
 
 import contextvars
@@ -54,9 +55,9 @@ from typing import Any, Dict, List, Optional, Tuple
 # 1. In-memory storage
 # ---------------------------------------------------------------------------
 OBSERVABILITY: Dict[str, Any] = {
-    "spans": [],          # list of dicts
-    "metrics": {},        # name -> [{value, attributes, ts}]
-    "traces": [],         # list of finished root spans (trace_ids)
+    "spans": [],  # list of dicts
+    "metrics": {},  # name -> [{value, attributes, ts}]
+    "traces": [],  # list of finished root spans (trace_ids)
     "_lock": RLock(),
 }
 
@@ -77,6 +78,7 @@ def clear_observability() -> None:
 @dataclass
 class _Span:
     """An in-memory span.  Mirrors the OTel Span API subset we use."""
+
     name: str
     trace_id: str
     span_id: str
@@ -93,28 +95,31 @@ class _Span:
     def set_status(self, status: str, description: Optional[str] = None) -> None:
         self.status = status
         if description:
-            self.events.append({"type": "status", "status": status,
-                                "description": description})
+            self.events.append({"type": "status", "status": status, "description": description})
 
     def add_event(self, name: str, attributes: Optional[Dict[str, Any]] = None) -> None:
-        self.events.append({"type": "event", "name": name,
-                            "attributes": attributes or {},
-                            "ts": datetime.now(timezone.utc).isoformat()})
+        self.events.append(
+            {
+                "type": "event",
+                "name": name,
+                "attributes": attributes or {},
+                "ts": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
     def record_exception(self, exc: BaseException) -> None:
-        self.events.append({
-            "type": "exception",
-            "name": exc.__class__.__name__,
-            "message": str(exc),
-            "ts": datetime.now(timezone.utc).isoformat(),
-        })
+        self.events.append(
+            {
+                "type": "exception",
+                "name": exc.__class__.__name__,
+                "message": str(exc),
+                "ts": datetime.now(timezone.utc).isoformat(),
+            }
+        )
         self.status = "ERROR"
 
     def to_dict(self) -> Dict[str, Any]:
-        dur = (
-            (self.end_time - self.start_time) * 1000.0
-            if self.end_time is not None else None
-        )
+        dur = (self.end_time - self.start_time) * 1000.0 if self.end_time is not None else None
         return {
             "name": self.name,
             "trace_id": self.trace_id,
@@ -133,8 +138,8 @@ class _Span:
 # parent/trace_id(后进的 span 污染先进行的 trace)。栈值用不可变
 # tuple,每个 context(线程 / asyncio task)拿到独立副本;跨
 # context 关闭 span 时 ``reset(token)`` 会失败,回退到进入时快照。
-_ACTIVE_SPANS: contextvars.ContextVar[Tuple[_Span, ...]] = (
-    contextvars.ContextVar("mediascribe_active_span_stack", default=())
+_ACTIVE_SPANS: contextvars.ContextVar[Tuple[_Span, ...]] = contextvars.ContextVar(
+    "mediascribe_active_span_stack", default=()
 )
 
 
@@ -165,6 +170,7 @@ class Tracer:
 
 class _SpanCM:
     """Context manager returned by ``Tracer.start_as_current_span``."""
+
     def __init__(self, span: _Span) -> None:
         self._span = span
         self._token: Optional[Any] = None
@@ -206,11 +212,13 @@ class _Counter:
 
     def add(self, value: float, attributes: Optional[Dict[str, Any]] = None) -> None:
         with OBSERVABILITY["_lock"]:
-            OBSERVABILITY["metrics"].setdefault(self.name, []).append({
-                "value": value,
-                "attributes": attributes or {},
-                "ts": datetime.now(timezone.utc).isoformat(),
-            })
+            OBSERVABILITY["metrics"].setdefault(self.name, []).append(
+                {
+                    "value": value,
+                    "attributes": attributes or {},
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                }
+            )
 
 
 class _Histogram:
@@ -219,11 +227,13 @@ class _Histogram:
 
     def record(self, value: float, attributes: Optional[Dict[str, Any]] = None) -> None:
         with OBSERVABILITY["_lock"]:
-            OBSERVABILITY["metrics"].setdefault(self.name, []).append({
-                "value": value,
-                "attributes": attributes or {},
-                "ts": datetime.now(timezone.utc).isoformat(),
-            })
+            OBSERVABILITY["metrics"].setdefault(self.name, []).append(
+                {
+                    "value": value,
+                    "attributes": attributes or {},
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                }
+            )
 
 
 class Meter:
@@ -264,6 +274,7 @@ _REAL_OTEL_AVAILABLE = False
 try:
     from opentelemetry import trace as _ot_trace  # noqa: F401
     from opentelemetry.sdk.trace import TracerProvider  # noqa: F401
+
     _REAL_OTEL_AVAILABLE = True
 except ImportError:
     pass
@@ -289,9 +300,8 @@ def install_opentelemetry_exporter(exporter: Any = None) -> bool:
         trace.set_tracer_provider(TracerProvider())
         if exporter is not None:
             from opentelemetry.sdk.trace.export import BatchSpanProcessor
-            trace.get_tracer_provider().add_span_processor(
-                BatchSpanProcessor(exporter)
-            )
+
+            trace.get_tracer_provider().add_span_processor(BatchSpanProcessor(exporter))
         metrics.set_meter_provider(MeterProvider())
 
         # Wrap the real OTel tracer / meter so the rest of the
@@ -303,11 +313,14 @@ def install_opentelemetry_exporter(exporter: Any = None) -> bool:
         class _Adapter:
             def start_as_current_span(self, name, **kw):
                 return ot_tracer.start_as_current_span(name, **kw)
+
         class _MeterAdapter:
             def create_counter(self, name):
                 return ot_meter.create_counter(name)
+
             def create_histogram(self, name):
                 return ot_meter.create_histogram(name)
+
         _TRACER = _Adapter()  # type: ignore[assignment]
         _METER = _MeterAdapter()  # type: ignore[assignment]
         return True

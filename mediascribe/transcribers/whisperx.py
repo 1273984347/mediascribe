@@ -5,6 +5,7 @@ WhisperX 转录器 - 真正参考 WhisperX 的实现流程
 ``(language_code, device)`` 复用实例，同一转录器连转 N 个音频不再重复加载
 （模型加载约 5-10s/次）。``clear_model_cache()`` 可手动释放显存（含对齐模型）。
 """
+
 from __future__ import annotations
 
 import gc
@@ -24,9 +25,7 @@ _ALIGN_MODEL_CACHE: Dict[Tuple[str, str], Any] = {}
 _MODEL_CACHE_LOCK = threading.Lock()
 
 
-def _get_cached_model(
-    whisperx: Any, model_name: str, device: str, language: Optional[str]
-) -> Any:
+def _get_cached_model(whisperx: Any, model_name: str, device: str, language: Optional[str]) -> Any:
     """取或加载 WhisperX 主模型（按 ``(model_name, device, compute_type)`` 缓存）。
 
     线程安全：双检锁，并发加载同一模型时只有一个会真正加载。
@@ -42,15 +41,16 @@ def _get_cached_model(
         if cached is not None:
             return cached
         model = whisperx.load_model(
-            model_name, device, compute_type=compute_type, language=language,
+            model_name,
+            device,
+            compute_type=compute_type,
+            language=language,
         )
         _MODEL_CACHE[key] = model
         return model
 
 
-def _get_cached_align_model(
-    whisperx: Any, language_code: str, device: str
-) -> Tuple[Any, Any]:
+def _get_cached_align_model(whisperx: Any, language_code: str, device: str) -> Tuple[Any, Any]:
     """取或加载 word-level 对齐模型（按 ``(language_code, device)`` 缓存）。
 
     返回 ``(align_model, meta)``。
@@ -65,7 +65,8 @@ def _get_cached_align_model(
         if cached is not None:
             return cached
         align_model, meta = whisperx.load_align_model(
-            language_code=language_code, device=device,
+            language_code=language_code,
+            device=device,
         )
         _ALIGN_MODEL_CACHE[key] = (align_model, meta)
         return align_model, meta
@@ -83,6 +84,7 @@ def clear_model_cache() -> None:
 
 class WhisperXTranscriber(Transcriber):
     """WhisperX 转录器（支持说话人分离）"""
+
     name = "whisperx"
 
     def __init__(
@@ -128,7 +130,9 @@ class WhisperXTranscriber(Transcriber):
                 print("执行 Word-level 对齐...")
 
             align_model, meta = _get_cached_align_model(
-                whisperx, result["language"], self.device,
+                whisperx,
+                result["language"],
+                self.device,
             )
 
             result = whisperx.align(

@@ -18,6 +18,7 @@ Hugging Face Datasets 仓库,benchmark 脚本优先从网络拉、本地兜底�
 
 不依赖 ffmpeg / GPU,纯 stdlib + wave 模块,保证 CI 可跑。
 """
+
 from __future__ import annotations
 
 import argparse

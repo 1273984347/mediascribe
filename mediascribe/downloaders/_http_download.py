@@ -10,6 +10,7 @@ P1-6 收敛说明：douyin / wechat_mp / xiaohongshu 三个下载器原本各自
   - ``try/finally`` 失败清理（不留半截文件，也不覆盖旧的好文件）
   - 进度日志按 5% 分桶降频 + 可选 ``progress_cb(downloaded, total)`` 回调
 """
+
 from __future__ import annotations
 
 import logging
@@ -39,6 +40,7 @@ def build_http_session() -> requests.Session:
     session = requests.Session()
     try:
         from urllib3.util.retry import Retry
+
         retry = Retry(
             total=_HTTP_MAX_RETRIES,
             connect=_HTTP_MAX_RETRIES,
@@ -110,7 +112,9 @@ def stream_download(
                         last_logged_bucket = bucket
                         logger.info(
                             "下载进度: %.1f%% (%d/%d 字节)",
-                            percent, downloaded, total_size,
+                            percent,
+                            downloaded,
+                            total_size,
                         )
         logger.info("下载完成: %s (%d 字节)", dest_path.name, downloaded)
 

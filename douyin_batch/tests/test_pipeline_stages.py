@@ -14,6 +14,7 @@ Pipeline stage framework (v3.2.0b) — unit tests.
    ``TranscriptResult`` 完全兼容(用本地音频 fixture 跑全链)。
 5. ``resolve_device`` / ``gpu_health`` 在 torch 不可用时安全 fallback。
 """
+
 from __future__ import annotations
 
 import json
@@ -304,9 +305,7 @@ class TestAssembleStage(unittest.TestCase):
         ctx = self._ctx()
         # v3.2.0e+: AssembleStage 改走 _atomic_write_text 而非 Path.write_text,
         # 测试契约相应更新。mock 该 helper 验证落盘调用。
-        with mock.patch(
-            "mediascribe.pipeline_stages._atomic_write_text"
-        ) as wt:
+        with mock.patch("mediascribe.pipeline_stages._atomic_write_text") as wt:
             ctx = s.run(ctx)
         self.assertIsNotNone(ctx.transcript_path)
         self.assertIsNotNone(ctx.metadata_path)
@@ -322,9 +321,7 @@ class TestAssembleStage(unittest.TestCase):
         s = self._stage()
         ctx = self._ctx()
         ctx.engine_name = "whisperx"
-        with mock.patch(
-            "mediascribe.pipeline_stages._atomic_write_text"
-        ):
+        with mock.patch("mediascribe.pipeline_stages._atomic_write_text"):
             ctx = s.run(ctx)
         self.assertEqual(ctx.result.engine, "whisperx")
         self.assertEqual(ctx.metadata["engine"], "whisperx")
@@ -484,10 +481,9 @@ class TestCreateTranscriberResolvesDevice(unittest.TestCase):
         return fake_torch
 
     def test_faster_whisper_gets_resolved_device(self):
-        with mock.patch.dict("sys.modules", {"torch": self._torch_cuda()}), \
-             mock.patch(
-                 "mediascribe.pipeline.FasterWhisperTranscriber"
-             ) as fwt:
+        with mock.patch.dict("sys.modules", {"torch": self._torch_cuda()}), mock.patch(
+            "mediascribe.pipeline.FasterWhisperTranscriber"
+        ) as fwt:
             fwt.return_value = "SENTINEL"
             s = _fake_settings(Path("/tmp"))
             s.engine = "faster-whisper"
@@ -497,8 +493,9 @@ class TestCreateTranscriberResolvesDevice(unittest.TestCase):
             self.assertEqual(fwt.call_args.kwargs["device"], "cuda")
 
     def test_whisperx_gets_resolved_device_not_auto(self):
-        with mock.patch.dict("sys.modules", {"torch": self._torch_cuda()}), \
-             mock.patch("mediascribe.pipeline.WhisperXTranscriber") as wx:
+        with mock.patch.dict("sys.modules", {"torch": self._torch_cuda()}), mock.patch(
+            "mediascribe.pipeline.WhisperXTranscriber"
+        ) as wx:
             wx.return_value = "SENTINEL"
             s = _fake_settings(Path("/tmp"))
             s.engine = "whisperx"
@@ -507,8 +504,9 @@ class TestCreateTranscriberResolvesDevice(unittest.TestCase):
             self.assertEqual(wx.call_args.kwargs["device"], "cuda")
 
     def test_explicit_device_passthrough(self):
-        with mock.patch.dict("sys.modules", {"torch": self._torch_cuda()}), \
-             mock.patch("mediascribe.pipeline.WhisperTranscriber") as wt:
+        with mock.patch.dict("sys.modules", {"torch": self._torch_cuda()}), mock.patch(
+            "mediascribe.pipeline.WhisperTranscriber"
+        ) as wt:
             wt.return_value = "SENTINEL"
             s = _fake_settings(Path("/tmp"))
             s.device = "cuda:0"
@@ -517,8 +515,9 @@ class TestCreateTranscriberResolvesDevice(unittest.TestCase):
 
     def test_engine_none_device_resolves(self):
         """device=None 也走归一化(torch 不可用 → cpu)。"""
-        with mock.patch.dict("sys.modules", {"torch": None}), \
-             mock.patch("mediascribe.pipeline.WhisperTranscriber") as wt:
+        with mock.patch.dict("sys.modules", {"torch": None}), mock.patch(
+            "mediascribe.pipeline.WhisperTranscriber"
+        ) as wt:
             wt.return_value = "SENTINEL"
             s = _fake_settings(Path("/tmp"))
             s.device = None
@@ -637,9 +636,7 @@ class TestCancelMechanism(unittest.TestCase):
         ctx.raise_if_cancelled()  # 必须不抛
 
     def test_raise_if_cancelled_noop_when_event_none(self):
-        ctx = PipelineContext(
-            settings=_fake_settings(Path("/tmp")), source_input="x"
-        )
+        ctx = PipelineContext(settings=_fake_settings(Path("/tmp")), source_input="x")
         # cancel_event 默认 None
         ctx.raise_if_cancelled()  # 必须不抛
 
@@ -766,6 +763,7 @@ class TestAtomicWriteText(unittest.TestCase):
         import tempfile
 
         from mediascribe.pipeline_stages import _atomic_write_text
+
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "out.md"
             _atomic_write_text(p, "hello world", encoding="utf-8")
@@ -775,6 +773,7 @@ class TestAtomicWriteText(unittest.TestCase):
         import tempfile
 
         from mediascribe.pipeline_stages import _atomic_write_text
+
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "deep" / "nested" / "out.md"
             _atomic_write_text(p, "x")
@@ -785,6 +784,7 @@ class TestAtomicWriteText(unittest.TestCase):
         import tempfile
 
         from mediascribe.pipeline_stages import _atomic_write_text
+
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "out.md"
             _atomic_write_text(p, "x")
@@ -796,10 +796,13 @@ class TestAtomicWriteText(unittest.TestCase):
         import tempfile
 
         from mediascribe.pipeline_stages import _atomic_write_text
+
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "out.md"
             # 拦截 os.replace 抛异常模拟"原子替换失败"
-            with mock.patch("mediascribe.pipeline_stages.os.replace", side_effect=OSError("disk full")):
+            with mock.patch(
+                "mediascribe.pipeline_stages.os.replace", side_effect=OSError("disk full")
+            ):
                 with self.assertRaises(OSError):
                     _atomic_write_text(p, "x")
             tmp_files = list(Path(d).glob("*.tmp"))
@@ -809,6 +812,7 @@ class TestAtomicWriteText(unittest.TestCase):
         import tempfile
 
         from mediascribe.pipeline_stages import _atomic_write_text
+
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "out.md"
             p.write_text("OLD", encoding="utf-8")

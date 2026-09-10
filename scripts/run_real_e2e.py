@@ -20,6 +20,7 @@ Usage:
     python scripts/run_real_e2e.py --platform bilibili        # subset
     python scripts/run_real_e2e.py --platform wechat_mp --wechat-cookies "wxuin=abc"
 """
+
 from __future__ import annotations
 
 import argparse
@@ -42,9 +43,10 @@ sys.path.insert(0, str(ROOT))
 @dataclass
 class E2ECase:
     """One row in the smoke-test matrix."""
-    platform: str           # bilibili | douyin | youtube | xiaohongshu | wechat_mp
-    url: str                # the public URL to exercise
-    expect_kind: str        # SourceRef.kind
+
+    platform: str  # bilibili | douyin | youtube | xiaohongshu | wechat_mp
+    url: str  # the public URL to exercise
+    expect_kind: str  # SourceRef.kind
     needs_cookies: bool = False
     needs_playwright: bool = False
     skip_asr: bool = False  # text-only content (wechat_mp article)
@@ -126,6 +128,7 @@ def detect(url: str) -> Optional[str]:
     """Run the platform detector. Returns the kind string or None."""
     try:
         from mediascribe.inputs import parse_source
+
         ref = parse_source(url)
         return ref.kind
     except Exception as exc:  # pragma: no cover - defensive
@@ -144,8 +147,8 @@ def run_pipeline(
 
     settings = Settings(
         workspace_root=workspace,
-        model="tiny",         # smallest model for fast smoke tests
-        engine="whisper",     # most portable engine
+        model="tiny",  # smallest model for fast smoke tests
+        engine="whisper",  # most portable engine
         wechat_cookies=wechat_cookies,
     )
     pipeline = Pipeline(settings)
@@ -197,9 +200,7 @@ def run_case(
     res.detected_kind = detect(case.url)
     res.detected_ok = res.detected_kind == case.expect_kind
     if not res.detected_ok:
-        res.errors.append(
-            f"detector returned {res.detected_kind!r}, expected {case.expect_kind!r}"
-        )
+        res.errors.append(f"detector returned {res.detected_kind!r}, expected {case.expect_kind!r}")
 
     if url_only:
         res.skipped_reason = "url-only mode (no download attempted)"
@@ -233,10 +234,7 @@ def render_summary(results: List[E2EResult]) -> str:
             flag = "OK"
         else:
             flag = "FAIL"
-        lines.append(
-            f"[{flag:4}] {r.case.platform:12} {r.duration_sec:6.2f}s "
-            f"{r.case.url}"
-        )
+        lines.append(f"[{flag:4}] {r.case.platform:12} {r.duration_sec:6.2f}s {r.case.url}")
         if r.skipped_reason:
             lines.append(f"        ~ {r.skipped_reason}")
         if r.errors:
@@ -245,9 +243,7 @@ def render_summary(results: List[E2EResult]) -> str:
     passed = sum(1 for r in results if r.pipeline_ok)
     skipped = sum(1 for r in results if r.skipped_reason)
     lines.append("-" * 78)
-    lines.append(
-        f"Passed: {passed}/{len(results)}  (skipped: {skipped})"
-    )
+    lines.append(f"Passed: {passed}/{len(results)}  (skipped: {skipped})")
     return "\n".join(lines)
 
 
@@ -263,11 +259,11 @@ def write_reports(results: List[E2EResult], out_root: Path) -> None:
         json.dumps(aggregate, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    (out_root / "summary.txt").write_text(
-        render_summary(results), encoding="utf-8"
-    )
-    lines = ["| Platform | URL | Detect | Pipeline | Engine | Chars | Time |",
-             "|----------|-----|--------|----------|--------|-------|------|"]
+    (out_root / "summary.txt").write_text(render_summary(results), encoding="utf-8")
+    lines = [
+        "| Platform | URL | Detect | Pipeline | Engine | Chars | Time |",
+        "|----------|-----|--------|----------|--------|-------|------|",
+    ]
     for r in results:
         det = "OK" if r.detected_ok else f"NO({r.detected_kind})"
         # Map the run result to a short display flag (SKIP/OK/FAIL)
@@ -305,20 +301,24 @@ def _parse_cookie_arg(s: Optional[str]) -> Optional[Dict[str, str]]:
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument(
-        "--output-dir", default="./e2e-results",
+        "--output-dir",
+        default="./e2e-results",
         help="Directory to write per-platform logs and the summary",
     )
     parser.add_argument(
-        "--platform", action="append",
+        "--platform",
+        action="append",
         help="Restrict to one or more platforms (repeatable)",
     )
     parser.add_argument(
-        "--url-only", action="store_true",
+        "--url-only",
+        action="store_true",
         help="Only exercise the platform detector (skip pipeline)",
     )
     parser.add_argument(
-        "--wechat-cookies", default=None,
-        help='WeChat cookies string, e.g. \'wxuin=abc123; pass_ticket=xyz\'',
+        "--wechat-cookies",
+        default=None,
+        help="WeChat cookies string, e.g. 'wxuin=abc123; pass_ticket=xyz'",
     )
     args = parser.parse_args(argv)
 
@@ -335,7 +335,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"\n>>> {case.platform:12} {case.url}")
         try:
             r = run_case(
-                case, out_root,
+                case,
+                out_root,
                 url_only=args.url_only,
                 wechat_cookies=wechat_cookies,
             )

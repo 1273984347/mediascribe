@@ -11,6 +11,7 @@ Tests are designed to fail gracefully (skip) when the package
 is not installed in editable mode, because ``importlib.metadata``
 only sees entry points from *installed* distributions.
 """
+
 import importlib
 import sys
 import unittest
@@ -37,33 +38,40 @@ class TestPluginDiscovery(unittest.TestCase):
     def setUpClass(cls):
         # Force a fresh discovery in case other tests cached it.
         from mediascribe.plugins import clear_cache
+
         clear_cache()
 
     def test_list_downloaders_includes_vimeo(self):
         from mediascribe.plugins import list_downloaders
+
         names = list_downloaders()
-        self.assertIn("vimeo", names,
-                      f"vimeo plugin missing; got: {names}")
+        self.assertIn("vimeo", names, f"vimeo plugin missing; got: {names}")
 
     def test_get_downloader_returns_class(self):
         from mediascribe.plugins import get_downloader
+
         cls = get_downloader("vimeo")
         self.assertIsNotNone(cls)
         self.assertEqual(cls.name, "vimeo")
 
     def test_get_downloader_unknown_returns_none(self):
         from mediascribe.plugins import get_downloader
+
         self.assertIsNone(get_downloader("__no_such_plugin__"))
 
     def test_vimeo_supports(self):
         from mediascribe.models import SourceRef
         from mediascribe.plugins import get_downloader
+
         cls = get_downloader("vimeo")
-        ref = SourceRef(raw_input="https://vimeo.com/123", kind="vimeo", url="https://vimeo.com/123")
+        ref = SourceRef(
+            raw_input="https://vimeo.com/123", kind="vimeo", url="https://vimeo.com/123"
+        )
         self.assertTrue(cls().supports(ref))
 
     def test_clear_cache_forces_rediscovery(self):
         from mediascribe import plugins
+
         plugins.clear_cache()
         # First call populates the cache; second is a no-op.
         plugins.list_downloaders()
@@ -77,15 +85,18 @@ class TestPluginHookspecs(unittest.TestCase):
 
     def test_downloader_hookspec_is_class(self):
         from mediascribe.plugins import DownloaderHookSpec
+
         self.assertTrue(hasattr(DownloaderHookSpec, "supports"))
         self.assertTrue(hasattr(DownloaderHookSpec, "download"))
 
     def test_transcriber_hookspec_is_class(self):
         from mediascribe.plugins import TranscriberHookSpec
+
         self.assertTrue(hasattr(TranscriberHookSpec, "transcribe"))
 
     def test_url_transformer_hookspec_is_class(self):
         from mediascribe.plugins import URLTransformerHookSpec
+
         self.assertTrue(hasattr(URLTransformerHookSpec, "transform"))
 
 
@@ -94,6 +105,7 @@ class TestUrlTransformerIteration(unittest.TestCase):
 
     def test_iter_returns_iterable(self):
         from mediascribe.plugins import iter_url_transformers
+
         # In a clean test env the iterator may be empty; that's fine.
         result = list(iter_url_transformers())
         self.assertIsInstance(result, list)

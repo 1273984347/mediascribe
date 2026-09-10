@@ -2,6 +2,7 @@
 """
 v3 功能演示 - 不需要浏览器，测试所有非浏览器功能
 """
+
 import sys
 from pathlib import Path
 
@@ -77,9 +78,10 @@ print("\n5️⃣  进度条演示")
 tracker = ProgressTracker(total=10, desc="演示任务")
 for i in range(10):
     import time
+
     time.sleep(0.05)
     tracker.update(success=(i % 3 != 0), task_time=0.5)
-    print(tracker.render(f"任务{i+1}"), end="\r")
+    print(tracker.render(f"任务{i + 1}"), end="\r")
 print()
 
 # 6. 格式化函数

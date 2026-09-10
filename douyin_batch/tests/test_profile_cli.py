@@ -1,4 +1,5 @@
 """Tests for v3.2.0a profile CLI."""
+
 from __future__ import annotations
 
 import io
@@ -129,6 +130,7 @@ class TestAggregate(unittest.TestCase):
         import tempfile
 
         from mediascribe.profile_cli import aggregate, read_jsonl
+
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "x.jsonl"
             _write_jsonl(p, _sample_records())
@@ -147,10 +149,12 @@ class TestAggregate(unittest.TestCase):
     def test_skips_non_numeric_durations(self):
         from mediascribe.profile_cli import aggregate
 
-        stages = aggregate([
-            {"label": "a", "duration_sec": "not-a-number"},
-            {"label": "a", "duration_sec": 1.0},
-        ])
+        stages = aggregate(
+            [
+                {"label": "a", "duration_sec": "not-a-number"},
+                {"label": "a", "duration_sec": 1.0},
+            ]
+        )
         self.assertEqual(len(stages), 1)
         self.assertEqual(stages[0].count, 1)
 

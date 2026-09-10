@@ -13,6 +13,7 @@ It writes:
     docs/cli-screenshots/douyin-batch-v3-help-en.txt
     docs/cli-screenshots/index.md
 """
+
 import pathlib
 import subprocess
 import sys
@@ -56,8 +57,11 @@ def main() -> None:
         print(f"--- {filename} ---")
         try:
             r = subprocess.run(
-                cmd, cwd=str(ROOT),
-                capture_output=True, text=True, timeout=15,
+                cmd,
+                cwd=str(ROOT),
+                capture_output=True,
+                text=True,
+                timeout=15,
             )
             # argparse writes --help to stdout; some legacy CLIs use stderr.
             text = (r.stdout or "") + (r.stderr or "")

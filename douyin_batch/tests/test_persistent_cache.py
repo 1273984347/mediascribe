@@ -1,4 +1,5 @@
 """Tests for v3.2.0a persistent cache module."""
+
 from __future__ import annotations
 
 import os
@@ -67,10 +68,13 @@ class TestPersistentCacheDir(unittest.TestCase):
         # inside the user's home / appdata, not at /tmp.
         with mock.patch.object(Path, "home", return_value=Path("/home/x")):
             p = persistent_cache_dir()
-        self.assertIn(str(p), [
-            str(Path("/home/x/.cache/mediascribe")),
-            str(Path("C:/Users/12739/AppData/Local/mediascribe/Cache")),
-        ])
+        self.assertIn(
+            str(p),
+            [
+                str(Path("/home/x/.cache/mediascribe")),
+                str(Path("C:/Users/12739/AppData/Local/mediascribe/Cache")),
+            ],
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -208,6 +212,7 @@ class TestPersistentDownloadCache(unittest.TestCase):
 def _save_index_local(cache_dir: Path, name: str, index: dict) -> None:
     """Test helper: write the index file the same way cache.py does."""
     from mediascribe.cache import _save_index
+
     _save_index(cache_dir, name, index)
 
 
@@ -268,6 +273,7 @@ class TestPersistentChunkCache(unittest.TestCase):
         c.put(self.src, self._params(), self.chunks_dir)
         # Change mtime + size of source
         import os
+
         new = self.tmp / "source2.wav"
         new.write_bytes(b"Y" * 999)
         os.utime(new, (time.time() + 5, time.time() + 5))
@@ -303,9 +309,7 @@ class TestCacheAtomicityAndWriteAmplification(unittest.TestCase):
     def test_put_leaves_no_tmp_files(self):
         c = self._cache()
         c.put("u1", self.src, suffix=".bin")
-        leftovers = [
-            p.name for p in (self.tmp / "cache").iterdir() if ".tmp" in p.name
-        ]
+        leftovers = [p.name for p in (self.tmp / "cache").iterdir() if ".tmp" in p.name]
         self.assertEqual(leftovers, [])
 
     def test_get_hit_does_not_rewrite_index_file(self):
@@ -337,15 +341,11 @@ class TestCacheAtomicityAndWriteAmplification(unittest.TestCase):
         c = self._cache()
         import mediascribe.cache as cache_mod
 
-        with _mock.patch.object(
-            cache_mod.shutil, "copy2", side_effect=OSError("disk full")
-        ):
+        with _mock.patch.object(cache_mod.shutil, "copy2", side_effect=OSError("disk full")):
             with self.assertRaises(OSError):
                 c.put("u1", self.src)
         self.assertIsNone(c.get("u1"))
-        leftovers = [
-            p.name for p in (self.tmp / "cache").iterdir() if ".tmp" in p.name
-        ]
+        leftovers = [p.name for p in (self.tmp / "cache").iterdir() if ".tmp" in p.name]
         self.assertEqual(leftovers, [])
 
 
@@ -375,7 +375,8 @@ class TestPersistentChunkCacheTtlAndCap(unittest.TestCase):
         c = self._cache()
         c.put(self.src, self._params(), self._chunks_dir("c1"))
         leftovers = [
-            p.name for p in (self.tmp / "chunk_cache").rglob("*")
+            p.name
+            for p in (self.tmp / "chunk_cache").rglob("*")
             if p.is_file() and ".tmp" in p.name
         ]
         self.assertEqual(leftovers, [])

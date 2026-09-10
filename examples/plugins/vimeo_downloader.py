@@ -6,6 +6,7 @@ point in ``pyproject.toml`` so the test suite can discover it
 without manual imports.  It pretends to download a ``vimeo.com``
 URL and returns a stub ``DownloadResult``.
 """
+
 from __future__ import annotations
 
 from typing import Any, Optional
@@ -34,9 +35,7 @@ class VimeoDownloader(Downloader):
     ) -> DownloadResult:
         out = settings.downloads_dir / f"{source.display_name}.md"
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(
-            f"# Vimeo stub\n\nURL: {source.url}\n", encoding="utf-8"
-        )
+        out.write_text(f"# Vimeo stub\n\nURL: {source.url}\n", encoding="utf-8")
         return DownloadResult(
             source=source,
             video_path=out,

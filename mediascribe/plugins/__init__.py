@@ -9,6 +9,7 @@ Public API
 * :func:`clear_cache` — forget cached entry points (for tests)
 * :class:`DownloaderHookSpec` / :class:`TranscriberHookSpec` / :class:`URLTransformerHookSpec`
 """
+
 from .registry import (
     ENTRY_POINT_GROUPS,
     DownloaderHookSpec,

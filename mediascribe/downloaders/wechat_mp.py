@@ -30,6 +30,7 @@ v3.2.0g:
 - OCR 进度用独立计数器，且结果按图片顺序回填
 - PaddleOCR 引擎按模块级单例缓存（与 easyocr 一致），多图不再重复初始化
 """
+
 from __future__ import annotations
 
 import logging
@@ -112,7 +113,7 @@ class WechatMpDownloader(Downloader):
 
         # 暂存 OCR 选项，供 _ocr_image / _ocr_images 使用
         self._ocr_engine: str = (ocr_engine or "auto").lower()
-        self._ocr_lang: str = (ocr_lang or "chi_sim+eng")
+        self._ocr_lang: str = ocr_lang or "chi_sim+eng"
         self._save_images: bool = bool(save_images)
 
         # 自动注入 cookies（来自 settings.wechat_cookies）
@@ -131,9 +132,7 @@ class WechatMpDownloader(Downloader):
         video_url = self._extract_video_url(html)
 
         if not text and not video_url and not image_urls:
-            raise RuntimeError(
-                "无法从文章中提取正文或视频。可能文章已删除、被封禁或需登录。"
-            )
+            raise RuntimeError("无法从文章中提取正文或视频。可能文章已删除、被封禁或需登录。")
 
         # 公众号图片文章：尝试 OCR（依赖可选；缺 OCR 引擎时降级为 partial）
         ocr_texts: list = []
@@ -141,9 +140,7 @@ class WechatMpDownloader(Downloader):
         ocr_total = 0
         if image_urls and not video_url:
             logger.info("检测到 %d 张图片，尝试 OCR...", len(image_urls))
-            ocr_texts, ocr_success, ocr_total = self._ocr_images(
-                image_urls, settings.downloads_dir
-            )
+            ocr_texts, ocr_success, ocr_total = self._ocr_images(image_urls, settings.downloads_dir)
 
         if video_url:
             # 视频型公众号消息：下载视频并保留文本作为副标题
@@ -302,12 +299,12 @@ class WechatMpDownloader(Downloader):
             if tag.group(0).lower().startswith("</div"):
                 depth -= 1
                 if depth == 0:
-                    return html[open_tag.start(): tag.end()]
+                    return html[open_tag.start() : tag.end()]
             else:
                 depth += 1
 
         # 标签未闭合（响应被截断）：返回剩余内容，尽量不丢数据
-        return html[open_tag.start():]
+        return html[open_tag.start() :]
 
     def _extract_text(self, html: str) -> Optional[str]:
         """
@@ -499,9 +496,7 @@ class WechatMpDownloader(Downloader):
 
         return None
 
-    def _ocr_images(
-        self, image_urls: list, save_dir: Path
-    ) -> tuple:
+    def _ocr_images(self, image_urls: list, save_dir: Path) -> tuple:
         """
         批量 OCR 多张图片。
 
@@ -575,9 +570,7 @@ class WechatMpDownloader(Downloader):
             logger.warning("下载视频失败: %s (%s)", video_url, e)
             return None
 
-    def _write_text_stub(
-        self, text: str, save_dir: Path, meta: dict
-    ) -> Path:
+    def _write_text_stub(self, text: str, save_dir: Path, meta: dict) -> Path:
         """
         把纯文本公众号文章保存为伪音频占位文件。
 

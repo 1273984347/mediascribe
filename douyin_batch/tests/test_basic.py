@@ -1,6 +1,7 @@
 """
 单元测试 - 覆盖核心模块
 """
+
 import sys
 import unittest
 from pathlib import Path
@@ -80,6 +81,7 @@ class TestConfig(unittest.TestCase):
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             import json
+
             json.dump({"max_videos": 50, "headless": False}, f)
             tmp_path = Path(f.name)
 
@@ -115,12 +117,15 @@ class TestCache(unittest.TestCase):
 
     def setUp(self):
         import tempfile
+
         self.tmp_dir = Path(tempfile.mkdtemp())
         from douyin_batch.cache import ProcessCache
+
         self.cache = ProcessCache(cache_dir=self.tmp_dir)
 
     def tearDown(self):
         import shutil
+
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
     def test_mark_and_check(self):

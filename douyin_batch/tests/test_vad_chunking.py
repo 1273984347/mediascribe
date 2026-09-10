@@ -1,4 +1,5 @@
 """Tests for v3.2.0a VAD-aware chunking."""
+
 from __future__ import annotations
 
 import sys
@@ -11,8 +12,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 
-def _make_wav(path: Path, *, duration_s: float, rate: int = 16000,
-              nchannels: int = 1, sampwidth: int = 2) -> None:
+def _make_wav(
+    path: Path, *, duration_s: float, rate: int = 16000, nchannels: int = 1, sampwidth: int = 2
+) -> None:
     """Write a silent PCM16 mono/stereo WAV file of the given length."""
     nframes = int(duration_s * rate)
     with wave.open(str(path), "wb") as w:
@@ -23,8 +25,7 @@ def _make_wav(path: Path, *, duration_s: float, rate: int = 16000,
         w.writeframes(b"\x00" * nframes * nchannels * sampwidth)
 
 
-def _make_sine_wav(path: Path, *, duration_s: float, rate: int = 16000,
-                   freq_hz: int = 440) -> None:
+def _make_sine_wav(path: Path, *, duration_s: float, rate: int = 16000, freq_hz: int = 440) -> None:
     """Write a 440 Hz sine wave (should trigger VAD)."""
     import math
     import struct
@@ -81,13 +82,14 @@ class TestDetectSpeechSegments(unittest.TestCase):
         # Pretend webrtcvad is installed and reports speech on the
         # first 5 frames and silence thereafter.
         fake_webrtcvad = mock.MagicMock()
-        fake_webrtcvad.Vad.return_value.is_speech.side_effect = (
-            [True] * 5 + [False] * 27
-        )
-        with mock.patch.dict(sys.modules, {"webrtcvad": fake_webrtcvad}), \
-             mock.patch.object(audio_utils, "_is_webrtcvad_available", return_value=True):
+        fake_webrtcvad.Vad.return_value.is_speech.side_effect = [True] * 5 + [False] * 27
+        with mock.patch.dict(sys.modules, {"webrtcvad": fake_webrtcvad}), mock.patch.object(
+            audio_utils, "_is_webrtcvad_available", return_value=True
+        ):
             segs = audio_utils.detect_speech_segments(
-                self.wav, aggressiveness=2, min_speech_seconds=0.05,
+                self.wav,
+                aggressiveness=2,
+                min_speech_seconds=0.05,
             )
         # 1.0 s file at 30 ms/frame = 33 frames; 5 speech frames
         # covers 0-0.18 s; after 0.3 s padding (min_silence_seconds)
@@ -105,8 +107,9 @@ class TestDetectSpeechSegments(unittest.TestCase):
 
         fake_webrtcvad = mock.MagicMock()
         fake_webrtcvad.Vad.return_value.is_speech.return_value = False
-        with mock.patch.dict(sys.modules, {"webrtcvad": fake_webrtcvad}), \
-             mock.patch.object(audio_utils, "_is_webrtcvad_available", return_value=True):
+        with mock.patch.dict(sys.modules, {"webrtcvad": fake_webrtcvad}), mock.patch.object(
+            audio_utils, "_is_webrtcvad_available", return_value=True
+        ):
             segs = audio_utils.detect_speech_segments(self.wav)
         self.assertEqual(segs, [])
 
@@ -116,8 +119,9 @@ class TestDetectSpeechSegments(unittest.TestCase):
         mp3 = self.tmp / "x.mp3"
         mp3.write_bytes(b"fake mp3")
         fake_webrtcvad = mock.MagicMock()
-        with mock.patch.dict(sys.modules, {"webrtcvad": fake_webrtcvad}), \
-             mock.patch.object(audio_utils, "_is_webrtcvad_available", return_value=True):
+        with mock.patch.dict(sys.modules, {"webrtcvad": fake_webrtcvad}), mock.patch.object(
+            audio_utils, "_is_webrtcvad_available", return_value=True
+        ):
             with self.assertRaises(ValueError) as ctx:
                 audio_utils.detect_speech_segments(mp3)
         self.assertIn("WAV", str(ctx.exception))
@@ -128,8 +132,9 @@ class TestDetectSpeechSegments(unittest.TestCase):
         stereo = self.tmp / "stereo.wav"
         _make_wav(stereo, duration_s=0.5, nchannels=2)
         fake_webrtcvad = mock.MagicMock()
-        with mock.patch.dict(sys.modules, {"webrtcvad": fake_webrtcvad}), \
-             mock.patch.object(audio_utils, "_is_webrtcvad_available", return_value=True):
+        with mock.patch.dict(sys.modules, {"webrtcvad": fake_webrtcvad}), mock.patch.object(
+            audio_utils, "_is_webrtcvad_available", return_value=True
+        ):
             with self.assertRaises(ValueError) as ctx:
                 audio_utils.detect_speech_segments(stereo)
         self.assertIn("mono", str(ctx.exception))
@@ -140,8 +145,9 @@ class TestDetectSpeechSegments(unittest.TestCase):
         bad_rate = self.tmp / "bad.wav"
         _make_wav(bad_rate, duration_s=0.5, rate=22050)  # not supported
         fake_webrtcvad = mock.MagicMock()
-        with mock.patch.dict(sys.modules, {"webrtcvad": fake_webrtcvad}), \
-             mock.patch.object(audio_utils, "_is_webrtcvad_available", return_value=True):
+        with mock.patch.dict(sys.modules, {"webrtcvad": fake_webrtcvad}), mock.patch.object(
+            audio_utils, "_is_webrtcvad_available", return_value=True
+        ):
             with self.assertRaises(ValueError) as ctx:
                 audio_utils.detect_speech_segments(bad_rate)
         self.assertIn("sample rate", str(ctx.exception))
@@ -155,8 +161,9 @@ class TestDetectSpeechSegments(unittest.TestCase):
         pattern = [True] * 3 + [False] * 2 + [True] * 25 + [False] * 3
         fake_webrtcvad = mock.MagicMock()
         fake_webrtcvad.Vad.return_value.is_speech.side_effect = pattern
-        with mock.patch.dict(sys.modules, {"webrtcvad": fake_webrtcvad}), \
-             mock.patch.object(audio_utils, "_is_webrtcvad_available", return_value=True):
+        with mock.patch.dict(sys.modules, {"webrtcvad": fake_webrtcvad}), mock.patch.object(
+            audio_utils, "_is_webrtcvad_available", return_value=True
+        ):
             segs = audio_utils.detect_speech_segments(
                 self.wav,
                 min_speech_seconds=0.05,
@@ -183,12 +190,15 @@ class TestSliceLong(unittest.TestCase):
         # 0-200s, chunk 60s, overlap 5s → stride 55s
         # windows: (0, 60), (55, 115), (110, 170), (165, 200)
         out = _slice_long(0.0, 200.0, chunk_seconds=60, overlap_seconds=5)
-        self.assertEqual(out, [
-            (0.0, 60.0),
-            (55.0, 115.0),
-            (110.0, 170.0),
-            (165.0, 200.0),
-        ])
+        self.assertEqual(
+            out,
+            [
+                (0.0, 60.0),
+                (55.0, 115.0),
+                (110.0, 170.0),
+                (165.0, 200.0),
+            ],
+        )
 
     def test_exact_chunk_boundary(self):
         from mediascribe.transcribers.chunked import _slice_long
@@ -201,11 +211,14 @@ class TestSliceLong(unittest.TestCase):
 
         out = _slice_long(100.0, 250.0, chunk_seconds=60, overlap_seconds=5)
         # stride 55; cursor 100, 155, 210, 250 (clamp)
-        self.assertEqual(out, [
-            (100.0, 160.0),
-            (155.0, 215.0),
-            (210.0, 250.0),
-        ])
+        self.assertEqual(
+            out,
+            [
+                (100.0, 160.0),
+                (155.0, 215.0),
+                (210.0, 250.0),
+            ],
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -285,13 +298,14 @@ class TestChunkedWithVad(unittest.TestCase):
         inner = mock.MagicMock()
         inner.transcribe.return_value = mock.MagicMock(text="hi", segments=[])
         inner.name = "fake"
-        with mock.patch("mediascribe.transcribers.chunked.shutil.which", return_value="ffmpeg"), \
-             mock.patch("mediascribe.transcribers.chunked.subprocess.run"), \
-             mock.patch("mediascribe.transcribers.chunked._vad_segmentation_available", return_value=True), \
-             mock.patch(
-                 "mediascribe.transcribers.chunked.probe_duration",
-                 return_value=30.0,
-             ):
+        with mock.patch(
+            "mediascribe.transcribers.chunked.shutil.which", return_value="ffmpeg"
+        ), mock.patch("mediascribe.transcribers.chunked.subprocess.run"), mock.patch(
+            "mediascribe.transcribers.chunked._vad_segmentation_available", return_value=True
+        ), mock.patch(
+            "mediascribe.transcribers.chunked.probe_duration",
+            return_value=30.0,
+        ):
             tx = ChunkedTranscriber(inner, chunk_seconds=10, overlap_seconds=0, use_vad=False)
             result = tx.transcribe(str(self.wav), output_dir=str(self.tmp))
         # 3 fixed windows (10s each over 30s, no overlap)
@@ -304,14 +318,16 @@ class TestChunkedWithVad(unittest.TestCase):
         inner = mock.MagicMock()
         inner.transcribe.return_value = mock.MagicMock(text="x", segments=[])
         inner.name = "fake"
-        with mock.patch("mediascribe.transcribers.chunked.shutil.which", return_value="ffmpeg"), \
-             mock.patch("mediascribe.transcribers.chunked.subprocess.run"), \
-             mock.patch("mediascribe.transcribers.chunked.probe_duration", return_value=30.0), \
-             mock.patch("mediascribe.transcribers.chunked._vad_segmentation_available", return_value=True), \
-             mock.patch(
-                 "mediascribe.transcribers.chunked._windows_from_vad",
-                 return_value=[(0.0, 10.0), (10.0, 20.0), (20.0, 30.0)],
-             ) as wfv:
+        with mock.patch(
+            "mediascribe.transcribers.chunked.shutil.which", return_value="ffmpeg"
+        ), mock.patch("mediascribe.transcribers.chunked.subprocess.run"), mock.patch(
+            "mediascribe.transcribers.chunked.probe_duration", return_value=30.0
+        ), mock.patch(
+            "mediascribe.transcribers.chunked._vad_segmentation_available", return_value=True
+        ), mock.patch(
+            "mediascribe.transcribers.chunked._windows_from_vad",
+            return_value=[(0.0, 10.0), (10.0, 20.0), (20.0, 30.0)],
+        ) as wfv:
             tx = ChunkedTranscriber(inner, chunk_seconds=10, overlap_seconds=0, use_vad=True)
             result = tx.transcribe(str(self.wav), output_dir=str(self.tmp))
         wfv.assert_called_once()
@@ -326,10 +342,13 @@ class TestChunkedWithVad(unittest.TestCase):
         inner = mock.MagicMock()
         inner.transcribe.return_value = mock.MagicMock(text="x", segments=[])
         inner.name = "fake"
-        with mock.patch("mediascribe.transcribers.chunked.shutil.which", return_value="ffmpeg"), \
-             mock.patch("mediascribe.transcribers.chunked.subprocess.run"), \
-             mock.patch("mediascribe.transcribers.chunked.probe_duration", return_value=30.0), \
-             mock.patch("mediascribe.transcribers.chunked._vad_segmentation_available", return_value=False):
+        with mock.patch(
+            "mediascribe.transcribers.chunked.shutil.which", return_value="ffmpeg"
+        ), mock.patch("mediascribe.transcribers.chunked.subprocess.run"), mock.patch(
+            "mediascribe.transcribers.chunked.probe_duration", return_value=30.0
+        ), mock.patch(
+            "mediascribe.transcribers.chunked._vad_segmentation_available", return_value=False
+        ):
             tx = ChunkedTranscriber(inner, chunk_seconds=10, overlap_seconds=0, use_vad=True)
             result = tx.transcribe(str(self.wav), output_dir=str(self.tmp))
         self.assertEqual(len(result.chunks), 3)
@@ -340,15 +359,16 @@ class TestChunkedWithVad(unittest.TestCase):
         inner = mock.MagicMock()
         inner.transcribe.return_value = mock.MagicMock(text="x", segments=[])
         inner.name = "fake"
-        with mock.patch("mediascribe.transcribers.chunked.shutil.which", return_value="ffmpeg"), \
-             mock.patch("mediascribe.transcribers.chunked.subprocess.run"), \
-             mock.patch("mediascribe.transcribers.chunked.probe_duration", return_value=30.0), \
-             mock.patch("mediascribe.transcribers.chunked._vad_segmentation_available", return_value=True), \
-             mock.patch(
-                 "mediascribe.transcribers.chunked._windows_from_vad",
-                 side_effect=RuntimeError("vad boom"),
-             ), \
-             mock.patch("builtins.print") as mprint:
+        with mock.patch(
+            "mediascribe.transcribers.chunked.shutil.which", return_value="ffmpeg"
+        ), mock.patch("mediascribe.transcribers.chunked.subprocess.run"), mock.patch(
+            "mediascribe.transcribers.chunked.probe_duration", return_value=30.0
+        ), mock.patch(
+            "mediascribe.transcribers.chunked._vad_segmentation_available", return_value=True
+        ), mock.patch(
+            "mediascribe.transcribers.chunked._windows_from_vad",
+            side_effect=RuntimeError("vad boom"),
+        ), mock.patch("builtins.print") as mprint:
             tx = ChunkedTranscriber(inner, chunk_seconds=10, overlap_seconds=0, use_vad=True)
             result = tx.transcribe(str(self.wav), output_dir=str(self.tmp))
         self.assertEqual(len(result.chunks), 3)

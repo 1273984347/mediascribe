@@ -31,6 +31,7 @@ The script is the canonical entry point.  The ``.sh`` / ``.ps1``
 wrappers in this folder just invoke it with the right Python
 interpreter.  ``make up`` / ``just up`` do the same.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -93,7 +94,8 @@ def _process_alive(pid: int) -> bool:
     try:
         if os.name == "nt":
             out = subprocess.check_output(
-                ["tasklist", "/FI", f"PID eq {pid}"], text=True,
+                ["tasklist", "/FI", f"PID eq {pid}"],
+                text=True,
             )
             return str(pid) in out
         os.kill(pid, 0)
@@ -127,10 +129,7 @@ def check_prereqs(mode: str) -> List[str]:
         try:
             import fastapi  # noqa: F401
         except ImportError:
-            msgs.append(
-                "ERROR: fastapi not installed. Run: "
-                "pip install \"mediascribe[web]\""
-            )
+            msgs.append('ERROR: fastapi not installed. Run: pip install "mediascribe[web]"')
     elif mode == "docker":
         if _which("docker") is None:
             msgs.append("ERROR: docker not installed or not on PATH.")
@@ -156,14 +155,19 @@ def launch_local(host: str, port: int, *, reload: bool) -> LaunchResult:
         import uvicorn  # noqa: F401
     except ImportError:
         return LaunchResult(
-            ok=False, mode="local",
-            messages=["fastapi/uvicorn not installed; "
-                      "run pip install \"mediascribe[web]\""],
+            ok=False,
+            mode="local",
+            messages=['fastapi/uvicorn not installed; run pip install "mediascribe[web]"'],
         )
     cmd = [
-        sys.executable, "-m", "uvicorn",
+        sys.executable,
+        "-m",
+        "uvicorn",
         "mediascribe.web.app:app",
-        "--host", host, "--port", str(port),
+        "--host",
+        host,
+        "--port",
+        str(port),
     ]
     if reload:
         cmd.append("--reload")
@@ -173,36 +177,33 @@ def launch_local(host: str, port: int, *, reload: bool) -> LaunchResult:
         f"command: {' '.join(cmd)}\n".encode("utf-8")
     )
     try:
-        proc = subprocess.Popen(cmd, stdout=log_fp, stderr=subprocess.STDOUT,
-                                cwd=str(ROOT))
+        proc = subprocess.Popen(cmd, stdout=log_fp, stderr=subprocess.STDOUT, cwd=str(ROOT))
     except FileNotFoundError as exc:
         return LaunchResult(ok=False, mode="local", messages=[str(exc)])
     _write_pid(proc.pid)
     url = f"http://{host}:{port}"
     msgs.append(f"started uvicorn pid={proc.pid} url={url}")
-    return LaunchResult(ok=True, mode="local", pid=proc.pid, url=url,
-                        messages=msgs)
+    return LaunchResult(ok=True, mode="local", pid=proc.pid, url=url, messages=msgs)
 
 
 def launch_docker(host: str, port: int) -> LaunchResult:
     """Start the Web UI via docker compose."""
     if _which("docker") is None:
-        return LaunchResult(ok=False, mode="docker",
-                            messages=["docker not installed"])
+        return LaunchResult(ok=False, mode="docker", messages=["docker not installed"])
     compose_file = ROOT / "docker-compose.yml"
     if not compose_file.exists():
         return LaunchResult(
-            ok=False, mode="docker",
+            ok=False,
+            mode="docker",
             messages=[f"docker-compose.yml missing at {compose_file}"],
         )
-    cmd = ["docker", "compose", "-f", str(compose_file),
-           "up", "-d", "--build"]
+    cmd = ["docker", "compose", "-f", str(compose_file), "up", "-d", "--build"]
     log_fp = open(LOG_FILE, "ab", buffering=0)
-    rc = subprocess.call(cmd, stdout=log_fp, stderr=subprocess.STDOUT,
-                         cwd=str(ROOT))
+    rc = subprocess.call(cmd, stdout=log_fp, stderr=subprocess.STDOUT, cwd=str(ROOT))
     if rc != 0:
-        return LaunchResult(ok=False, mode="docker",
-                            messages=[f"docker compose up failed (rc={rc})"])
+        return LaunchResult(
+            ok=False, mode="docker", messages=[f"docker compose up failed (rc={rc})"]
+        )
     # The container is named ``mediascribe-web`` per docker-compose.yml
     # and exposes the same port.  PID file is a stand-in.
     compose_pid = subprocess.check_output(
@@ -211,8 +212,13 @@ def launch_docker(host: str, port: int) -> LaunchResult:
     ).strip()
     _write_pid(int(compose_pid))
     url = f"http://{host}:{port}"
-    return LaunchResult(ok=True, mode="docker", pid=int(compose_pid), url=url,
-                        messages=[f"docker container up; pid={compose_pid}"])
+    return LaunchResult(
+        ok=True,
+        mode="docker",
+        pid=int(compose_pid),
+        url=url,
+        messages=[f"docker container up; pid={compose_pid}"],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -350,12 +356,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     common.add_argument("--mode", choices=["local", "docker"], default="local")
 
     p_up = sub.add_parser("up", parents=[common], help="Start the Web UI")
-    p_up.add_argument("--daemon", action="store_true",
-                      help="Run in the background and exit")
-    p_up.add_argument("--reload", action="store_true",
-                      help="Pass --reload to uvicorn (dev only)")
-    p_up.add_argument("--no-browser", action="store_true",
-                      help="Skip the auto-open browser step")
+    p_up.add_argument("--daemon", action="store_true", help="Run in the background and exit")
+    p_up.add_argument("--reload", action="store_true", help="Pass --reload to uvicorn (dev only)")
+    p_up.add_argument("--no-browser", action="store_true", help="Skip the auto-open browser step")
     p_up.set_defaults(func=cmd_up)
 
     p_stop = sub.add_parser("stop", help="Stop a daemonised server")

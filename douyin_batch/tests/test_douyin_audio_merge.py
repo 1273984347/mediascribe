@@ -3,6 +3,7 @@
 Covers the v3.2.0f fix for silent downloads: Douyin serves video and
 audio as separate CDN streams, so the downloader must merge them.
 """
+
 import subprocess
 from pathlib import Path
 from unittest import mock

@@ -19,6 +19,7 @@ v3.2.0g:
 - 下载收敛到 ``_http_download.stream_download``（.part 临时文件 + 失败清理）
 - 文件名用 ``uuid4().hex[:8]`` 避免同秒碰撞
 """
+
 from __future__ import annotations
 
 import logging
@@ -95,8 +96,7 @@ class XiaohongshuDownloader(Downloader):
 
         if not media_url:
             raise RuntimeError(
-                "无法获取小红书视频的真实媒体 URL。"
-                "可能原因：需要登录、地区受限、或笔记是纯图文。"
+                "无法获取小红书视频的真实媒体 URL。可能原因：需要登录、地区受限、或笔记是纯图文。"
             )
 
         # 3) 图文笔记明确报错（P1-5）：封面图不是视频，继续下载只会把
@@ -310,9 +310,7 @@ class XiaohongshuDownloader(Downloader):
         save_dir.mkdir(parents=True, exist_ok=True)
         file_path = save_dir / f"xhs_{uuid.uuid4().hex[:8]}{ext}"
         try:
-            return stream_download(
-                media_url, file_path, headers=headers, timeout=60
-            )
+            return stream_download(media_url, file_path, headers=headers, timeout=60)
         except Exception as e:
             logger.warning("下载媒体文件失败: %s (%s)", media_url, e)
             return None

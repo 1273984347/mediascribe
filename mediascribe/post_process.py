@@ -33,6 +33,7 @@ Prompt 模板
 ``get_prompt_template(domain)`` 返回领域专属 prompt,
 喂给 ``Pipeline.transcribe(..., prompt=...)``。
 """
+
 from __future__ import annotations
 
 import json
@@ -102,6 +103,7 @@ def post_process_transcript(
     if merge_learned:
         try:
             from .learn import get_learned_terms
+
             terms.update(get_learned_terms())
         except Exception:
             pass  # 学习模块不可用时不阻塞
@@ -116,8 +118,7 @@ def post_process_transcript(
                 # 已生效。log warning 带异常与原文摘要,方便定位拼写
                 # / 引号错误,且不阻塞主流程。
                 _logger.warning(
-                    "MEDIASCRIBE_CUSTOM_TERMS JSON 解析失败(%s),"
-                    "已忽略该环境变量;内容摘要: %.120s",
+                    "MEDIASCRIBE_CUSTOM_TERMS JSON 解析失败(%s),已忽略该环境变量;内容摘要: %.120s",
                     exc,
                     env_raw,
                 )
@@ -164,15 +165,9 @@ def auto_select_model(duration_seconds: int, *, prefer_quality: bool = False) ->
 # Prompt 模板
 # ---------------------------------------------------------------------------
 PROMPT_TEMPLATES: dict[str, str] = {
-    "education": (
-        "这是一段关于教育的视频，涉及高考、作文、教学等概念。"
-    ),
-    "tech": (
-        "这是一段技术分享视频，涉及编程、算法、架构等术语。"
-    ),
-    "literature": (
-        "这是一段文学/人文类视频，涉及古诗词、作家、历史人物等。"
-    ),
+    "education": ("这是一段关于教育的视频，涉及高考、作文、教学等概念。"),
+    "tech": ("这是一段技术分享视频，涉及编程、算法、架构等术语。"),
+    "literature": ("这是一段文学/人文类视频，涉及古诗词、作家、历史人物等。"),
     "general": "",
 }
 

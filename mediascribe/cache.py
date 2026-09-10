@@ -17,6 +17,7 @@ Both honour ``$XDG_CACHE_HOME`` (default ``~/.cache``) and are
 bounded by a TTL (default 30 days) plus a max-size cap (LRU eviction
 by mtime).
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -60,9 +61,7 @@ def _atomic_copy(src: Path, dst: Path) -> None:
         raise
 
 
-def _flush_index_finalizer(
-    cache_dir: Path, name: str, index: dict, dirty: list
-) -> None:
+def _flush_index_finalizer(cache_dir: Path, name: str, index: dict, dirty: list) -> None:
     """atexit / GC 兜底 — 把仅存于内存的 index 变更落盘一次。
 
     通过 :func:`weakref.finalize` 注册(不持有 cache 实例本身,
@@ -313,10 +312,7 @@ class PersistentDownloadCache:
         if self._ttl <= 0:
             return 0
         cutoff = time.time() - self._ttl
-        victims = [
-            k for k, v in self._index.items()
-            if v.get("created", 0) < cutoff
-        ]
+        victims = [k for k, v in self._index.items() if v.get("created", 0) < cutoff]
         return self._evict(victims)
 
     def _enforce_cap(self) -> None:
@@ -495,10 +491,7 @@ class PersistentChunkCache:
         if self._ttl <= 0:
             return 0
         cutoff = time.time() - self._ttl
-        victims = [
-            k for k, v in self._index.items()
-            if v.get("created", 0) < cutoff
-        ]
+        victims = [k for k, v in self._index.items() if v.get("created", 0) < cutoff]
         return self._evict(victims)
 
     def _enforce_cap(self) -> None:

@@ -6,6 +6,7 @@ Tests for the "四个全部都做" (round-5) batch of features:
 3. douyin_batch_v3 --platform filter
 4. AgentOutput._apply_labels / to_dict emits ``*_label_i18n_lang`` locale markers
 """
+
 import io
 import json
 import sys
@@ -30,6 +31,7 @@ class TestAgentOutputLocaleMarkers(unittest.TestCase):
             AgentOutput,
             _apply_labels,
         )
+
         self.i18n = i18n
         self.AgentOutput = AgentOutput
         self._apply_labels = _apply_labels
@@ -76,8 +78,11 @@ class TestAgentOutputLocaleMarkers(unittest.TestCase):
         ag = self.AgentOutput(command="test")
         ag.set_bilingual(True, lang="zh")
         ag.add_video_for_platform(
-            video_id="v1", url="https://example.com",
-            platform="wechat_mp", status="success", stage="transcribe",
+            video_id="v1",
+            url="https://example.com",
+            platform="wechat_mp",
+            status="success",
+            stage="transcribe",
         )
         d = ag.to_dict()
         self.assertEqual(d.get("i18n_lang"), "zh")
@@ -90,8 +95,11 @@ class TestAgentOutputLocaleMarkers(unittest.TestCase):
         ag = self.AgentOutput(command="test")
         ag.set_bilingual(True, lang="en")
         ag.add_video_for_platform(
-            video_id="v2", url="https://example.com",
-            platform="douyin", status="skipped", stage="platform_filter",
+            video_id="v2",
+            url="https://example.com",
+            platform="douyin",
+            status="skipped",
+            stage="platform_filter",
         )
         ag.finish(ok=True)
         buf = io.StringIO()
@@ -112,6 +120,7 @@ class TestPlatformFilter(unittest.TestCase):
 
     def setUp(self):
         from mediascribe.inputs import parse_source
+
         self.parse_source = parse_source
 
     def _log_sink(self):
@@ -128,7 +137,8 @@ class TestPlatformFilter(unittest.TestCase):
         with patch("douyin_batch_v3._detect_platform", return_value="bilibili"):
             result = self.process(
                 video={"video_id": "v1", "url": "https://www.bilibili.com/video/BV1"},
-                index=1, total=1,
+                index=1,
+                total=1,
                 download_dir=Path(tempfile.gettempdir()),
                 config=MagicMock(headless=True, max_retries=3, max_wait_for_media=30),
                 get_media_url_fn=MagicMock(return_value=None),  # 故意失败
@@ -145,7 +155,8 @@ class TestPlatformFilter(unittest.TestCase):
         log = self._log_sink()
         result = self.process(
             video={"video_id": "v2", "url": "https://www.douyin.com/video/xxx"},
-            index=1, total=1,
+            index=1,
+            total=1,
             download_dir=Path(tempfile.gettempdir()),
             config=MagicMock(),
             get_media_url_fn=MagicMock(),
@@ -165,7 +176,8 @@ class TestPlatformFilter(unittest.TestCase):
         with patch("douyin_batch_v3._detect_platform", return_value="douyin"):
             result = self.process(
                 video={"video_id": "v3", "url": "https://www.douyin.com/video/xxx"},
-                index=1, total=1,
+                index=1,
+                total=1,
                 download_dir=Path(tempfile.gettempdir()),
                 config=MagicMock(headless=True, max_retries=3, max_wait_for_media=30),
                 get_media_url_fn=MagicMock(return_value=None),
@@ -183,7 +195,8 @@ class TestPlatformFilter(unittest.TestCase):
         with patch("douyin_batch_v3._detect_platform", return_value="youtube"):
             result = self.process(
                 video={"video_id": "v4", "url": "https://www.youtube.com/watch?v=xxx"},
-                index=1, total=1,
+                index=1,
+                total=1,
                 download_dir=Path(tempfile.gettempdir()),
                 config=MagicMock(headless=True, max_retries=3, max_wait_for_media=30),
                 get_media_url_fn=MagicMock(return_value=None),
@@ -203,6 +216,7 @@ class TestMcpWechatMpSchema(unittest.TestCase):
 
     def setUp(self):
         from mediascribe.mcp_server import TOOL_LIST
+
         self.defs = {d["name"]: d for d in TOOL_LIST}
 
     def test_tool_registered(self):
@@ -240,6 +254,7 @@ class TestVideoArticleBilingual(unittest.TestCase):
     def setUp(self):
         from mediascribe.models import DownloadResult, SourceRef
         from mediascribe.pipeline import Pipeline
+
         self.Pipeline = Pipeline
         self.DownloadResult = DownloadResult
         self.SourceRef = SourceRef
@@ -250,7 +265,9 @@ class TestVideoArticleBilingual(unittest.TestCase):
 
     def _downloaded(self):
         return self.DownloadResult(
-            source=self.SourceRef(raw_input="x", kind="wechat_mp", url="https://mp.weixin.qq.com/s?x"),
+            source=self.SourceRef(
+                raw_input="x", kind="wechat_mp", url="https://mp.weixin.qq.com/s?x"
+            ),
             video_path=Path("dummy.mp4"),
             title="test video",
             webpage_url="https://mp.weixin.qq.com/s?x",
@@ -271,8 +288,11 @@ class TestVideoArticleBilingual(unittest.TestCase):
             "segments": [{"text": "你好世界", "start": 0.0}],
         }
         md = self.p._build_video_article_markdown(
-            "标题", "你好世界。", transcription,
-            self._downloaded(), bilingual=False,
+            "标题",
+            "你好世界。",
+            transcription,
+            self._downloaded(),
+            bilingual=False,
         )
         # basic 模式不应包含「字幕」块
         self.assertNotIn("字幕", md)
@@ -292,8 +312,11 @@ class TestVideoArticleBilingual(unittest.TestCase):
             ],
         }
         md = self.p._build_video_article_markdown(
-            "标题", "你好世界。", transcription,
-            self._downloaded(), bilingual=True,
+            "标题",
+            "你好世界。",
+            transcription,
+            self._downloaded(),
+            bilingual=True,
         )
         # 字幕块标题
         self.assertIn("字幕", md)
@@ -317,8 +340,11 @@ class TestVideoArticleBilingual(unittest.TestCase):
             "segments": None,
         }
         md = self.p._build_video_article_markdown(
-            "标题", "你好", transcription,
-            self._downloaded(), bilingual=True,
+            "标题",
+            "你好",
+            transcription,
+            self._downloaded(),
+            bilingual=True,
         )
         self.assertIn("字幕", md)
         # 没有 segments 时不应 crash
@@ -335,6 +361,7 @@ class TestWechatMpDownloadOptions(unittest.TestCase):
         import inspect
 
         from mediascribe.downloaders.wechat_mp import WechatMpDownloader
+
         sig = inspect.signature(WechatMpDownloader.download)
         for name in ("ocr_engine", "ocr_lang", "save_images"):
             self.assertIn(name, sig.parameters)
@@ -342,27 +369,25 @@ class TestWechatMpDownloadOptions(unittest.TestCase):
     def test_ocr_image_returns_none_for_unknown_engine(self):
         """显式指定 unknown engine 时直接返回 None（不抛异常）。"""
         from mediascribe.downloaders.wechat_mp import WechatMpDownloader
+
         d = WechatMpDownloader()
         d._ocr_engine = "non_existing_engine"
         d._ocr_lang = "chi_sim+eng"
         d._save_images = False
-        result = d._ocr_image(
-            "https://example.com/img.png", Path(tempfile.gettempdir())
-        )
+        result = d._ocr_image("https://example.com/img.png", Path(tempfile.gettempdir()))
         self.assertIsNone(result)
 
     def test_ocr_image_explicit_paddleocr_returns_none_when_missing(self):
         """显式 paddleocr 但未安装时返回 None（不静默降级到其他引擎）。"""
         from mediascribe.downloaders.wechat_mp import WechatMpDownloader
+
         d = WechatMpDownloader()
         d._ocr_engine = "paddleocr"
         d._ocr_lang = "chi_sim+eng"
         d._save_images = False
         # 用 monkey patch 模拟 paddleocr 不可用
         with patch.dict(sys.modules, {"paddleocr": None}):
-            result = d._ocr_image(
-                "https://example.com/img.png", Path(tempfile.gettempdir())
-            )
+            result = d._ocr_image("https://example.com/img.png", Path(tempfile.gettempdir()))
         self.assertIsNone(result)
 
 

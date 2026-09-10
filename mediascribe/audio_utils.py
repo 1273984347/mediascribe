@@ -1,6 +1,7 @@
 """
 音频工具 - 参考 bili2text 的 FFmpeg 实现
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -33,9 +34,7 @@ def _source_tag(video_path: Path) -> str:
     """
     try:
         st = video_path.stat()
-        payload = (
-            f"{video_path.resolve()}|{st.st_size}|{st.st_mtime_ns}"
-        )
+        payload = f"{video_path.resolve()}|{st.st_size}|{st.st_mtime_ns}"
     except OSError:
         payload = str(video_path.resolve())
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:8]
@@ -69,11 +68,15 @@ def extract_audio(
     cmd = [
         ffmpeg,
         "-y",
-        "-i", str(video_path),
+        "-i",
+        str(video_path),
         "-vn",
-        "-acodec", "pcm_s16le",
-        "-ar", "16000",
-        "-ac", "1",
+        "-acodec",
+        "pcm_s16le",
+        "-ar",
+        "16000",
+        "-ac",
+        "1",
         str(audio_path),
     ]
 
@@ -90,8 +93,9 @@ def extract_audio(
             except ValueError:
                 # DRL R2 F-7: 静默回退会让用户误以为 env 生效。改 log warning 提示。
                 _logger.warning(
-                    "MEDIASCRIBE_FFMPEG_TIMEOUT=%r 不是合法浮点数, "
-                    "回退到默认 %.0fs", env_val, _FFMPEG_DEFAULT_TIMEOUT_SECONDS
+                    "MEDIASCRIBE_FFMPEG_TIMEOUT=%r 不是合法浮点数, 回退到默认 %.0fs",
+                    env_val,
+                    _FFMPEG_DEFAULT_TIMEOUT_SECONDS,
                 )
                 resolved_timeout = _FFMPEG_DEFAULT_TIMEOUT_SECONDS
         else:
@@ -110,9 +114,7 @@ def extract_audio(
         # P2-8: 超时路径清理半写输出,避免留下被误认为完整的 wav
         audio_path.unlink(missing_ok=True)
         timeout_desc = f"{resolved_timeout:.0f}s" if resolved_timeout else "N/A"
-        raise RuntimeError(
-            f"FFmpeg 提取音频超时 (>{timeout_desc}): {video_path.name}"
-        ) from exc
+        raise RuntimeError(f"FFmpeg 提取音频超时 (>{timeout_desc}): {video_path.name}") from exc
 
     if result.returncode != 0:
         # P2-8: 失败路径同样清理半写输出
@@ -174,18 +176,12 @@ def _read_wave_pcm16(path: Path) -> Tuple[bytes, int]:
 def _validate_wave_params(w: wave.Wave_read) -> int:
     """Validate an open WAV against webrtcvad requirements; return rate."""
     if w.getsampwidth() != 2:
-        raise ValueError(
-            f"webrtcvad needs 16-bit audio (got {w.getsampwidth() * 8}-bit)"
-        )
+        raise ValueError(f"webrtcvad needs 16-bit audio (got {w.getsampwidth() * 8}-bit)")
     if w.getnchannels() != 1:
-        raise ValueError(
-            f"webrtcvad needs mono audio (got {w.getnchannels()}-channel)"
-        )
+        raise ValueError(f"webrtcvad needs mono audio (got {w.getnchannels()}-channel)")
     rate = w.getframerate()
     if rate not in _VAD_SAMPLE_RATES:
-        raise ValueError(
-            f"webrtcvad needs sample rate in {_VAD_SAMPLE_RATES}, got {rate}"
-        )
+        raise ValueError(f"webrtcvad needs sample rate in {_VAD_SAMPLE_RATES}, got {rate}")
     return rate
 
 
@@ -222,8 +218,7 @@ def detect_speech_segments(
     """
     if not _is_webrtcvad_available():
         raise ImportError(
-            "webrtcvad is not installed. "
-            "Install with `pip install mediascribe[vad]`."
+            "webrtcvad is not installed. Install with `pip install mediascribe[vad]`."
         )
     import webrtcvad  # local import so the module loads even if missing
 

@@ -24,6 +24,7 @@ must not be a parse error.
 
 Skipped automatically if ``node`` is not on PATH.
 """
+
 import json
 import os
 import re

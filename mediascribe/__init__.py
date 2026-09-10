@@ -2,6 +2,7 @@
 MediaScribe - 视频转文字工具
 深度整合 yt-dlp、bili2text、WhisperX、whisper.cpp
 """
+
 from .config import Settings
 from .downloaders import DouyinDownloader, Downloader, YtDlpDownloader
 from .learn import (

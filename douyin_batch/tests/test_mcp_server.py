@@ -1,6 +1,7 @@
 """
 Unit tests for the MCP server.
 """
+
 import json
 import os
 import sys
@@ -17,6 +18,7 @@ class TestMCPServer(unittest.TestCase):
 
     def _request(self, method, params=None, req_id=1):
         from mediascribe.mcp_server import _handle_request
+
         req = {"jsonrpc": "2.0", "id": req_id, "method": method, "params": params or {}}
         return _handle_request(req)
 
@@ -38,9 +40,15 @@ class TestMCPServer(unittest.TestCase):
         tools = r["result"]["tools"]
         self.assertGreater(len(tools), 0)
         names = {t["name"] for t in tools}
-        for required in ("transcribe_video", "batch_transcribe_creator",
-                         "get_cache_stats", "validate_url", "sanitize_filename",
-                         "detect_platform", "get_transcript"):
+        for required in (
+            "transcribe_video",
+            "batch_transcribe_creator",
+            "get_cache_stats",
+            "validate_url",
+            "sanitize_filename",
+            "detect_platform",
+            "get_transcript",
+        ):
             self.assertIn(required, names, f"tool {required} missing")
 
     def test_each_tool_has_schema(self):
@@ -63,36 +71,57 @@ class TestMCPServer(unittest.TestCase):
     # ---- Tools ----
 
     def test_tool_validate_url_safe(self):
-        r = self._request("tools/call", {"name": "validate_url", "arguments": {"url": "https://www.bilibili.com"}})
+        r = self._request(
+            "tools/call", {"name": "validate_url", "arguments": {"url": "https://www.bilibili.com"}}
+        )
         self.assertFalse(r["result"]["isError"])
         import json as _json
+
         body = _json.loads(r["result"]["content"][0]["text"])
         self.assertTrue(body["safe"])
 
     def test_tool_validate_url_unsafe(self):
-        r = self._request("tools/call", {"name": "validate_url", "arguments": {"url": "javascript:alert(1)"}})
+        r = self._request(
+            "tools/call", {"name": "validate_url", "arguments": {"url": "javascript:alert(1)"}}
+        )
         self.assertFalse(r["result"]["isError"])
         import json as _json
+
         body = _json.loads(r["result"]["content"][0]["text"])
         self.assertFalse(body["safe"])
 
     def test_tool_sanitize_filename(self):
-        r = self._request("tools/call", {"name": "sanitize_filename", "arguments": {"name": "test<>:\"|?*file.mp4"}})
+        r = self._request(
+            "tools/call",
+            {"name": "sanitize_filename", "arguments": {"name": 'test<>:"|?*file.mp4'}},
+        )
         self.assertFalse(r["result"]["isError"])
         import json as _json
+
         body = _json.loads(r["result"]["content"][0]["text"])
         self.assertNotIn("<", body["safe"])
         self.assertNotIn(">", body["safe"])
 
     def test_tool_detect_platform_bilibili(self):
-        r = self._request("tools/call", {"name": "detect_platform", "arguments": {"url": "https://www.bilibili.com/video/BV1xxx"}})
+        r = self._request(
+            "tools/call",
+            {
+                "name": "detect_platform",
+                "arguments": {"url": "https://www.bilibili.com/video/BV1xxx"},
+            },
+        )
         import json as _json
+
         body = _json.loads(r["result"]["content"][0]["text"])
         self.assertEqual(body["platform"], "bilibili")
 
     def test_tool_detect_platform_douyin(self):
-        r = self._request("tools/call", {"name": "detect_platform", "arguments": {"url": "https://v.douyin.com/xxx"}})
+        r = self._request(
+            "tools/call",
+            {"name": "detect_platform", "arguments": {"url": "https://v.douyin.com/xxx"}},
+        )
         import json as _json
+
         body = _json.loads(r["result"]["content"][0]["text"])
         self.assertIn(body["platform"], ("douyin", "unknown"))
 
@@ -104,17 +133,27 @@ class TestMCPServer(unittest.TestCase):
 
     def test_tool_get_transcript_missing_file(self):
         # The path is relative + inside the default transcript root.
-        r = self._request("tools/call", {"name": "get_transcript", "arguments": {"path": "output/transcripts/__no_such_file__.md"}})
+        r = self._request(
+            "tools/call",
+            {
+                "name": "get_transcript",
+                "arguments": {"path": "output/transcripts/__no_such_file__.md"},
+            },
+        )
         self.assertFalse(r["result"]["isError"])
         import json as _json
+
         body = _json.loads(r["result"]["content"][0]["text"])
         self.assertFalse(body["exists"])
 
     def test_tool_get_transcript_blocks_path_traversal(self):
         """Regression: a malicious caller must not be able to read /etc/passwd."""
-        r = self._request("tools/call", {"name": "get_transcript", "arguments": {"path": "/no/such/file.md"}})
+        r = self._request(
+            "tools/call", {"name": "get_transcript", "arguments": {"path": "/no/such/file.md"}}
+        )
         self.assertFalse(r["result"]["isError"])
         import json as _json
+
         body = _json.loads(r["result"]["content"][0]["text"])
         # The path is outside the default transcript root, so we must
         # report the containment violation, NOT "file not found".
@@ -126,6 +165,7 @@ class TestMCPServer(unittest.TestCase):
         r = self._request("tools/call", {"name": "get_transcript", "arguments": {}})
         self.assertFalse(r["result"]["isError"])
         import json as _json
+
         body = _json.loads(r["result"]["content"][0]["text"])
         self.assertIn("required", body.get("error", "").lower())
 
@@ -133,6 +173,7 @@ class TestMCPServer(unittest.TestCase):
         r = self._request("tools/call", {"name": "get_cache_stats", "arguments": {}})
         self.assertFalse(r["result"]["isError"])
         import json as _json
+
         body = _json.loads(r["result"]["content"][0]["text"])
         self.assertIn("total", body)
         self.assertIn("success", body)
@@ -140,10 +181,15 @@ class TestMCPServer(unittest.TestCase):
 
     # ---- Tool: transcribe_video (regression for BUG-1) ----
 
-    def _fake_transcript_result(self, *, audio="output/audio/test.wav",
-                                transcript="output/transcripts/test.md",
-                                video="output/downloads/test.mp4",
-                                engine="whisper", model="small"):
+    def _fake_transcript_result(
+        self,
+        *,
+        audio="output/audio/test.wav",
+        transcript="output/transcripts/test.md",
+        video="output/downloads/test.mp4",
+        engine="whisper",
+        model="small",
+    ):
         """Build a stand-in for the real TranscriptResult dataclass."""
         from dataclasses import dataclass, field
         from pathlib import Path as _P
@@ -156,6 +202,7 @@ class TestMCPServer(unittest.TestCase):
             video_path: _O[_P] = field(default_factory=lambda: _P(video) if video else None)
             engine: str = field(default_factory=lambda: engine)
             model: str = field(default_factory=lambda: model)
+
         return _Stub()
 
     def test_transcribe_video_uses_real_pipeline_api(self):
@@ -168,31 +215,40 @@ class TestMCPServer(unittest.TestCase):
         fake_pipeline.transcribe.return_value = fake_result
 
         # Make Settings / Pipeline pickable but cheap to import.
-        with patch("mediascribe.config.Settings") as MockSettings, \
-             patch("mediascribe.pipeline.Pipeline", return_value=fake_pipeline) as MockPipeline:
+        with patch("mediascribe.config.Settings") as MockSettings, patch(
+            "mediascribe.pipeline.Pipeline", return_value=fake_pipeline
+        ) as MockPipeline:
             MockSettings.return_value = MagicMock(name="SettingsInstance")
-            r = self._request("tools/call", {
-                "name": "transcribe_video",
-                "arguments": {
-                    "source": "https://www.bilibili.com/video/BV1abc",
-                    "language": "zh",
-                    "whisper_model": "small",
+            r = self._request(
+                "tools/call",
+                {
+                    "name": "transcribe_video",
+                    "arguments": {
+                        "source": "https://www.bilibili.com/video/BV1abc",
+                        "language": "zh",
+                        "whisper_model": "small",
+                    },
                 },
-            })
+            )
 
         # The tool call must succeed (no isError) and the parsed body must
         # expose a coherent shape.
         self.assertFalse(r["result"]["isError"], r["result"])
         import json as _json
+
         body = _json.loads(r["result"]["content"][0]["text"])
         self.assertEqual(body["source"], "https://www.bilibili.com/video/BV1abc")
         # Path may be normalized to the host's native separator.
-        self.assertTrue(body["transcript"].endswith("output/transcripts/test.md")
-                        or body["transcript"].endswith("output\\transcripts\\test.md"),
-                        body["transcript"])
-        self.assertTrue(body["audio"].endswith("output/audio/test.wav")
-                        or body["audio"].endswith("output\\audio\\test.wav"),
-                        body["audio"])
+        self.assertTrue(
+            body["transcript"].endswith("output/transcripts/test.md")
+            or body["transcript"].endswith("output\\transcripts\\test.md"),
+            body["transcript"],
+        )
+        self.assertTrue(
+            body["audio"].endswith("output/audio/test.wav")
+            or body["audio"].endswith("output\\audio\\test.wav"),
+            body["audio"],
+        )
         self.assertEqual(body["engine"], "whisper")
         self.assertEqual(body["model"], "small")
         self.assertEqual(body["language"], "zh")
@@ -216,10 +272,13 @@ class TestMCPServer(unittest.TestCase):
 
     def test_transcribe_video_missing_source_raises(self):
         """The tool must surface a structured error when no source is given."""
-        r = self._request("tools/call", {
-            "name": "transcribe_video",
-            "arguments": {"language": "en"},
-        })
+        r = self._request(
+            "tools/call",
+            {
+                "name": "transcribe_video",
+                "arguments": {"language": "en"},
+            },
+        )
         # The MCP dispatcher wraps exceptions as isError=true.
         self.assertTrue(r["result"]["isError"])
         self.assertIn("source", r["result"]["content"][0]["text"].lower())
@@ -232,26 +291,35 @@ class TestMCPServer(unittest.TestCase):
         fake_pipeline = MagicMock()
         fake_pipeline.transcribe.return_value = fake_result
 
-        with patch("mediascribe.config.Settings") as MockSettings, \
-             patch("mediascribe.pipeline.Pipeline", return_value=fake_pipeline):
+        with patch("mediascribe.config.Settings") as MockSettings, patch(
+            "mediascribe.pipeline.Pipeline", return_value=fake_pipeline
+        ):
             MockSettings.return_value = MagicMock()
-            self._request("tools/call", {
-                "name": "transcribe_video",
-                "arguments": {"source": "https://example.com/v", "language": "auto"},
-            })
+            self._request(
+                "tools/call",
+                {
+                    "name": "transcribe_video",
+                    "arguments": {"source": "https://example.com/v", "language": "auto"},
+                },
+            )
 
         call_kwargs = fake_pipeline.transcribe.call_args.kwargs
         self.assertIsNone(call_kwargs["language"])
         # And the public ``language`` field in the result stays human-friendly.
         # (we re-invoke to inspect the body)
-        with patch("mediascribe.config.Settings") as MockSettings2, \
-             patch("mediascribe.pipeline.Pipeline", return_value=fake_pipeline):
+        with patch("mediascribe.config.Settings") as MockSettings2, patch(
+            "mediascribe.pipeline.Pipeline", return_value=fake_pipeline
+        ):
             MockSettings2.return_value = MagicMock()
-            r = self._request("tools/call", {
-                "name": "transcribe_video",
-                "arguments": {"source": "https://example.com/v", "language": "auto"},
-            })
+            r = self._request(
+                "tools/call",
+                {
+                    "name": "transcribe_video",
+                    "arguments": {"source": "https://example.com/v", "language": "auto"},
+                },
+            )
         import json as _json
+
         body = _json.loads(r["result"]["content"][0]["text"])
         self.assertEqual(body["language"], "auto")
 
@@ -288,8 +356,10 @@ class TestMCPServerStdio(unittest.TestCase):
         from mediascribe.mcp_server import _run_stdio
 
         lines = (
-            json.dumps([1, 2, 3]) + "\n"
-            + json.dumps({"jsonrpc": "2.0", "id": 2, "method": "ping"}) + "\n"
+            json.dumps([1, 2, 3])
+            + "\n"
+            + json.dumps({"jsonrpc": "2.0", "id": 2, "method": "ping"})
+            + "\n"
         )
         stdin = io.StringIO(lines)
         stdout = io.StringIO()
@@ -311,11 +381,13 @@ class TestMCPServerStdio(unittest.TestCase):
 class TestMCPRequestHardening(unittest.TestCase):
     def _request(self, method, params=None, req_id=1):
         from mediascribe.mcp_server import _handle_request
+
         req = {"jsonrpc": "2.0", "id": req_id, "method": method, "params": params or {}}
         return _handle_request(req)
 
     def test_non_dict_request_returns_error(self):
         from mediascribe.mcp_server import _handle_request
+
         r = _handle_request([1, 2, 3])
         self.assertIn("error", r)
         self.assertEqual(r["error"]["code"], -32600)
@@ -327,6 +399,7 @@ class TestMCPRequestHardening(unittest.TestCase):
 
     def test_safe_handle_request_never_raises(self):
         from mediascribe.mcp_server import _safe_handle_request
+
         for bad in ([], "string", 42, None, {"method": "tools/call", "params": 7}):
             r = _safe_handle_request(bad)
             self.assertIsInstance(r, dict, repr(bad))
@@ -340,12 +413,14 @@ class TestMCPHttpTransportSecurity(unittest.TestCase):
 
     def setUp(self):
         from mediascribe.mcp_server import _make_http_server
+
         self._saved_token = os.environ.pop("MEDIASCRIBE_MCP_TOKEN", None)
         self._saved_hosts = os.environ.pop("MEDIASCRIBE_MCP_ALLOWED_HOSTS", None)
         self.server = _make_http_server("127.0.0.1", 0)
         self.port = self.server.server_address[1]
         self.thread = threading.Thread(
-            target=self.server.serve_forever, daemon=True,
+            target=self.server.serve_forever,
+            daemon=True,
         )
         self.thread.start()
 
@@ -366,8 +441,7 @@ class TestMCPHttpTransportSecurity(unittest.TestCase):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
         try:
             if host_header is not None:
-                conn.putrequest("POST", "/", skip_host=True,
-                                skip_accept_encoding=True)
+                conn.putrequest("POST", "/", skip_host=True, skip_accept_encoding=True)
                 conn.putheader("Host", host_header)
             else:
                 conn.putrequest("POST", "/", skip_accept_encoding=True)
@@ -406,15 +480,13 @@ class TestMCPHttpTransportSecurity(unittest.TestCase):
 
     def test_token_via_x_mcp_token_header(self):
         os.environ["MEDIASCRIBE_MCP_TOKEN"] = "s3cret"
-        status, body = self._post(
-            self._ping(), headers={"X-MCP-Token": "s3cret"})
+        status, body = self._post(self._ping(), headers={"X-MCP-Token": "s3cret"})
         self.assertEqual(status, 200)
         self.assertIn('"result"', body)
 
     def test_token_via_bearer_authorization(self):
         os.environ["MEDIASCRIBE_MCP_TOKEN"] = "s3cret"
-        status, body = self._post(
-            self._ping(), headers={"Authorization": "Bearer s3cret"})
+        status, body = self._post(self._ping(), headers={"Authorization": "Bearer s3cret"})
         self.assertEqual(status, 200)
         self.assertIn('"result"', body)
 
@@ -476,8 +548,9 @@ class TestMCPBatchMaxVideosClamp(unittest.TestCase):
             return proc
 
         with mock.patch("subprocess.run", side_effect=fake_run):
-            r = self._request_tool(mcp_server, {"user_url": "https://v.douyin.com/x",
-                                                "max_videos": 99999})
+            r = self._request_tool(
+                mcp_server, {"user_url": "https://v.douyin.com/x", "max_videos": 99999}
+            )
         self.assertFalse(r["result"]["isError"])
         cmd = captured["cmd"]
         n_index = cmd.index("-n")
@@ -486,7 +559,9 @@ class TestMCPBatchMaxVideosClamp(unittest.TestCase):
     @staticmethod
     def _request_tool(module, arguments):
         req = {
-            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
             "params": {"name": "batch_transcribe_creator", "arguments": arguments},
         }
         return module._handle_request(req)
@@ -506,8 +581,9 @@ class TestMCPBatchMaxVideosClamp(unittest.TestCase):
             return proc
 
         with mock.patch("subprocess.run", side_effect=fake_run):
-            r = self._request_tool(mcp_server, {"user_url": "https://v.douyin.com/x",
-                                                "max_videos": -5})
+            r = self._request_tool(
+                mcp_server, {"user_url": "https://v.douyin.com/x", "max_videos": -5}
+            )
         self.assertFalse(r["result"]["isError"])
         cmd = captured["cmd"]
         self.assertEqual(cmd[cmd.index("-n") + 1], "1")

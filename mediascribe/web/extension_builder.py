@@ -14,6 +14,7 @@ The archive is what end users download from the Web UI's
 The builder is deliberately a single function so the Web app can
 serve the ZIP on demand without writing to disk.
 """
+
 from __future__ import annotations
 
 import io
@@ -59,9 +60,7 @@ def _iter_extension_files(extension_root: Path) -> Iterable[Tuple[Path, str]]:
     the repo.
     """
     if not extension_root.is_dir():
-        raise FileNotFoundError(
-            f"extension source dir not found: {extension_root}"
-        )
+        raise FileNotFoundError(f"extension source dir not found: {extension_root}")
     for entry in sorted(extension_root.rglob("*")):
         if entry.is_dir():
             continue
@@ -136,9 +135,7 @@ def build_extension_zip(
         suggested download filename, e.g. ``mediascribe-extension-v3.1.0.zip``.
     """
     manifest_version = _load_manifest_version(extension_root)
-    filename = (
-        f"mediascribe-extension-v{_sanitize_for_filename(manifest_version)}.zip"
-    )
+    filename = f"mediascribe-extension-v{_sanitize_for_filename(manifest_version)}.zip"
 
     buf = io.BytesIO()
     # We use ZIP_DEFLATED to keep the download small; the icons
@@ -190,8 +187,7 @@ def build_install_markdown(
         "## 1. Extract this archive",
         "",
         "Extract the downloaded `.zip` into a permanent folder, e.g.",
-        "``~/mediascribe-extension/``. The folder must contain "
-        "``manifest.json`` at the top level.",
+        "``~/mediascribe-extension/``. The folder must contain ``manifest.json`` at the top level.",
         "",
         "## 2. Load the extension in your browser",
         "",
@@ -232,8 +228,7 @@ def build_install_markdown(
             "",
             "## 4. Use the extension",
             "",
-            "* Click the toolbar icon → the popup opens → **Send to "
-            "MediaScribe**.",
+            "* Click the toolbar icon → the popup opens → **Send to MediaScribe**.",
             "* Or click **Open in side panel** to keep the transcript reader "
             "docked to the right edge of the browser.",
             "",

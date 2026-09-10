@@ -11,6 +11,7 @@ The Web UI exposes three new surfaces:
 The test suite covers both the unit-level ``extension_builder`` API
 and the FastAPI endpoints (with a test client).
 """
+
 import io
 import os
 import re
@@ -31,6 +32,7 @@ try:
         build_install_markdown,
     )
     from fastapi.testclient import TestClient  # type: ignore
+
     _HAS_FASTAPI = True
 except Exception:  # pragma: no cover
     _HAS_FASTAPI = False
@@ -80,6 +82,7 @@ class TestBuildExtensionZip(unittest.TestCase):
         data, _ = build_extension_zip(self.root)
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
             import json as _json
+
             manifest = _json.loads(zf.read("manifest.json"))
             self.assertEqual(manifest["manifest_version"], 3)
             self.assertIn("name", manifest)
