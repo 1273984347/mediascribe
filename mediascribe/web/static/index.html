@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
   <title>MediaScribe · 视频转写台</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23151310'/%3E%3Cg fill='%23ffb224'%3E%3Crect x='6' y='13' width='3' height='6' rx='1'/%3E%3Crect x='11.5' y='9' width='3' height='14' rx='1'/%3E%3Crect x='17' y='5' width='3' height='22' rx='1'/%3E%3Crect x='22.5' y='11' width='3' height='10' rx='1'/%3E%3C/g%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -15,6 +16,7 @@
        等宽字体读数; 转写完成后的文稿以"针式打印纸"呈现。
        ------------------------------------------------------------------ */
     :root {
+      color-scheme: dark;
       --bg: #151310;
       --panel: #1d1a14;
       --panel-hi: #221e17;
@@ -32,9 +34,12 @@
       --paper: #f0e9d8;
       --ink: #2a251d;
       --ink-muted: #6d6350;
-      --mono: "Spline Sans Mono", ui-monospace, "Cascadia Code", Consolas, "Courier New", monospace;
+      --mono: "Spline Sans Mono", ui-monospace, "Cascadia Code", Consolas, "PingFang SC", "Microsoft YaHei", monospace;
       --disp: "Archivo", "Avenir Next", "Segoe UI", "Microsoft YaHei", sans-serif;
     }
+    ::selection { background: var(--amber); color: #191204; }
+    /* 进度读数用等宽数字, 刷新时不跳动 */
+    .gpu-pill, .jid, .chain-meta { font-variant-numeric: tabular-nums; }
     * { box-sizing: border-box; }
     html { scrollbar-color: var(--line) var(--field); }
     body {
@@ -73,7 +78,7 @@
       display: inline-flex; align-items: center; gap: 6px;
       font: 700 10px/1 var(--mono); letter-spacing: 0.16em;
       color: var(--faint);
-      border: 1px solid var(--line-soft); border-radius: 3px;
+      border: 1px solid var(--line-soft); border-radius: 4px;
       padding: 5px 8px;
     }
     .rec i {
@@ -281,7 +286,7 @@
     .empty {
       border: 1px dashed var(--line-soft); border-radius: 10px;
       padding: 34px 20px; text-align: center;
-      color: var(--faint); font-size: 12px; letter-spacing: 0.12em;
+      color: var(--faint); font-size: 12px; letter-spacing: 0.06em;
     }
     .card {
       background: var(--panel);
@@ -300,7 +305,7 @@
     .chip {
       flex: none;
       font: 700 10px/1 var(--mono); letter-spacing: 0.14em;
-      padding: 4px 9px; border-radius: 3px;
+      padding: 4px 9px; border-radius: 4px;
       border: 1px solid var(--line);
       color: var(--muted); background: var(--field);
     }
@@ -341,11 +346,18 @@
     .seg.done i { width: 100%; background: var(--green); }
     .chain-meta {
       display: flex; align-items: baseline; gap: 8px;
-      font: 500 11px/1 var(--mono); color: var(--muted);
-      margin-bottom: 2px;
+      font: 500 11px/1.6 var(--mono); color: var(--muted);
+      margin: 8px 2px 0;
+    }
+    .chain-meta .cm-label {
+      font-size: 9px; font-weight: 600; letter-spacing: 0.22em;
+      text-transform: uppercase; color: var(--faint);
     }
     .chain-meta [data-stage-label] { color: var(--amber); font-weight: 700; letter-spacing: 0.08em; }
-    .chain-meta [data-pct] { color: var(--fg); font-weight: 600; }
+    .chain-meta [data-stage-label][data-state="ok"] { color: var(--green); }
+    .chain-meta [data-stage-label][data-state="err"] { color: var(--red); }
+    .chain-meta [data-stage-label][data-state="off"] { color: var(--faint); }
+    .chain-meta [data-pct] { margin-left: auto; color: var(--fg); font-weight: 600; }
 
     .errmsg { display: none; margin: 10px 0 0; font-size: 12px; line-height: 1.7; color: var(--red); word-break: break-all; }
     .errmsg.show { display: block; }
@@ -736,10 +748,10 @@ https://www.youtube.com/watch?v=…" required></textarea>
         <div class="chain" aria-label="处理进度">
           ${STAGES.map((s, i) => `
             ${i > 0 ? '<span class="seg"><i></i></span>' : ""}
-            <span class="node" data-node="${s}">${String(i + 1).padStart(2, "0")}</span>
+            <span class="node" data-node="${s}" title="${STAGE_LABELS[s]}">${String(i + 1).padStart(2, "0")}</span>
           `).join("")}
         </div>
-        <p class="chain-meta"><span>SIGNAL CHAIN</span>· 阶段 <span data-stage-label>—</span> <span data-pct>0%</span></p>
+        <p class="chain-meta"><span class="cm-label">SIGNAL CHAIN</span><span>阶段 <span data-stage-label>—</span></span><span data-pct>—</span></p>
         <p class="errmsg" data-err></p>
         <div class="toolbar">
           <button type="button" data-cancel class="danger">✕ 终止</button>
@@ -800,6 +812,7 @@ https://www.youtube.com/watch?v=…" required></textarea>
           else { seg.className = "seg"; seg.querySelector("i").style.width = "0%"; }
         });
         stageLabel.textContent = STAGE_LABELS[stage] || stage;
+        delete stageLabel.dataset.state;
         pctEl.textContent = Math.round(pct) + "%";
       }
 
@@ -807,6 +820,7 @@ https://www.youtube.com/watch?v=…" required></textarea>
         STAGES.forEach((s) => { nodes[s].className = "node off"; resetNode(s); nodes[s].classList.add("off"); });
         STAGES.forEach((s, i) => { if (i > 0) segs[s].className = "seg"; });
         stageLabel.textContent = "已取消";
+        stageLabel.dataset.state = "off";
         pctEl.textContent = "—";
         finishCard("cancelled", "已取消");
       }
@@ -835,6 +849,7 @@ https://www.youtube.com/watch?v=…" required></textarea>
           setStage("merge", 100, true);
           finishCard("ok", "完成");
           stageLabel.textContent = "完成";
+          stageLabel.dataset.state = "ok";
           pctEl.textContent = "100%";
           fetchResult(card, job);
         } else if (evt === "failed") {
@@ -845,6 +860,7 @@ https://www.youtube.com/watch?v=…" required></textarea>
           errEl.textContent = msg.error || "未知错误";
           errEl.classList.add("show");
           stageLabel.textContent = "失败";
+          stageLabel.dataset.state = "err";
           finishCard("err", "失败");
           ws.close();
         } else if (evt === "cancelled" || evt === "cancelled_done") {
@@ -853,7 +869,17 @@ https://www.youtube.com/watch?v=…" required></textarea>
         }
       };
       ws.onerror = () => { /* 以服务端 close 为准 */ };
-      ws.onclose = () => { /* 结束 */ };
+      ws.onclose = () => {
+        // 终态事件会先把 job 移出 activeJobs 再主动 close; 走到这里说明
+        // 连接是意外断开的(如空闲超时) — 提示用户, 不再让机台灯空转。
+        if (activeJobs.has(job.job_id)) {
+          activeJobs.delete(job.job_id);
+          updateMeters();
+          chip.className = "chip busy";
+          chip.textContent = "连接断开";
+          setStatus("进度连接已断开(任务可能仍在后台运行),可稍后刷新页面查看结果。", true);
+        }
+      };
     }
 
     async function fetchResult(card, job) {
@@ -881,8 +907,13 @@ https://www.youtube.com/watch?v=…" required></textarea>
         copyBtn.style.display = "";
         dlBtn.style.display = "";
         copyBtn.addEventListener("click", async () => {
-          try { await navigator.clipboard.writeText(data.markdown); setStatus(`已复制文稿:${data.title || job.url}`); }
-          catch (_) { setStatus("复制失败:浏览器拒绝了剪贴板访问", true); }
+          try {
+            await navigator.clipboard.writeText(data.markdown);
+            setStatus(`已复制文稿:${data.title || job.url}`);
+            const label = copyBtn.textContent;
+            copyBtn.textContent = "✓ 已复制";
+            setTimeout(() => { copyBtn.textContent = label; }, 1500);
+          } catch (_) { setStatus("复制失败:浏览器拒绝了剪贴板访问", true); }
         });
         dlBtn.addEventListener("click", () => {
           const blob = new Blob([data.markdown], { type: "text/markdown" });
