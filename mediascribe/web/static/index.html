@@ -3,428 +3,407 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="color-scheme" content="dark">
+  <meta name="color-scheme" content="dark light">
   <title>MediaScribe · 视频转写台</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23151310'/%3E%3Cg fill='%23ffb224'%3E%3Crect x='6' y='13' width='3' height='6' rx='1'/%3E%3Crect x='11.5' y='9' width='3' height='14' rx='1'/%3E%3Crect x='17' y='5' width='3' height='22' rx='1'/%3E%3Crect x='22.5' y='11' width='3' height='10' rx='1'/%3E%3C/g%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23181817'/%3E%3Cg fill='%23ffffff'%3E%3Crect x='7' y='13' width='3' height='6' rx='1.2'/%3E%3Crect x='12.5' y='9' width='3' height='14' rx='1.2'/%3E%3Crect x='18' y='5' width='3' height='22' rx='1.2'/%3E%3Crect x='23.5' y='11' width='3' height='10' rx='1.2'/%3E%3C/g%3E%3C/svg%3E">
+  <script>
+    // 主题在绘制前确定, 避免闪色。默认跟随系统, 手动选择存 localStorage。
+    (function () {
+      var t = "dark";
+      try {
+        t = localStorage.getItem("ms_theme")
+          || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+      } catch (_) { /* storage 不可用 */ }
+      document.documentElement.dataset.theme = t;
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..900&family=Spline+Sans+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- KIMI 官方字体系统: Inter(高效清晰) + Geist Mono(科技感等宽) -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     /* ------------------------------------------------------------------
-       MEDIASCRIBE — 转写工作台
-       视觉语言: 模拟录音台 / 信号链。暖炭黑机身, 琥珀电平灯,
-       等宽字体读数; 转写完成后的文稿以"针式打印纸"呈现。
+       MEDIAScribe — 转写工作台
+       设计语言: KIMI 式极简双主题。
+       月之暗面 (dark) / 月之亮面 (light), token 对称:
+       面板三层深浅 + 文字透明度分级 + 发丝描边 + 主按钮黑白反转。
        ------------------------------------------------------------------ */
     :root {
       color-scheme: dark;
-      --bg: #151310;
-      --panel: #1d1a14;
-      --panel-hi: #221e17;
-      --field: #100e0a;
-      --line: #3b3425;
-      --line-soft: #2b261c;
-      --fg: #ece3d1;
-      --muted: #a3947a;
-      --faint: #7a6d56;
-      --amber: #ffb224;
-      --amber-deep: #c77f0a;
-      --amber-glow: rgba(255, 178, 36, 0.14);
-      --green: #a3cf63;
-      --red: #f0654a;
-      --paper: #f0e9d8;
-      --ink: #2a251d;
-      --ink-muted: #6d6350;
-      --mono: "Spline Sans Mono", ui-monospace, "Cascadia Code", Consolas, "PingFang SC", "Microsoft YaHei", monospace;
-      --disp: "Archivo", "Avenir Next", "Segoe UI", "Microsoft YaHei", sans-serif;
+      --bg: #181817;
+      --surface: #121212;          /* 输入控件下沉面 */
+      --raised: #1f1f1f;           /* 卡片抬升面 */
+      --field-bg: #121212;
+      --fg: rgba(255, 255, 255, 0.84);
+      --fg-2: rgba(255, 255, 255, 0.56);
+      --fg-3: rgba(255, 255, 255, 0.26);
+      --line: rgba(255, 255, 255, 0.12);
+      --line-strong: rgba(255, 255, 255, 0.32);
+      --fill: rgba(255, 255, 255, 0.05);
+      --fill-hover: rgba(255, 255, 255, 0.09);
+      --primary-bg: rgba(255, 255, 255, 0.84);
+      --primary-bg-hover: #ffffff;
+      --primary-fg: #121212;
+      --run-kbd-bg: rgba(0, 0, 0, 0.06);
+      --run-kbd-fg: rgba(0, 0, 0, 0.5);
+      --blue: #007cff;             /* KIMI 核心品牌蓝 */
+      --green: #16c456;
+      --red: #ff4756;
+      --orange: #ff9f0a;
+      --shimmer: linear-gradient(276deg, #ffffff 25%, #bcbcbc 65%, #5a5a5a 100%);
+      --selection: rgba(255, 255, 255, 0.18);
+      --dot: rgba(255, 255, 255, 0.05);   /* 蓝图点阵(De-coding 质感) */
+      --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, "PingFang SC", "Microsoft YaHei", "Noto Sans", sans-serif;
+      --mono: "Geist Mono", ui-monospace, "SF Mono", "Cascadia Code", Consolas, "PingFang SC", "Microsoft YaHei", monospace;
     }
-    ::selection { background: var(--amber); color: #191204; }
-    /* 进度读数用等宽数字, 刷新时不跳动 */
-    .gpu-pill, .jid, .chain-meta { font-variant-numeric: tabular-nums; }
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --bg: #fbfaf9;
+      --surface: #ffffff;
+      --raised: #ffffff;
+      --field-bg: rgba(0, 0, 0, 0.03);
+      --fg: rgba(0, 0, 0, 0.9);
+      --fg-2: rgba(0, 0, 0, 0.56);
+      --fg-3: rgba(0, 0, 0, 0.38);
+      --line: rgba(0, 0, 0, 0.12);
+      --line-strong: rgba(0, 0, 0, 0.32);
+      --fill: rgba(0, 0, 0, 0.04);
+      --fill-hover: rgba(0, 0, 0, 0.07);
+      --primary-bg: rgba(0, 0, 0, 0.88);
+      --primary-bg-hover: #000000;
+      --primary-fg: #ffffff;
+      --run-kbd-bg: rgba(255, 255, 255, 0.14);
+      --run-kbd-fg: rgba(255, 255, 255, 0.6);
+      --shimmer: linear-gradient(276deg, #1c1c1c 25%, #7a7a7a 65%, #c4c4c4 100%);
+      --selection: rgba(0, 0, 0, 0.12);
+      --dot: rgba(0, 0, 0, 0.045);
+    }
     * { box-sizing: border-box; }
-    html { scrollbar-color: var(--line) var(--field); }
+    html { scrollbar-color: var(--line) transparent; }
     body {
       margin: 0;
-      font-family: var(--mono);
+      font-family: var(--sans);
       font-size: 14px;
-      background:
-        radial-gradient(1100px 480px at 8% -10%, rgba(255, 178, 36, 0.05), transparent 60%),
-        radial-gradient(900px 500px at 105% 8%, rgba(163, 207, 99, 0.03), transparent 55%),
-        var(--bg);
+      background: var(--bg);
       color: var(--fg);
       min-height: 100vh;
     }
-    /* 胶片颗粒 — 给机身加一层微弱噪点 */
-    .grain {
-      position: fixed; inset: 0; pointer-events: none; z-index: 9;
-      opacity: 0.05;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E");
-    }
-    /* 机顶电源条 */
-    .power-strip {
-      height: 3px; background: linear-gradient(90deg, var(--amber-deep), var(--amber) 30%, var(--amber) 70%, var(--amber-deep));
-      box-shadow: 0 0 14px rgba(255, 178, 36, 0.35);
-    }
+    ::selection { background: var(--selection); }
+    :focus-visible { outline: 2px solid var(--line-strong); outline-offset: 2px; }
 
-    /* ============ 顶部机台铭牌 ============ */
+    /* ============ 顶栏 ============ */
     .console-top {
       display: flex; align-items: center; justify-content: space-between;
       gap: 16px; flex-wrap: wrap;
       padding: 14px 24px;
-      border-bottom: 1px solid var(--line-soft);
-      background: rgba(16, 14, 10, 0.55);
+      border-bottom: 1px solid var(--line);
     }
-    .brand { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-    .rec {
-      display: inline-flex; align-items: center; gap: 6px;
-      font: 700 10px/1 var(--mono); letter-spacing: 0.16em;
-      color: var(--faint);
-      border: 1px solid var(--line-soft); border-radius: 4px;
-      padding: 5px 8px;
-    }
-    .rec i {
-      width: 7px; height: 7px; border-radius: 50%;
-      background: var(--line);
-    }
-    .rec.on { color: var(--red); border-color: rgba(240, 101, 74, 0.5); }
-    .rec.on i { background: var(--red); animation: recPulse 1.1s ease-in-out infinite; }
-    @keyframes recPulse { 0%, 100% { opacity: 1; box-shadow: 0 0 8px rgba(240, 101, 74, 0.9); } 50% { opacity: 0.35; box-shadow: none; } }
-    .wordmark {
-      font-family: var(--disp); font-weight: 800; font-stretch: 125%;
-      font-size: 19px; letter-spacing: 0.02em; text-transform: uppercase;
-    }
-    .wordmark em { font-style: normal; color: var(--amber); }
-    .model-tag {
-      font: 500 10px/1.4 var(--mono); letter-spacing: 0.1em;
-      color: var(--muted);
-      border-left: 1px solid var(--line-soft);
-      padding-left: 14px;
-    }
-    .meters { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-    /* 空闲时缓慢起伏的电平表, 有任务时加速变琥珀色 */
-    .eq { display: flex; align-items: flex-end; gap: 3px; height: 18px; }
-    .eq i {
-      width: 3px; height: 4px; border-radius: 1px;
-      background: var(--faint); opacity: 0.7;
-      animation: eqIdle 3.2s ease-in-out infinite alternate;
-    }
-    .eq i:nth-child(1) { animation-delay: -0.2s; }
-    .eq i:nth-child(2) { animation-delay: -1.1s; }
-    .eq i:nth-child(3) { animation-delay: -2.0s; }
-    .eq i:nth-child(4) { animation-delay: -0.6s; }
-    .eq i:nth-child(5) { animation-delay: -1.6s; }
-    .eq i:nth-child(6) { animation-delay: -2.6s; }
-    .eq i:nth-child(7) { animation-delay: -0.9s; }
-    @keyframes eqIdle { from { height: 4px; } to { height: 15px; } }
-    .eq.live i { background: var(--amber); opacity: 1; animation-duration: 0.42s; }
-
-    .gpu-pill {
-      display: inline-flex; align-items: center; gap: 8px;
-      padding: 6px 10px;
-      border: 1px solid var(--line-soft); border-radius: 4px;
-      background: var(--field);
-      font: 500 11px/1 var(--mono); letter-spacing: 0.04em;
-      color: var(--muted);
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .wordmark { font-size: 15px; font-weight: 600; color: var(--fg); letter-spacing: 0.01em; }
+    .model-tag { font-size: 12px; color: var(--fg-3); }
+    .meters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    /* 任务运行指示 — 仅在有无任务时出现 */
+    .rec { display: none; align-items: center; gap: 7px; font-size: 12px; color: var(--fg-2); }
+    .rec.on { display: inline-flex; }
+    .rec i { width: 6px; height: 6px; border-radius: 50%; background: var(--blue); animation: pulse 1.2s ease-in-out infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+    .chip-status {
+      display: inline-flex; align-items: center; gap: 7px;
+      height: 32px; padding: 0 12px;
+      border-radius: 10px;
+      background: var(--fill);
+      font-size: 12px; color: var(--fg-2);
       max-width: 100%;
+      font-variant-numeric: tabular-nums;
     }
-    .gpu-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: none; }
-    .gpu-pill.ok { color: var(--fg); }
-    .gpu-pill.ok .dot { background: var(--green); box-shadow: 0 0 6px rgba(163, 207, 99, 0.7); }
-    .gpu-pill.loading .dot { background: var(--amber); animation: recPulse 1.2s infinite; }
-    .leds { display: inline-flex; gap: 2px; align-items: flex-end; }
-    .leds i { width: 4px; height: 11px; border-radius: 1px; background: var(--line-soft); }
-    .leds i.on { background: var(--green); }
-    .leds i.warn { background: var(--amber); }
-    .leds i.hot { background: var(--red); }
+    .chip-status .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-3); flex: none; }
+    .chip-status.ok .dot { background: var(--green); }
+    .chip-status.loading .dot { background: var(--fg-2); animation: pulse 1.2s infinite; }
+    .icon-btn {
+      height: 32px; padding: 0 12px;
+      display: inline-flex; align-items: center; gap: 6px;
+      border: none; border-radius: 10px;
+      background: var(--fill); color: var(--fg-2);
+      font-family: var(--sans); font-size: 12px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .icon-btn:hover { background: var(--fill-hover); color: var(--fg); }
 
     /* ============ 主体 ============ */
-    main { max-width: 980px; margin: 0 auto; padding: 36px 20px 40px; }
-    main > * { animation: rise 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
-    main > *:nth-child(2) { animation-delay: 0.07s; }
-    main > *:nth-child(3) { animation-delay: 0.14s; }
-    main > *:nth-child(4) { animation-delay: 0.2s; }
-    main > *:nth-child(5) { animation-delay: 0.26s; }
-    @keyframes rise { from { opacity: 0; transform: translateY(12px); } }
+    main { max-width: 880px; margin: 0 auto; padding: 36px 20px 40px; }
+    main > * { animation: rise 0.4s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+    main > *:nth-child(2) { animation-delay: 0.05s; }
+    main > *:nth-child(3) { animation-delay: 0.1s; }
+    main > *:nth-child(4) { animation-delay: 0.15s; }
+    main > *:nth-child(5) { animation-delay: 0.2s; }
+    @keyframes rise { from { opacity: 0; transform: translateY(10px); } }
 
-    .hero { margin: 8px 0 30px; }
-    .micro-label {
-      font: 600 10px/1 var(--mono); letter-spacing: 0.34em;
-      color: var(--amber-deep); text-transform: uppercase;
-      margin: 0 0 12px;
-      display: flex; align-items: center; gap: 10px;
-    }
-    .micro-label::after { content: ""; flex: 1; max-width: 220px; height: 1px; background: linear-gradient(90deg, var(--line), transparent); }
+    .hero { margin: 4px 0 28px; }
     .hero h1 {
-      font-family: var(--disp); font-weight: 800; font-stretch: 112%;
-      font-size: clamp(26px, 4.6vw, 40px);
-      letter-spacing: 0.01em; line-height: 1.15;
-      margin: 0 0 10px;
+      font-size: 22px; font-weight: 600;
+      letter-spacing: 0.01em; line-height: 1.4;
+      margin: 0 0 8px;
     }
-    .hero h1 .amber { color: var(--amber); }
-    .lede { color: var(--muted); font-size: 13px; line-height: 1.8; margin: 0; max-width: 62ch; }
-    .lede code { color: var(--fg); background: var(--field); border: 1px solid var(--line-soft); border-radius: 3px; padding: 1px 5px; font-size: 12px; }
+    .lede { color: var(--fg-2); font-size: 13px; line-height: 1.8; margin: 0; max-width: 62ch; }
+    .lede code {
+      color: var(--fg); background: var(--fill);
+      border-radius: 6px; padding: 1px 6px; font-size: 12px;
+      font-family: var(--mono);
+    }
 
     /* ============ 输入面板 ============ */
+    /* 蓝图点阵 — KIMI "核心几何 / De-coding" 质感 */
     .panel {
-      position: relative;
-      background: linear-gradient(180deg, var(--panel-hi), var(--panel) 14%);
-      border: 1px solid var(--line-soft);
-      border-radius: 10px;
-      padding: 22px;
+      background-image: radial-gradient(circle, var(--dot) 1px, transparent 1px);
+      background-size: 22px 22px;
+      background-color: var(--raised);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 24px;
       display: grid; gap: 16px;
-      box-shadow: inset 0 1px 0 rgba(255, 178, 36, 0.05), 0 18px 40px rgba(0, 0, 0, 0.35);
     }
-    /* 角落刻度记号 */
-    .panel::before, .panel::after {
-      content: ""; position: absolute; width: 14px; height: 14px; pointer-events: none;
-      border-color: var(--amber-deep); border-style: solid;
-    }
-    .panel::before { top: -1px; left: -1px; border-width: 2px 0 0 2px; border-radius: 10px 0 0 0; }
-    .panel::after { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; border-radius: 0 0 10px 0; }
-
     .fld > label {
       display: flex; align-items: baseline; justify-content: space-between;
-      font: 700 12px/1 var(--mono); letter-spacing: 0.06em;
-      color: var(--fg); margin-bottom: 7px;
+      font-size: 13px; font-weight: 500; color: var(--fg);
+      margin-bottom: 7px;
     }
-    .fld > label .en {
-      font-size: 9px; font-weight: 600; letter-spacing: 0.22em;
-      text-transform: uppercase; color: var(--faint);
-    }
-    /* 开关是 label 元素, 但不参与上面两栏对齐 */
-    .fld > label.switch, .fld label.switch {
-      justify-content: flex-start;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 0;
-    }
+    .fld > label .hint { font-size: 12px; font-weight: 400; color: var(--fg-3); }
     textarea, input[type="text"], input[type="password"], select {
       width: 100%;
-      background: var(--field);
+      background: var(--field-bg);
       color: var(--fg);
-      border: 1px solid var(--line-soft);
-      border-radius: 6px;
-      padding: 10px 12px;
-      font: 13px/1.6 var(--mono);
-      caret-color: var(--amber);
-      transition: border-color 0.15s, box-shadow 0.15s;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 9px 12px;
+      font-family: var(--sans);
+      font-size: 14px; line-height: 1.6;
+      caret-color: var(--fg);
+      transition: border-color 0.15s;
     }
-    textarea { min-height: 108px; resize: vertical; }
-    textarea::placeholder, input::placeholder { color: var(--faint); }
+    textarea { min-height: 104px; resize: vertical; font-family: var(--mono); font-size: 13px; }
+    textarea::placeholder, input::placeholder { color: var(--fg-3); }
     textarea:focus, input:focus, select:focus {
       outline: none;
-      border-color: var(--amber-deep);
-      box-shadow: 0 0 0 3px var(--amber-glow);
+      border-color: var(--line-strong);
     }
-    select { appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 16px) 55%, calc(100% - 11px) 55%; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 30px; }
+    select {
+      appearance: none;
+      background-image:
+        linear-gradient(45deg, transparent 50%, var(--fg-2) 50%),
+        linear-gradient(135deg, var(--fg-2) 50%, transparent 50%);
+      background-position: calc(100% - 16px) 55%, calc(100% - 11px) 55%;
+      background-size: 5px 5px;
+      background-repeat: no-repeat;
+      padding-right: 30px;
+    }
     .row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
     .row-2 { display: grid; grid-template-columns: 1.4fr 1fr; gap: 14px; }
 
-    /* 拨杆开关 */
+    /* 开关 */
     .switch { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; padding: 9px 0; }
     .switch input { position: absolute; opacity: 0; pointer-events: none; }
     .switch .track {
-      width: 38px; height: 20px; border-radius: 99px; flex: none;
-      background: var(--field); border: 1px solid var(--line);
+      width: 36px; height: 20px; border-radius: 999px; flex: none;
+      background: var(--fill); border: 1px solid var(--line);
       position: relative; transition: background 0.18s, border-color 0.18s;
     }
     .switch .track::after {
       content: ""; position: absolute; top: 2px; left: 2px;
       width: 14px; height: 14px; border-radius: 50%;
-      background: var(--faint); transition: transform 0.18s, background 0.18s;
+      background: var(--fg-2); transition: transform 0.18s, background 0.18s;
     }
-    .switch input:checked + .track { background: var(--amber-glow); border-color: var(--amber-deep); }
-    .switch input:checked + .track::after { transform: translateX(18px); background: var(--amber); }
-    .switch input:focus-visible + .track { box-shadow: 0 0 0 3px var(--amber-glow); }
-    .switch .sw-label { font: 600 12px/1 var(--mono); color: var(--muted); }
+    .switch input:checked + .track { background: var(--primary-bg); border-color: transparent; }
+    .switch input:checked + .track::after { transform: translateX(16px); background: var(--primary-fg); }
+    .switch .sw-label { font-size: 13px; color: var(--fg-2); }
+    /* 开关是 label, 但不参与上方两栏对齐 */
+    .fld > label.switch, .fld label.switch {
+      justify-content: flex-start; align-items: center; gap: 10px; margin-bottom: 0;
+    }
 
     .run {
       width: 100%;
       display: inline-flex; align-items: center; justify-content: center; gap: 10px;
-      font-family: var(--disp); font-weight: 800; font-stretch: 110%;
-      font-size: 15px; letter-spacing: 0.14em; text-transform: uppercase;
-      color: #191204;
-      background: linear-gradient(180deg, var(--amber), #f39c0d);
-      border: none; border-radius: 8px;
-      padding: 14px 18px; cursor: pointer;
-      box-shadow: 0 4px 18px rgba(255, 178, 36, 0.25);
-      transition: transform 0.12s, filter 0.12s, box-shadow 0.12s;
+      height: 44px;
+      font-family: var(--sans); font-size: 14px; font-weight: 500;
+      color: var(--primary-fg);
+      background: var(--primary-bg);
+      border: none; border-radius: 12px;
+      cursor: pointer;
+      transition: background 0.15s, opacity 0.15s;
     }
-    .run:hover:not(:disabled) { filter: brightness(1.07); transform: translateY(-1px); box-shadow: 0 7px 22px rgba(255, 178, 36, 0.3); }
-    .run:active:not(:disabled) { transform: translateY(0); }
-    .run:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+    .run:hover:not(:disabled) { background: var(--primary-bg-hover); }
+    .run:disabled { opacity: 0.4; cursor: not-allowed; }
     .run kbd {
-      font: 600 10px/1 var(--mono); letter-spacing: 0.05em;
-      background: rgba(0, 0, 0, 0.18); border-radius: 3px; padding: 3px 6px;
+      font-family: var(--mono); font-size: 11px;
+      background: var(--run-kbd-bg); color: var(--run-kbd-fg);
+      border-radius: 4px; padding: 2px 6px;
     }
-    .status { font-size: 12px; line-height: 1.7; color: var(--muted); margin: 2px 0 0; min-height: 1.2em; }
-    .status::before { content: "» "; color: var(--amber-deep); }
+    .status { font-size: 12px; line-height: 1.7; color: var(--fg-2); margin: 0; min-height: 1.2em; }
     .status.err { color: var(--red); }
-    .status.err::before { color: var(--red); }
 
     /* ============ 输出队列 ============ */
     .output-head {
-      display: flex; align-items: baseline; justify-content: space-between;
-      margin: 40px 2px 14px;
-      border-bottom: 1px dashed var(--line-soft);
-      padding-bottom: 10px;
+      display: flex; align-items: center; justify-content: space-between;
+      margin: 36px 0 12px;
     }
     .output-head h2 {
-      font: 700 12px/1 var(--mono); letter-spacing: 0.3em; text-transform: uppercase;
-      color: var(--fg); margin: 0;
+      font-size: 13px; font-weight: 500; color: var(--fg);
+      margin: 0;
     }
-    .output-head h2 span { color: var(--faint); letter-spacing: 0.1em; font-weight: 500; }
     .ghost {
-      font: 600 11px/1 var(--mono); letter-spacing: 0.06em;
-      background: transparent; color: var(--faint);
-      border: 1px solid var(--line-soft); border-radius: 4px;
-      padding: 6px 10px; cursor: pointer;
-      transition: color 0.15s, border-color 0.15s;
+      height: 32px; padding: 0 12px;
+      font-family: var(--sans); font-size: 12px;
+      background: var(--fill); color: var(--fg-2);
+      border: none; border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
     }
-    .ghost:hover { color: var(--fg); border-color: var(--line); }
+    .ghost:hover { background: var(--fill-hover); color: var(--fg); }
 
-    .results { display: grid; gap: 14px; }
-    .empty {
-      border: 1px dashed var(--line-soft); border-radius: 10px;
-      padding: 34px 20px; text-align: center;
-      color: var(--faint); font-size: 12px; letter-spacing: 0.06em;
-    }
+    .results { display: grid; gap: 12px; }
+    .empty { padding: 40px 20px; text-align: center; color: var(--fg-3); font-size: 13px; }
     .card {
-      background: var(--panel);
-      border: 1px solid var(--line-soft);
-      border-left: 3px solid var(--amber-deep);
-      border-radius: 10px;
+      background: var(--raised);
+      border: 1px solid var(--line);
+      border-radius: 12px;
       padding: 16px 18px;
-      animation: cardIn 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+      animation: cardIn 0.3s cubic-bezier(0.2, 0.7, 0.2, 1) both;
     }
-    @keyframes cardIn { from { opacity: 0; transform: translateY(8px); } }
-    .card.ok { border-left-color: var(--green); }
-    .card.err { border-left-color: var(--red); }
-    .card.cancelled { border-left-color: var(--line); }
+    @keyframes cardIn { from { opacity: 0; transform: translateY(6px); } }
 
     .card-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .chip {
       flex: none;
-      font: 700 10px/1 var(--mono); letter-spacing: 0.14em;
-      padding: 4px 9px; border-radius: 4px;
-      border: 1px solid var(--line);
-      color: var(--muted); background: var(--field);
+      font-size: 12px; font-weight: 500; line-height: 1;
+      padding: 5px 10px; border-radius: 999px;
+      background: var(--fill);
+      color: var(--fg-2);
     }
-    .chip.busy { color: var(--amber); border-color: var(--amber-deep); }
-    .chip.ok { color: var(--green); border-color: rgba(163, 207, 99, 0.45); }
-    .chip.err { color: var(--red); border-color: rgba(240, 101, 74, 0.5); }
-    .chip.cancelled { color: var(--faint); }
+    .chip.busy { color: var(--fg); }
+    .chip.ok { color: var(--green); }
+    .chip.err { color: var(--red); }
+    .chip.cancelled { color: var(--fg-3); }
     .url {
       flex: 1; min-width: 200px;
-      font-size: 13px; color: var(--fg);
+      font-family: var(--mono); font-size: 12.5px; color: var(--fg);
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
-    .jid { flex: none; font-size: 10px; color: var(--faint); letter-spacing: 0.04em; }
+    .jid { flex: none; font-family: var(--mono); font-size: 11px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
 
     /* 信号链进度 */
-    .chain { display: flex; align-items: center; margin: 18px 2px 6px; }
+    .chain { display: flex; align-items: center; margin: 16px 2px 4px; }
     .node {
       flex: none;
-      width: 24px; height: 24px; border-radius: 50%;
+      width: 22px; height: 22px; border-radius: 50%;
       display: grid; place-items: center;
-      font: 700 9px/1 var(--mono);
-      color: var(--faint);
-      background: var(--field);
-      border: 1.5px solid var(--line-soft);
-      transition: color 0.2s, border-color 0.2s, background 0.2s, box-shadow 0.2s;
+      font-family: var(--mono); font-size: 9px; font-weight: 500;
+      color: var(--fg-3);
+      border: 1.5px solid var(--line);
+      transition: color 0.2s, border-color 0.2s, background 0.2s;
     }
     .node.active {
-      color: var(--amber); border-color: var(--amber);
-      box-shadow: 0 0 0 4px var(--amber-glow);
-      animation: nodePulse 1.15s ease-in-out infinite;
+      color: var(--fg); border-color: var(--fg);
+      animation: nodePulse 1.6s ease-in-out infinite;
     }
-    @keyframes nodePulse { 0%, 100% { box-shadow: 0 0 0 3px var(--amber-glow); } 50% { box-shadow: 0 0 0 6px rgba(255, 178, 36, 0.07); } }
-    .node.done { color: #171a0c; background: var(--green); border-color: var(--green); }
-    .node.fail { color: var(--red); border-color: var(--red); background: rgba(240, 101, 74, 0.1); }
+    @keyframes nodePulse {
+      0%, 100% { box-shadow: 0 0 0 3px var(--fill); }
+      50% { box-shadow: 0 0 0 6px transparent; }
+    }
+    .node.done { color: #ffffff; background: var(--green); border-color: var(--green); }
+    .node.fail { color: var(--red); border-color: var(--red); }
     .node.off { opacity: 0.35; }
-    .seg { flex: 1; height: 2px; margin: 0 7px; background: var(--line-soft); border-radius: 1px; position: relative; overflow: hidden; }
-    .seg i { position: absolute; inset: 0; width: 0%; background: var(--amber); transition: width 0.3s ease; }
-    .seg.done i { width: 100%; background: var(--green); }
+    .seg { flex: 1; height: 2px; margin: 0 7px; background: var(--line); border-radius: 1px; position: relative; overflow: hidden; }
+    .seg i { position: absolute; inset: 0; width: 0%; background: var(--fg); transition: width 0.3s ease; }
+    .seg.done i { width: 100%; }
+    /* KIMI 式运行中微光 — 宽度由进度内联控制 */
+    .shimmer-bar {
+      background: var(--shimmer);
+      background-size: 200% 100%;
+      animation: shimmerMove 1.8s linear infinite;
+    }
+    @keyframes shimmerMove { from { background-position: 200% 0; } to { background-position: -200% 0; } }
     .chain-meta {
       display: flex; align-items: baseline; gap: 8px;
-      font: 500 11px/1.6 var(--mono); color: var(--muted);
-      margin: 8px 2px 0;
+      font-size: 12px; color: var(--fg-2);
+      margin: 6px 2px 0;
+      font-variant-numeric: tabular-nums;
     }
-    .chain-meta .cm-label {
-      font-size: 9px; font-weight: 600; letter-spacing: 0.22em;
-      text-transform: uppercase; color: var(--faint);
-    }
-    .chain-meta [data-stage-label] { color: var(--amber); font-weight: 700; letter-spacing: 0.08em; }
+    .chain-meta .cm-label { color: var(--fg-3); }
+    .chain-meta [data-stage-label] { color: var(--fg); font-weight: 500; }
     .chain-meta [data-stage-label][data-state="ok"] { color: var(--green); }
     .chain-meta [data-stage-label][data-state="err"] { color: var(--red); }
-    .chain-meta [data-stage-label][data-state="off"] { color: var(--faint); }
-    .chain-meta [data-pct] { margin-left: auto; color: var(--fg); font-weight: 600; }
+    .chain-meta [data-stage-label][data-state="off"] { color: var(--fg-3); }
+    .chain-meta [data-pct] { margin-left: auto; font-weight: 500; }
+    /* 运行态文字微光 */
+    .running-text {
+      background: var(--shimmer);
+      background-size: 200% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent !important;
+      animation: shimmerMove 1.8s linear infinite;
+    }
 
     .errmsg { display: none; margin: 10px 0 0; font-size: 12px; line-height: 1.7; color: var(--red); word-break: break-all; }
     .errmsg.show { display: block; }
-    .errmsg::before { content: "⚠ "; }
 
     .toolbar { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
     .toolbar button {
-      font: 600 11px/1 var(--mono); letter-spacing: 0.08em;
-      background: transparent; color: var(--amber);
-      border: 1px solid var(--amber-deep); border-radius: 4px;
-      padding: 8px 12px; cursor: pointer;
-      transition: background 0.15s, color 0.15s;
+      height: 32px; padding: 0 12px;
+      font-family: var(--sans); font-size: 12px; font-weight: 500;
+      background: var(--fill); color: var(--fg);
+      border: none; border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.15s;
     }
-    .toolbar button:hover { background: var(--amber-glow); }
-    .toolbar button.danger { color: var(--red); border-color: rgba(240, 101, 74, 0.55); }
-    .toolbar button.danger:hover { background: rgba(240, 101, 74, 0.1); }
+    .toolbar button:hover { background: var(--fill-hover); }
+    .toolbar button.danger { color: var(--red); }
+    .toolbar button.danger:hover { background: rgba(255, 71, 86, 0.08); }
 
-    /* 针式打印纸 — 转写产物 */
-    .paper-wrap { position: relative; margin: 16px 26px 6px; }
-    .paper-wrap::before, .paper-wrap::after {
-      content: ""; position: absolute; top: -2px; bottom: -2px; width: 17px;
-      background-image: radial-gradient(circle at 8.5px 9px, var(--bg) 3px, transparent 3.8px);
-      background-size: 17px 22px; background-repeat: repeat-y;
+    /* 转写结果 */
+    .result {
+      margin-top: 14px;
+      background: var(--field-bg);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 14px 16px;
     }
-    .paper-wrap::before { left: -2px; }
-    .paper-wrap::after { right: -2px; }
-    .paper {
-      background: var(--paper);
-      color: var(--ink);
-      border-radius: 3px;
-      padding: 16px 18px 18px;
-      box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
-    }
-    .paper-head {
+    .result-head {
       display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
-      font: 600 9px/1.5 var(--mono); letter-spacing: 0.22em; text-transform: uppercase;
-      color: var(--ink-muted);
-      border-bottom: 1px dashed var(--ink-muted);
-      padding-bottom: 9px; margin-bottom: 12px;
+      font-size: 12px; color: var(--fg-3);
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 9px; margin-bottom: 10px;
     }
-    .paper-head .paper-title { flex: 1; min-width: 120px; color: var(--ink); letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: none; font-size: 11px; }
-    .paper-body {
-      font: 12.5px/1.8 var(--mono);
+    .result-head .result-title {
+      flex: 1; min-width: 120px;
+      color: var(--fg); font-weight: 500;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .result-body {
+      font-family: var(--mono); font-size: 12.5px; line-height: 1.75;
+      color: var(--fg);
       white-space: pre-wrap; word-break: break-word;
       max-height: 380px; overflow: auto;
       padding-right: 8px;
     }
-    .paper-body::-webkit-scrollbar, pre::-webkit-scrollbar { width: 10px; height: 10px; }
-    .paper-body::-webkit-scrollbar-thumb { background: var(--ink-muted); border-radius: 5px; border: 3px solid var(--paper); }
-    .paper-body::-webkit-scrollbar-track { background: transparent; }
+    .result-body::-webkit-scrollbar { width: 8px; }
+    .result-body::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+    .result-body::-webkit-scrollbar-track { background: transparent; }
 
     footer {
       display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
-      border-top: 1px solid var(--line-soft);
-      margin-top: 52px; padding: 18px 2px 6px;
-      color: var(--faint); font-size: 11px; letter-spacing: 0.06em;
+      border-top: 1px solid var(--line);
+      margin-top: 48px; padding: 16px 2px 6px;
+      color: var(--fg-3); font-size: 12px;
     }
-    footer a { color: var(--muted); text-decoration: none; border-bottom: 1px dotted var(--faint); }
-    footer a:hover { color: var(--amber); border-color: var(--amber-deep); }
-
-    :focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+    footer a { color: var(--fg-2); text-decoration: none; }
+    footer a:hover { color: var(--blue); text-decoration: underline; }
 
     @media (max-width: 760px) {
       .row, .row-2 { grid-template-columns: 1fr; }
       .console-top { padding: 12px 16px; }
       .model-tag { display: none; }
-      .paper-wrap { margin: 16px 14px 6px; }
     }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { animation: none !important; transition: none !important; }
@@ -432,35 +411,30 @@
   </style>
 </head>
 <body>
-  <div class="grain" aria-hidden="true"></div>
-  <div class="power-strip" aria-hidden="true"></div>
-
   <header class="console-top">
     <div class="brand">
-      <span id="rec-light" class="rec" title="有任务运行时常亮"><i></i>REC</span>
-      <span class="wordmark">Media<em>scribe</em></span>
-      <span class="model-tag">MARKDOWN 转写台 · v3.3.0</span>
+      <span class="wordmark">MediaScribe</span>
+      <span class="model-tag">视频转 Markdown</span>
     </div>
     <div class="meters">
-      <div class="eq" id="eq" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-      <span id="gpu-pill" class="gpu-pill loading" title="GPU 状态 · 每 5 秒刷新">
+      <span id="rec-light" class="rec"><i></i><span id="rec-count"></span></span>
+      <span id="gpu-pill" class="chip-status loading" title="GPU 状态 · 每 5 秒刷新">
         <span class="dot"></span>
         <span id="gpu-label">GPU …</span>
-        <span class="leds" id="gpu-leds" aria-hidden="true"></span>
       </span>
+      <button type="button" id="theme-toggle" class="icon-btn" title="切换主题">☀ 亮面</button>
     </div>
   </header>
 
   <main>
     <section class="hero">
-      <p class="micro-label">Audio → Markdown Pipeline</p>
-      <h1>视频进去,<span class="amber">文稿</span>出来。</h1>
+      <h1>视频进去,文稿出来。</h1>
       <p class="lede">粘贴 Bilibili / 抖音 / YouTube / 小红书 / 微信公众号 链接(单次最多 20 条)。服务端按 <code>下载 → 提取音频 → 转写 → 合并</code> 四级信号链逐级处理,实时进度经 WebSocket 推送,随时可取消,产出可复制的 Markdown 文稿。</p>
     </section>
 
     <form id="form" class="panel">
       <div class="fld">
-        <label for="urls">视频链接 <span class="en">Sources · 每行一条</span></label>
+        <label for="urls">视频链接 <span class="hint">每行一条</span></label>
         <textarea id="urls" spellcheck="false" placeholder="https://www.bilibili.com/video/BV…
 https://www.douyin.com/video/…
 https://www.youtube.com/watch?v=…" required></textarea>
@@ -468,7 +442,7 @@ https://www.youtube.com/watch?v=…" required></textarea>
 
       <div class="row">
         <div class="fld">
-          <label for="engine">识别引擎 <span class="en">Engine</span></label>
+          <label for="engine">识别引擎 <span class="hint">可选</span></label>
           <select id="engine">
             <option value="whisper">whisper(基线)</option>
             <option value="faster-whisper">faster-whisper</option>
@@ -476,7 +450,7 @@ https://www.youtube.com/watch?v=…" required></textarea>
           </select>
         </div>
         <div class="fld">
-          <label for="model">模型 <span class="en">Model</span></label>
+          <label for="model">模型 <span class="hint">默认 small</span></label>
           <select id="model">
             <optgroup label="快速预览">
               <option value="tiny">tiny</option>
@@ -497,14 +471,14 @@ https://www.youtube.com/watch?v=…" required></textarea>
           </select>
         </div>
         <div class="fld">
-          <label for="language">语言 <span class="en">Language · 可留空</span></label>
+          <label for="language">语言 <span class="hint">可留空</span></label>
           <input type="text" id="language" placeholder="zh, en, ja, …">
         </div>
       </div>
 
       <div class="row">
         <div class="fld">
-          <label for="ocr">图文识别 <span class="en">OCR · 公众号图片</span></label>
+          <label for="ocr">图文识别 <span class="hint">公众号图片</span></label>
           <select id="ocr">
             <option value="auto" selected>auto</option>
             <option value="paddleocr">paddleocr</option>
@@ -514,11 +488,11 @@ https://www.youtube.com/watch?v=…" required></textarea>
           </select>
         </div>
         <div class="fld">
-          <label for="cookies">公众号 Cookies <span class="en">可选</span></label>
+          <label for="cookies">公众号 Cookies <span class="hint">可选</span></label>
           <input type="text" id="cookies" autocomplete="off" placeholder="wxuin=abc; pass_ticket=xyz">
         </div>
         <div class="fld">
-          <label>输出选项 <span class="en">Options</span></label>
+          <label>输出选项</label>
           <label class="switch">
             <input type="checkbox" id="bilingual">
             <span class="track"></span>
@@ -529,7 +503,7 @@ https://www.youtube.com/watch?v=…" required></textarea>
 
       <div class="row-2">
         <div class="fld">
-          <label for="api-token">API 令牌 <span class="en">Token · 仅服务器开启鉴权时需要</span></label>
+          <label for="api-token">API 令牌 <span class="hint">仅服务器开启鉴权时需要</span></label>
           <input type="password" id="api-token" autocomplete="off" placeholder="未开启鉴权则留空">
         </div>
         <div class="fld">
@@ -542,28 +516,48 @@ https://www.youtube.com/watch?v=…" required></textarea>
         </div>
       </div>
 
-      <button class="run" id="submit" type="submit">▶ 运行转写 <kbd>Ctrl + ⏎</kbd></button>
+      <button class="run" id="submit" type="submit">运行转写 <kbd>Ctrl + ⏎</kbd></button>
       <p class="status" id="status" aria-live="polite">就绪,等待输入。</p>
     </form>
 
     <div class="output-head">
-      <h2>Output <span>· 输出队列</span></h2>
+      <h2>输出队列</h2>
       <button class="ghost" id="clear-done" type="button">清空已结束</button>
     </div>
 
     <section class="results" id="results">
-      <div class="empty" id="empty-state">· 队列空闲 — 提交链接后,任务会出现在这里 ·</div>
+      <div class="empty" id="empty-state">队列空闲 — 提交链接后,任务会出现在这里</div>
     </section>
 
     <footer>
-      <span>MEDIASCRIBE v3.3.0 — 本地优先的视频转写工具</span>
-      <span><a href="/api/health" target="_blank" rel="noopener">/api/health</a> &nbsp;·&nbsp; <a href="/extension" target="_blank" rel="noopener">浏览器扩展 →</a></span>
+      <span>MediaScribe v3.3.0 — 本地优先的视频转写工具</span>
+      <span><a href="/api/health" target="_blank" rel="noopener">/api/health</a> · <a href="/extension" target="_blank" rel="noopener">浏览器扩展</a></span>
     </footer>
   </main>
 
   <script>
     "use strict";
     const $ = (id) => document.getElementById(id);
+
+    // ---------------------------------------------------------------------
+    // 主题: 月之暗面 (dark) / 月之亮面 (light) — head 内脚本已设初始值
+    // ---------------------------------------------------------------------
+    const themeBtn = $("theme-toggle");
+    function applyTheme(t) {
+      document.documentElement.dataset.theme = t;
+      themeBtn.textContent = t === "light" ? "☾ 暗面" : "☀ 亮面";
+      themeBtn.title = t === "light" ? "切换到月之暗面" : "切换到月之亮面";
+    }
+    let theme = null;
+    try { theme = localStorage.getItem("ms_theme"); } catch (_) { /* storage 不可用 */ }
+    if (!theme) theme = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    applyTheme(theme);
+    themeBtn.addEventListener("click", () => {
+      theme = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+      applyTheme(theme);
+      try { localStorage.setItem("ms_theme", theme); } catch (_) { /* storage 不可用 */ }
+    });
+
     const form = $("form");
     const statusEl = $("status");
     const results = $("results");
@@ -582,22 +576,20 @@ https://www.youtube.com/watch?v=…" required></textarea>
     }
 
     // ---------------------------------------------------------------------
-    // 机台指示: REC 灯 + 电平表 — 有活跃任务时点亮
+    // 机台指示: 任务运行计数 — 有活跃任务时出现
     // ---------------------------------------------------------------------
     const activeJobs = new Set();
     function updateMeters() {
-      const on = activeJobs.size > 0;
-      $("rec-light").classList.toggle("on", on);
-      $("eq").classList.toggle("live", on);
+      const n = activeJobs.size;
+      $("rec-light").classList.toggle("on", n > 0);
+      $("rec-count").textContent = n > 0 ? `${n} 个任务运行中` : "";
     }
 
     // ---------------------------------------------------------------------
-    // GPU 电平表: 轮询 /api/health, 每 5 秒刷新
+    // GPU 状态: 轮询 /api/health, 每 5 秒刷新
     // ---------------------------------------------------------------------
     const gpuPill = $("gpu-pill");
     const gpuLabel = $("gpu-label");
-    const gpuLeds = $("gpu-leds");
-    for (let i = 0; i < 8; i++) gpuLeds.appendChild(document.createElement("i"));
 
     function fmtMb(mb) {
       if (mb == null) return "?";
@@ -605,20 +597,11 @@ https://www.youtube.com/watch?v=…" required></textarea>
       return Math.round(mb) + "M";
     }
 
-    function renderLeds(util) {
-      const leds = gpuLeds.children;
-      const lit = util == null ? 0 : Math.max(1, Math.round((util / 100) * leds.length));
-      for (let i = 0; i < leds.length; i++) {
-        leds[i].className = i < lit ? (i >= 7 ? "hot" : i >= 5 ? "warn" : "on") : "";
-      }
-    }
-
     function renderGpuPill(health) {
       const gpu = health && health.gpu;
       if (!gpu || !gpu.available) {
-        gpuPill.className = "gpu-pill";
-        gpuLabel.textContent = "CPU 模式 · 无 GPU";
-        renderLeds(null);
+        gpuPill.className = "chip-status";
+        gpuLabel.textContent = "CPU 模式";
         return;
       }
       const name = gpu.name || gpu.device || "GPU";
@@ -626,18 +609,17 @@ https://www.youtube.com/watch?v=…" required></textarea>
       const util = gpu.utilisation_pct != null ? Math.round(gpu.utilisation_pct) : null;
       const vram = gpu.vram_total_mb != null
         ? ` · ${fmtMb(gpu.vram_used_mb)}/${fmtMb(gpu.vram_total_mb)}` : "";
-      gpuPill.className = "gpu-pill ok";
+      gpuPill.className = "chip-status ok";
       gpuLabel.textContent = `${shortName}${vram}${util != null ? ` · ${util}%` : ""}`;
-      renderLeds(util);
     }
 
     async function pollGpu() {
       try {
         const r = await fetch("/api/health");
         if (r.ok) renderGpuPill(await r.json());
-        else { gpuPill.className = "gpu-pill"; gpuLabel.textContent = "CPU 模式 · 无 GPU"; }
+        else { gpuPill.className = "chip-status"; gpuLabel.textContent = "CPU 模式"; }
       } catch (_) {
-        gpuPill.className = "gpu-pill";
+        gpuPill.className = "chip-status";
         gpuLabel.textContent = "离线";
       }
     }
@@ -751,12 +733,12 @@ https://www.youtube.com/watch?v=…" required></textarea>
             <span class="node" data-node="${s}" title="${STAGE_LABELS[s]}">${String(i + 1).padStart(2, "0")}</span>
           `).join("")}
         </div>
-        <p class="chain-meta"><span class="cm-label">SIGNAL CHAIN</span><span>阶段 <span data-stage-label>—</span></span><span data-pct>—</span></p>
+        <p class="chain-meta"><span class="cm-label">阶段</span><span data-stage-label>—</span><span data-pct>—</span></p>
         <p class="errmsg" data-err></p>
         <div class="toolbar">
-          <button type="button" data-cancel class="danger">✕ 终止</button>
-          <button type="button" data-copy style="display:none;">⧉ 复制文稿</button>
-          <button type="button" data-download style="display:none;">↓ 下载 .md</button>
+          <button type="button" data-cancel class="danger">终止</button>
+          <button type="button" data-copy style="display:none;">复制文稿</button>
+          <button type="button" data-download style="display:none;">下载 .md</button>
         </div>`;
       results.appendChild(card);
       activeJobs.add(job.job_id);
@@ -778,6 +760,12 @@ https://www.youtube.com/watch?v=…" required></textarea>
       function setChip(state, text) {
         chip.className = "chip " + state;
         chip.textContent = text;
+      }
+
+      // 运行态微光: 阶段名与百分比流动, 直至进入终态
+      function setRunning(on) {
+        stageLabel.classList.toggle("running-text", on);
+        pctEl.classList.toggle("running-text", on);
       }
 
       function finishCard(state, chipText) {
@@ -807,9 +795,14 @@ https://www.youtube.com/watch?v=…" required></textarea>
           // segs[s] 是"流入节点 j"的那段导线 — 代表阶段 j-1 的进度
           const seg = segs[s];
           const prev = j - 1;
-          if (prev < idx || (prev === idx && done)) { seg.className = "seg done"; }
-          else if (prev === idx) { seg.className = "seg"; seg.querySelector("i").style.width = pct + "%"; }
-          else { seg.className = "seg"; seg.querySelector("i").style.width = "0%"; }
+          const fill = seg.querySelector("i");
+          if (prev < idx || (prev === idx && done)) { seg.className = "seg done"; fill.className = ""; fill.style.width = "100%"; }
+          else if (prev === idx) {
+            seg.className = "seg";
+            fill.className = "shimmer-bar";
+            fill.style.width = pct + "%";
+          }
+          else { seg.className = "seg"; fill.className = ""; fill.style.width = "0%"; }
         });
         stageLabel.textContent = STAGE_LABELS[stage] || stage;
         delete stageLabel.dataset.state;
@@ -817,11 +810,14 @@ https://www.youtube.com/watch?v=…" required></textarea>
       }
 
       function markCancelled() {
-        STAGES.forEach((s) => { nodes[s].className = "node off"; resetNode(s); nodes[s].classList.add("off"); });
-        STAGES.forEach((s, i) => { if (i > 0) segs[s].className = "seg"; });
+        STAGES.forEach((s) => { resetNode(s); nodes[s].classList.add("off"); });
+        STAGES.forEach((s, i) => {
+          if (i > 0) { const f = segs[s].querySelector("i"); segs[s].className = "seg"; f.className = ""; f.style.width = "0%"; }
+        });
         stageLabel.textContent = "已取消";
         stageLabel.dataset.state = "off";
         pctEl.textContent = "—";
+        setRunning(false);
         finishCard("cancelled", "已取消");
       }
 
@@ -842,11 +838,12 @@ https://www.youtube.com/watch?v=…" required></textarea>
           if (evt === "snapshot" && msg.cancelled) markCancelled();
           return;
         }
-        if (evt === "stage_start") { setChip("busy", "运行中"); setStage(stage, 0, false); }
-        else if (evt === "stage_progress") { setChip("busy", "运行中"); setStage(stage, msg.total > 0 ? (msg.current / msg.total) * 100 : 0, false); }
+        if (evt === "stage_start") { setChip("busy", "运行中"); setRunning(true); setStage(stage, 0, false); }
+        else if (evt === "stage_progress") { setChip("busy", "运行中"); setRunning(true); setStage(stage, msg.total > 0 ? (msg.current / msg.total) * 100 : 0, false); }
         else if (evt === "stage_done") { setStage(stage, 100, true); }
         else if (evt === "succeeded") {
           setStage("merge", 100, true);
+          setRunning(false);
           finishCard("ok", "完成");
           stageLabel.textContent = "完成";
           stageLabel.dataset.state = "ok";
@@ -861,6 +858,7 @@ https://www.youtube.com/watch?v=…" required></textarea>
           errEl.classList.add("show");
           stageLabel.textContent = "失败";
           stageLabel.dataset.state = "err";
+          setRunning(false);
           finishCard("err", "失败");
           ws.close();
         } else if (evt === "cancelled" || evt === "cancelled_done") {
@@ -871,11 +869,12 @@ https://www.youtube.com/watch?v=…" required></textarea>
       ws.onerror = () => { /* 以服务端 close 为准 */ };
       ws.onclose = () => {
         // 终态事件会先把 job 移出 activeJobs 再主动 close; 走到这里说明
-        // 连接是意外断开的(如空闲超时) — 提示用户, 不再让机台灯空转。
+        // 连接是意外断开的(如空闲超时) — 提示用户, 不再让指示灯空转。
         if (activeJobs.has(job.job_id)) {
           activeJobs.delete(job.job_id);
           updateMeters();
-          chip.className = "chip busy";
+          setRunning(false);
+          chip.className = "chip cancelled";
           chip.textContent = "连接断开";
           setStatus("进度连接已断开(任务可能仍在后台运行),可稍后刷新页面查看结果。", true);
         }
@@ -890,17 +889,15 @@ https://www.youtube.com/watch?v=…" required></textarea>
         if (!data.markdown) return;
         const dateStr = new Date().toLocaleDateString("zh-CN");
         const wrap = document.createElement("div");
-        wrap.className = "paper-wrap";
+        wrap.className = "result";
         wrap.innerHTML = `
-          <div class="paper">
-            <div class="paper-head">
-              <span>MEDIASCRIBE · TRANSCRIPT</span>
-              <span class="paper-title">${escapeHtml(data.title || "未命名文稿")}</span>
-              <span>${escapeHtml(dateStr)}</span>
-            </div>
-            <div class="paper-body"></div>
-          </div>`;
-        wrap.querySelector(".paper-body").textContent = data.markdown;
+          <div class="result-head">
+            <span>转写文稿</span>
+            <span class="result-title">${escapeHtml(data.title || "未命名文稿")}</span>
+            <span>${escapeHtml(dateStr)}</span>
+          </div>
+          <div class="result-body"></div>`;
+        wrap.querySelector(".result-body").textContent = data.markdown;
         card.appendChild(wrap);
         const copyBtn = card.querySelector("[data-copy]");
         const dlBtn = card.querySelector("[data-download]");
