@@ -1180,27 +1180,31 @@ def create_app(
             if auth_on
             else "No token is required by the server, so the extension options page is optional."
         )
-        # Render the same dark console theme as the main UI (warm charcoal
-        # + amber) for visual consistency.
+        # Render the same minimal dark theme as the main UI (KIMI-style
+        # neutral dark) for visual consistency.
         html = (
             '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+            '<meta name="color-scheme" content="dark">'
             "<title>MediaScribe Browser Extension</title>"
             "<style>"
-            "body{margin:0;font-family:'Spline Sans Mono',ui-monospace,'Cascadia Code',Consolas,monospace;"
-            "background:#151310;color:#ece3d1;padding:32px;line-height:1.55;}"
-            "a{color:#ffb224;}h1{margin:0 0 4px;font-size:22px;}"
-            "h2{margin-top:28px;font-size:16px;color:#a3947a;letter-spacing:.04em;text-transform:uppercase;}"
-            "ol{padding-left:20px;}code,pre{background:#100e0a;border:1px solid #3b3425;"
-            "border-radius:4px;padding:2px 6px;font-size:12px;}"
+            "body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,"
+            "Roboto,'PingFang SC','Microsoft YaHei','Noto Sans',sans-serif;"
+            "background:#181817;color:rgba(255,255,255,.84);padding:32px;line-height:1.6;}"
+            "a{color:#007cff;}h1{margin:0 0 4px;font-size:20px;}"
+            "h2{margin-top:28px;font-size:14px;color:rgba(255,255,255,.56);}"
+            "ol{padding-left:20px;}code,pre{background:#121212;border:1px solid rgba(255,255,255,.12);"
+            "border-radius:6px;padding:2px 6px;font-size:12px;"
+            "font-family:ui-monospace,'SF Mono','Cascadia Code',Consolas,monospace;}"
             "pre{padding:10px 12px;overflow:auto;}"
-            ".card{background:#1d1a14;border:1px solid #3b3425;border-radius:8px;padding:18px 22px;"
-            "max-width:760px;}"
-            ".btn{display:inline-block;background:#ffb224;color:#191204;font-weight:600;"
-            "padding:10px 16px;border-radius:4px;text-decoration:none;margin-top:8px;}"
-            ".btn:hover{filter:brightness(1.1);}"
-            ".tag{display:inline-block;background:#100e0a;border:1px solid #3b3425;"
-            "color:#a3947a;padding:2px 8px;border-radius:99px;font-size:11px;margin-left:6px;}"
-            ".ok{color:#a3cf63;}.warn{color:#ffb224;}"
+            ".card{background:#1f1f1f;border:1px solid rgba(255,255,255,.12);border-radius:12px;"
+            "padding:20px 22px;max-width:760px;}"
+            ".btn{display:inline-block;background:rgba(255,255,255,.84);color:#121212;font-weight:500;"
+            "padding:9px 14px;border-radius:10px;text-decoration:none;margin-top:8px;}"
+            ".btn:hover{background:#ffffff;}"
+            ".btn.secondary{background:rgba(255,255,255,.05);color:rgba(255,255,255,.84);}"
+            ".tag{display:inline-block;background:rgba(255,255,255,.05);color:rgba(255,255,255,.56);"
+            "padding:2px 8px;border-radius:999px;font-size:11px;margin-left:6px;}"
+            ".ok{color:#16c456;}.warn{color:#ff9f0a;}"
             "</style></head><body>"
             '<div class="card">'
             "<h1>MediaScribe Browser Extension"
@@ -1212,8 +1216,7 @@ def create_app(
             f"<p>{token_hint}</p>"
             '<a class="btn" href="/api/extension/download">Download '
             "extension (.zip)</a> "
-            '<a class="btn" href="/api/extension/install.md" '
-            'style="background:#100e0a;color:#ece3d1;border:1px solid #3b3425;">'
+            '<a class="btn secondary" href="/api/extension/install.md">'
             "Install guide (markdown)</a>"
             "<h2>Install in 30 seconds</h2>"
             "<ol>"
@@ -1336,13 +1339,16 @@ def create_app(
 
         body = (
             '<!doctype html><meta charset="utf-8">'
+            '<meta name="color-scheme" content="dark">'
             "<title>MediaScribe — Install guide</title>"
-            "<style>body{font-family:'Spline Sans Mono',ui-monospace,'Cascadia Code',Consolas,monospace;"
-            "background:#151310;color:#ece3d1;"
-            "padding:32px;line-height:1.55;max-width:760px;}"
-            "pre,code{background:#100e0a;border:1px solid #3b3425;"
-            "border-radius:4px;padding:2px 6px;}"
-            "a{color:#ffb224;}</style>"
+            "<style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,"
+            "Roboto,'PingFang SC','Microsoft YaHei','Noto Sans',sans-serif;"
+            "background:#181817;color:rgba(255,255,255,.84);"
+            "padding:32px;line-height:1.6;max-width:760px;}"
+            "pre,code{background:#121212;border:1px solid rgba(255,255,255,.12);"
+            "border-radius:6px;padding:2px 6px;"
+            "font-family:ui-monospace,'SF Mono','Cascadia Code',Consolas,monospace;}"
+            "a{color:#007cff;}</style>"
             '<a href="/extension">&larr; Back</a>'
             f"<pre>{escape(md)}</pre>"
         )
