@@ -133,10 +133,10 @@ test = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/mediascribe"
-Repository = "https://github.com/yourusername/mediascribe.git"
-Issues = "https://github.com/yourusername/mediascribe/issues"
-Changelog = "https://github.com/yourusername/mediascribe/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/1273984347/mediascribe"
+Repository = "https://github.com/1273984347/mediascribe.git"
+Issues = "https://github.com/1273984347/mediascribe/issues"
+Changelog = "https://github.com/1273984347/mediascribe/blob/main/CHANGELOG.md"
 
 [project.scripts]
 mediascribe = "mediascribe.__main__:main"

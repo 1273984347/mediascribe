@@ -836,6 +836,6 @@ coverage report -m (video2text scope)   # 75% overall, all v3.2.0a modules ≥ 8
 - Douyin required cookies in early versions
 - Markdown output added in 2.1.0
 
-[3.3.0]: https://github.com/yourusername/video2text/compare/v2.1.0...v3.3.0
-[2.1.0]: https://github.com/yourusername/video2text/compare/v2.0.0...v2.1.0
-[2.0.0]: https://github.com/yourusername/video2text/releases/tag/v2.0.0
+[3.3.0]: https://github.com/1273984347/mediascribe/compare/v2.1.0...v3.3.0
+[2.1.0]: https://github.com/1273984347/mediascribe/compare/v2.0.0...v2.1.0
+[2.0.0]: https://github.com/1273984347/mediascribe/releases/tag/v2.0.0

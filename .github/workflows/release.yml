@@ -174,8 +174,8 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: true
           tags: |
-            yourusername/mediascribe:${{ steps.version.outputs.version }}
-            yourusername/mediascribe:latest
+            1273984347/mediascribe:${{ steps.version.outputs.version }}
+            1273984347/mediascribe:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -236,5 +236,5 @@ jobs:
           echo "## Release ${{ github.ref_name }} shipped" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- PyPI: https://pypi.org/project/mediascribe/${{ github.ref_name }}/" >> $GITHUB_STEP_SUMMARY
-          echo "- Docker: docker pull yourusername/mediascribe:${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Docker: docker pull 1273984347/mediascribe:${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
           echo "- GitHub: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
