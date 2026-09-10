@@ -7,7 +7,8 @@
 
 提取策略
 - GET 拉取 HTML（带真实 UA + Referer: mp.weixin.qq.com）
-- 解析 `<div id="js_content">` 节点，提取纯文本与图片 alt
+- 解析 `<div id="js_content">` 节点（按 div 标签配平，正确处理嵌套 div），
+  提取纯文本与图片 alt
 - 元数据：og:title / author / nickname
 - 视频消息：`var.video_iframe` / `var.video_url` 指向真实 mp4，
   可走 whisper 流程
@@ -21,11 +22,20 @@
 - 大量公众号有 IP 风控，频繁请求会触发 1023 / 1024 错误码
 - 已删除 / 被封禁文章无法恢复
 - 仅支持公开文章；登录态文章需要 cookie
+
+v3.2.0g:
+- ``print`` → ``logging.getLogger(__name__)``，--json 模式下不污染 stdout
+- ``js_content`` 提取改用 ``_extract_div_block`` 按标签配平，嵌套 div 不再截断
+- 下载收敛到 ``_http_download.stream_download``（.part 临时文件 + 失败清理）
+- OCR 进度用独立计数器，且结果按图片顺序回填
+- PaddleOCR 引擎按模块级单例缓存（与 easyocr 一致），多图不再重复初始化
 """
 from __future__ import annotations
 
+import logging
 import re
 import time
+import uuid
 from html import unescape
 from pathlib import Path
 from typing import Any, Optional
@@ -34,7 +44,10 @@ import requests
 
 from ..config import Settings
 from ..models import DownloadResult, SourceRef
+from ._http_download import build_http_session, stream_download
 from .base import Downloader
+
+logger = logging.getLogger(__name__)
 
 
 class WechatMpDownloader(Downloader):
@@ -95,7 +108,7 @@ class WechatMpDownloader(Downloader):
         if not url:
             raise ValueError("需要提供微信公众号文章 URL")
 
-        print(f"   🔗 目标链接: {url}")
+        logger.info("目标链接: %s", url)
 
         # 暂存 OCR 选项，供 _ocr_image / _ocr_images 使用
         self._ocr_engine: str = (ocr_engine or "auto").lower()
@@ -106,7 +119,7 @@ class WechatMpDownloader(Downloader):
         if settings.wechat_cookies and not self._active_cookies:
             self._active_cookies = dict(settings.wechat_cookies)
             self._cookies_source = "settings"
-            print(f"   🍪 使用 settings 注入的 {len(self._active_cookies)} 个 cookie")
+            logger.info("使用 settings 注入的 %d 个 cookie", len(self._active_cookies))
 
         html = self._fetch_html(url)
         if not html:
@@ -127,18 +140,18 @@ class WechatMpDownloader(Downloader):
         ocr_success = 0
         ocr_total = 0
         if image_urls and not video_url:
-            print(f"   🖼️  检测到 {len(image_urls)} 张图片，尝试 OCR...")
+            logger.info("检测到 %d 张图片，尝试 OCR...", len(image_urls))
             ocr_texts, ocr_success, ocr_total = self._ocr_images(
                 image_urls, settings.downloads_dir
             )
 
         if video_url:
             # 视频型公众号消息：下载视频并保留文本作为副标题
-            print("   🎬 检测到视频消息，开始下载视频...")
+            logger.info("检测到视频消息，开始下载视频...")
             video_path = self._download_video(video_url, settings.downloads_dir)
             if not video_path or not video_path.exists():
                 raise RuntimeError(f"下载失败: 找不到文件 {video_path}")
-            print(f"   ✅ 视频下载成功: {video_path.name}")
+            logger.info("视频下载成功: %s", video_path.name)
             return DownloadResult(
                 source=source,
                 video_path=video_path,
@@ -165,10 +178,7 @@ class WechatMpDownloader(Downloader):
         status = "success"
         if ocr_total > 0 and ocr_success < ocr_total:
             status = "partial"
-            print(
-                f"   ⚠️  OCR 部分失败: {ocr_success}/{ocr_total}，"
-                f"标记为 partial"
-            )
+            logger.warning("OCR 部分失败: %d/%d，标记为 partial", ocr_success, ocr_total)
 
         text_placeholder = self._write_text_stub(text, settings.audio_dir, meta)
         return DownloadResult(
@@ -217,7 +227,7 @@ class WechatMpDownloader(Downloader):
             resp.encoding = resp.apparent_encoding or "utf-8"
             return resp.text
         except Exception as e:
-            print(f"   ⚠️  拉取文章 HTML 失败: {e}")
+            logger.warning("拉取文章 HTML 失败: %s (%s)", url, e)
             return None
 
     def _extract_meta(self, html: str) -> dict:
@@ -252,20 +262,61 @@ class WechatMpDownloader(Downloader):
 
         return meta
 
+    # 嵌入式 script / style 也要剔除（js_content 内部可能有内嵌 <div>）
+    _DIV_TAG_RE = re.compile(r"<div\b[^>]*>|</div\s*>", re.IGNORECASE)
+
+    @classmethod
+    def _extract_div_block(cls, html: str, anchor_substr: str) -> Optional[str]:
+        """
+        定位包含 ``anchor_substr`` 的 ``<div ...>`` 起始标签，按 ``<div>`` /
+        ``</div>`` 标签配平找到配对的闭合标签，返回完整的块。
+
+        旧实现用 ``[\\s\\S]*?</div>`` 非贪婪匹配，遇到第一个内嵌 ``</div>``
+        就截断（js_content 内部通常嵌套大量 div，正文/图片都会丢）。
+
+        Returns:
+            完整的 div 块（含起止标签）；找不到锚点时返回 None；
+            HTML 未闭合（截断响应）时返回剩余全部内容。
+        """
+        # 大小写不敏感地找锚点（id="js_content" / id='js_content' 均支持）
+        m = None
+        for anchor in (anchor_substr, anchor_substr.replace('"', "'")):
+            m = re.search(re.escape(anchor), html, re.IGNORECASE)
+            if m:
+                break
+        if not m:
+            return None
+
+        # 找到包含锚点的起始 <div ...> 标签（锚点在标签属性里）
+        open_tag = None
+        for tag in re.finditer(r"<div\b[^>]*>", html, re.IGNORECASE):
+            if tag.start() <= m.start() < tag.end():
+                open_tag = tag
+                break
+        if open_tag is None:
+            return None
+
+        # 从起始标签之后开始配平计数
+        depth = 1
+        for tag in cls._DIV_TAG_RE.finditer(html, open_tag.end()):
+            if tag.group(0).lower().startswith("</div"):
+                depth -= 1
+                if depth == 0:
+                    return html[open_tag.start(): tag.end()]
+            else:
+                depth += 1
+
+        # 标签未闭合（响应被截断）：返回剩余内容，尽量不丢数据
+        return html[open_tag.start():]
+
     def _extract_text(self, html: str) -> Optional[str]:
         """
         从 `<div id="js_content">...</div>` 节点中提取纯文本。
         按段落聚合，跳过内嵌脚本和样式。
         """
-        m = re.search(
-            r'<div[^>]+id=["\']js_content["\'][\s\S]*?</div>',
-            html,
-            re.IGNORECASE,
-        )
-        if not m:
+        block = self._extract_div_block(html, 'id="js_content"')
+        if not block:
             return None
-
-        block = m.group(0)
         # 去掉 script / style
         block = re.sub(r"<script[\s\S]*?</script>", " ", block, flags=re.IGNORECASE)
         block = re.sub(r"<style[\s\S]*?</style>", " ", block, flags=re.IGNORECASE)
@@ -314,15 +365,10 @@ class WechatMpDownloader(Downloader):
         提取 `#js_content` 内的所有图片 URL，按出现顺序去重。
         公众号 CDN: `mmbiz.qpic.cn` / `mmbiz.qlogo.cn` / 自有域。
         """
-        m = re.search(
-            r'<div[^>]+id=["\']js_content["\'][\s\S]*?</div>',
-            html,
-            re.IGNORECASE,
-        )
-        if not m:
+        block = self._extract_div_block(html, 'id="js_content"')
+        if not block:
             return []
 
-        block = m.group(0)
         urls: list = []
         seen: set = set()
 
@@ -375,7 +421,7 @@ class WechatMpDownloader(Downloader):
             )
             resp.raise_for_status()
         except Exception as e:
-            print(f"   ⚠️  下载图片失败: {e}")
+            logger.warning("下载图片失败: %s (%s)", image_url, e)
             return None
 
         try:
@@ -385,7 +431,7 @@ class WechatMpDownloader(Downloader):
 
             img = Image.open(BytesIO(resp.content))
         except Exception as e:
-            print(f"   ⚠️  解析图片失败: {e}")
+            logger.warning("解析图片失败: %s", e)
             return None
 
         # 可选：把图片保存到本地
@@ -398,7 +444,7 @@ class WechatMpDownloader(Downloader):
                 file_name = f"wemp_{int(time.time() * 1000)}{ext}"
                 img.save(save_dir / file_name)
             except Exception as e:
-                print(f"   ⚠️  保存图片失败: {e}")
+                logger.warning("保存图片失败: %s", e)
 
         engine = getattr(self, "_ocr_engine", "auto") or "auto"
         lang = getattr(self, "_ocr_lang", "chi_sim+eng") or "chi_sim+eng"
@@ -406,9 +452,8 @@ class WechatMpDownloader(Downloader):
         # 引擎 1：paddleocr（中文公众号文章首选）
         if engine in ("auto", "paddleocr"):
             try:
-                from paddleocr import PaddleOCR  # type: ignore
-
-                ocr = PaddleOCR(use_angle_cls=True, lang="ch", show_log=False)
+                # PaddleOCR 初始化耗时较长，复用进程内单例（与 easyocr 一致）
+                ocr = _get_paddleocr_ocr()
                 result = ocr.ocr(img, cls=True)
                 lines: list = []
                 for page in result or []:
@@ -464,6 +509,10 @@ class WechatMpDownloader(Downloader):
         OCR 是 I/O-bound（下载图片 + 引擎处理）。线程数 = min(4, len)，
         在单机场景下既不会触发反爬，又能榨干 CPU。
 
+        v3.2.0g: 进度用独立 done 计数器（原公式恒等恒为 1/total），
+        且 futures 结果按 ``image_urls`` 的原始顺序回填，保证
+        ``ocr_texts`` 与图片顺序一一对应。
+
         Returns
         -------
         (ocr_texts, success_count, total_count)
@@ -474,8 +523,7 @@ class WechatMpDownloader(Downloader):
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         max_workers = min(4, len(image_urls))
-        ocr_texts: list = []
-        success = 0
+        total = len(image_urls)
 
         def _one(url: str) -> Optional[str]:
             try:
@@ -483,21 +531,25 @@ class WechatMpDownloader(Downloader):
             except Exception:
                 return None
 
+        results: list = [None] * total
+        done = 0
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
-            futures = {ex.submit(_one, u): u for u in image_urls}
+            futures = {ex.submit(_one, u): i for i, u in enumerate(image_urls)}
             for fut in as_completed(futures):
-                text = fut.result()
-                if text:
-                    success += 1
-                    ocr_texts.append(text)
-                print(
-                    f"   🖼️  OCR 进度: {success + (len(ocr_texts) - success)}/"
-                    f"{len(image_urls)} (并发={max_workers})"
-                )
-        return ocr_texts, success, len(image_urls)
+                results[futures[fut]] = fut.result()
+                done += 1
+                logger.info("OCR 进度: %d/%d (并发=%d)", done, total, max_workers)
+
+        ocr_texts = [r for r in results if r]
+        success = len(ocr_texts)
+        return ocr_texts, success, total
 
     def _download_video(self, video_url: str, save_dir: Path) -> Optional[Path]:
-        save_dir.mkdir(parents=True, exist_ok=True)
+        """下载视频消息。
+
+        v3.2.0g: 委托公共 ``stream_download``（带重试的 session、
+        ``.part`` 临时文件、失败清理），与其他下载器共享实现。
+        """
         headers = {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -506,37 +558,22 @@ class WechatMpDownloader(Downloader):
             ),
             "Referer": "https://mp.weixin.qq.com/",
         }
+        # uuid 短后缀防止同秒文件名碰撞（P2-3）
+        file_path = save_dir / f"wechat_mp_{uuid.uuid4().hex[:8]}.mp4"
+        session = build_http_session()
+        if self._active_cookies:
+            session.cookies.update(self._active_cookies)
         try:
-            resp = requests.get(
+            return stream_download(
                 video_url,
+                file_path,
+                session=session,
                 headers=headers,
-                cookies=self._active_cookies or None,
-                stream=True,
                 timeout=120,
             )
-            resp.raise_for_status()
         except Exception as e:
-            print(f"   ❌ 下载视频失败: {e}")
+            logger.warning("下载视频失败: %s (%s)", video_url, e)
             return None
-
-        file_name = f"wechat_mp_{int(time.time())}.mp4"
-        file_path = save_dir / file_name
-        total = int(resp.headers.get("content-length", 0))
-        downloaded = 0
-        with open(file_path, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=64 * 1024):
-                if chunk:
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    if total > 0:
-                        percent = downloaded / total * 100
-                        print(
-                            f"\r   📥 下载进度: {percent:.1f}% "
-                            f"({downloaded}/{total} 字节)",
-                            end="",
-                        )
-        print()
-        return file_path
 
     def _write_text_stub(
         self, text: str, save_dir: Path, meta: dict
@@ -550,7 +587,8 @@ class WechatMpDownloader(Downloader):
           metadata 中 `wechat_mp_text=True` 触发 pipeline 跳过 ASR。
         """
         save_dir.mkdir(parents=True, exist_ok=True)
-        file_name = f"wechat_mp_{int(time.time())}.txt"
+        # uuid 短后缀防止同秒文件名碰撞（P2-3）
+        file_name = f"wechat_mp_{uuid.uuid4().hex[:8]}.txt"
         file_path = save_dir / file_name
         file_path.write_text(text, encoding="utf-8")
         return file_path
@@ -559,9 +597,10 @@ class WechatMpDownloader(Downloader):
 # ---------------------------------------------------------------------------
 # Module-level singletons
 # ---------------------------------------------------------------------------
-# easyocr.Reader 加载耗时 ~3s（下载模型 + 构建神经网络）。多张图片 OCR 时，
-# 同一个 (lang) 组合应当复用同一 Reader，避免重复加载。
+# easyocr.Reader / paddleocr.PaddleOCR 加载耗时数秒（下载模型 + 构建神经网络）。
+# 多张图片 OCR 时应复用同一实例，避免每张图重新初始化（P2-2）。
 _EASYOCR_READER_CACHE: dict = {}
+_PADDLEOCR_INSTANCE_CACHE: dict = {}
 
 
 def _get_easyocr_reader(langs: list):
@@ -582,6 +621,25 @@ def _get_easyocr_reader(langs: list):
     return reader
 
 
+def _get_paddleocr_ocr():
+    """返回缓存的 PaddleOCR 实例（中文，带角度分类）。
+
+    与 ``_get_easyocr_reader`` 相同的惰性单例模式：缓存命中时不触发
+    paddleocr 模块导入；未命中才 ``import paddleocr``（未安装时抛
+    ImportError，由调用方降级）。
+    """
+    key = "ch"
+    ocr = _PADDLEOCR_INSTANCE_CACHE.get(key)
+    if ocr is not None:
+        return ocr
+    from paddleocr import PaddleOCR  # type: ignore  # local import
+
+    ocr = PaddleOCR(use_angle_cls=True, lang="ch", show_log=False)
+    _PADDLEOCR_INSTANCE_CACHE[key] = ocr
+    return ocr
+
+
 def clear_ocr_cache() -> None:
-    """测试和长进程用：清空 easyocr Reader 缓存以释放内存。"""
+    """测试和长进程用：清空 OCR 引擎缓存以释放内存。"""
     _EASYOCR_READER_CACHE.clear()
+    _PADDLEOCR_INSTANCE_CACHE.clear()

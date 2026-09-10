@@ -10,13 +10,20 @@
 
 注意事项
 - 必须带 User-Agent、XHS 常见 header（Referer 必须为 xiaohongshu.com）
-- 仅支持"视频笔记"和"图文笔记"（图文会取第一张图作为封面）
-- 需要登录的笔记会失败，并打印人工 fallback 提示
+- 仅支持"视频笔记"；图文笔记（note_type == "image"）无法产出音频，
+  会给出明确错误提示（不再把 .jpg 封面误当 video_path 进 ffmpeg）
+- 需要登录的笔记会失败，并记录人工 fallback 提示
+
+v3.2.0g:
+- ``print`` → ``logging.getLogger(__name__)``，--json 模式下不污染 stdout
+- 下载收敛到 ``_http_download.stream_download``（.part 临时文件 + 失败清理）
+- 文件名用 ``uuid4().hex[:8]`` 避免同秒碰撞
 """
 from __future__ import annotations
 
+import logging
 import re
-import time
+import uuid
 from pathlib import Path
 from typing import Any, Optional
 
@@ -24,7 +31,10 @@ import requests
 
 from ..config import Settings
 from ..models import DownloadResult, SourceRef
+from ._http_download import stream_download
 from .base import Downloader
+
+logger = logging.getLogger(__name__)
 
 
 class XiaohongshuDownloader(Downloader):
@@ -66,13 +76,13 @@ class XiaohongshuDownloader(Downloader):
         if not url:
             raise ValueError("需要提供小红书视频 URL")
 
-        print(f"   🔗 目标链接: {url}")
+        logger.info("目标链接: %s", url)
 
         # 1) 如果是 xhslink 短链接，先展开
         if "xhslink.com" in url:
             expanded = self._resolve_short_url(url)
             if expanded:
-                print(f"   ↪️  短链接展开: {expanded}")
+                logger.info("短链接展开: %s", expanded)
                 url = expanded
                 source = SourceRef(
                     raw_input=source.raw_input,
@@ -89,14 +99,22 @@ class XiaohongshuDownloader(Downloader):
                 "可能原因：需要登录、地区受限、或笔记是纯图文。"
             )
 
-        # 3) 下载媒体
-        print("   📥 开始下载媒体文件...")
+        # 3) 图文笔记明确报错（P1-5）：封面图不是视频，继续下载只会把
+        #    .jpg 塞给 ffmpeg 报晦涩错误；这里给出可操作的信息。
+        if note_type == "image":
+            raise RuntimeError(
+                "小红书图文笔记暂不支持音频转写：该笔记不含视频元素，"
+                "请改用视频笔记链接（页面内含 <video> 播放器）。"
+            )
+
+        # 4) 下载媒体
+        logger.info("开始下载媒体文件...")
         video_path = self._download_media(media_url, settings.downloads_dir)
 
         if not video_path or not video_path.exists():
             raise RuntimeError(f"下载失败: 找不到文件 {video_path}")
 
-        print(f"   ✅ 下载成功: {video_path.name}")
+        logger.info("下载成功: %s", video_path.name)
 
         return DownloadResult(
             source=source,
@@ -131,7 +149,7 @@ class XiaohongshuDownloader(Downloader):
             if resp.url and resp.url != url:
                 return resp.url
         except Exception as e:  # pragma: no cover
-            print(f"   ⚠️  短链接展开失败: {e}")
+            logger.warning("短链接展开失败: %s (%s)", url, e)
         return None
 
     def _extract_media_and_meta(
@@ -142,8 +160,8 @@ class XiaohongshuDownloader(Downloader):
         note_type: "video" | "image" | "unknown"
         """
         if not self._has_playwright:
-            print(
-                "   ⚠️  未安装 playwright，无法自动解析小红书媒体 URL。"
+            logger.warning(
+                "未安装 playwright，无法自动解析小红书媒体 URL。"
                 "请运行: pip install playwright && python -m playwright install chromium"
             )
             return None, None, None
@@ -151,7 +169,7 @@ class XiaohongshuDownloader(Downloader):
         try:
             return self._extract_with_playwright(url)
         except Exception as e:
-            print(f"   ⚠️  Playwright 解析失败: {e}")
+            logger.warning("Playwright 解析失败: %s (%s)", url, e)
             return None, None, None
 
     def _extract_with_playwright(
@@ -267,9 +285,11 @@ class XiaohongshuDownloader(Downloader):
         return None
 
     def _download_media(self, media_url: str, save_dir: Path) -> Optional[Path]:
-        """下载真实媒体文件。"""
-        save_dir.mkdir(parents=True, exist_ok=True)
+        """下载真实媒体文件。
 
+        v3.2.0g: 委托公共 ``stream_download``（``.part`` 临时文件 +
+        失败清理），文件名用 uuid 短后缀避免同秒碰撞。
+        """
         headers = {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -280,15 +300,6 @@ class XiaohongshuDownloader(Downloader):
             "Accept": "*/*",
         }
 
-        try:
-            resp = requests.get(
-                media_url, headers=headers, stream=True, timeout=60
-            )
-            resp.raise_for_status()
-        except Exception as e:
-            print(f"\n   ❌ 下载媒体文件失败: {e}")
-            return None
-
         # 文件后缀
         ext = ".mp4"
         if "sns-img" in media_url or "image" in media_url:
@@ -296,22 +307,12 @@ class XiaohongshuDownloader(Downloader):
         elif ".webm" in media_url:
             ext = ".webm"
 
-        file_name = f"xhs_{int(time.time())}{ext}"
-        file_path = save_dir / file_name
-
-        total_size = int(resp.headers.get("content-length", 0))
-        downloaded = 0
-        with open(file_path, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    if total_size > 0:
-                        percent = (downloaded / total_size) * 100
-                        print(
-                            f"\r   📥 下载进度: {percent:.1f}% "
-                            f"({downloaded}/{total_size} 字节)",
-                            end="",
-                        )
-        print()
-        return file_path
+        save_dir.mkdir(parents=True, exist_ok=True)
+        file_path = save_dir / f"xhs_{uuid.uuid4().hex[:8]}{ext}"
+        try:
+            return stream_download(
+                media_url, file_path, headers=headers, timeout=60
+            )
+        except Exception as e:
+            logger.warning("下载媒体文件失败: %s (%s)", media_url, e)
+            return None

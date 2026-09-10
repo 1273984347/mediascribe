@@ -54,8 +54,10 @@ class TestUrlUtils:
         assert is_short_url("https://v.douyin.com/abc/") is True
         assert is_short_url("https://t.cn/R123") is True
         assert is_short_url("https://youtu.be/dQw4w9WgXcQ") is True
-        # b23.tv appears as substring of long bilibili URL
-        assert is_short_url("https://www.bilibili.com/b23.tv") is True
+        # P2-8: 按主机名精确匹配——路径里出现 b23.tv 不再误判为短链
+        assert is_short_url("https://www.bilibili.com/b23.tv") is False
+        # P2-8: userinfo 绕过（实际主机是 127.0.0.1）不算短链
+        assert is_short_url("http://b23.tv@127.0.0.1/") is False
         # Non-short
         assert is_short_url("https://www.bilibili.com/video/BV1xxx") is False
         assert is_short_url("https://example.com") is False

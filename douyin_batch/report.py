@@ -25,8 +25,10 @@ def generate_summary_report(
     failed_results = [r for r in results if r.get("status") != "success"]
 
     # 生成汇总Markdown
+    # v3.2.0g (P2-15): 文件名改 ASCII 固定格式，避免中文文件名在
+    # 跨平台 / --json 输出中的编码与转义问题。
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    summary_file = output_dir / f"作者往期内容汇总_{timestamp}.md"
+    summary_file = output_dir / f"summary_{timestamp}.md"
 
     content_parts = [
         "# 抖音作者往期内容汇总",
@@ -105,8 +107,8 @@ def generate_summary_report(
     with open(summary_file, "w", encoding="utf-8") as f:
         f.write("\n".join(content_parts))
 
-    # 同时保存 JSON 格式结果
-    json_file = output_dir / f"处理结果_{timestamp}.json"
+    # 同时保存 JSON 格式结果（ASCII 固定格式文件名，P2-15）
+    json_file = output_dir / f"results_{timestamp}.json"
     with open(json_file, "w", encoding="utf-8") as f:
         json.dump({
             "user_url": user_url,

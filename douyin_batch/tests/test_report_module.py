@@ -43,7 +43,7 @@ class TestGenerateSummaryReport(unittest.TestCase):
         self.assertIn("**成功转录**: 0", text)
         self.assertIn("**失败**: 0", text)
         # JSON sidecar exists with empty results
-        json_files = list(self.tmp.glob("处理结果_*.json"))
+        json_files = list(self.tmp.glob("results_*.json"))
         self.assertEqual(len(json_files), 1)
         data = json.loads(json_files[0].read_text(encoding="utf-8"))
         self.assertEqual(data["results"], [])
@@ -184,7 +184,7 @@ class TestGenerateSummaryReport(unittest.TestCase):
             {"status": "failed", "video_id": "2", "stage": "dl"},
         ]
         generate_summary_report("u", results, self.tmp)
-        jsons = list(self.tmp.glob("处理结果_*.json"))
+        jsons = list(self.tmp.glob("results_*.json"))
         self.assertEqual(len(jsons), 1)
         data = json.loads(jsons[0].read_text(encoding="utf-8"))
         self.assertEqual(data["user_url"], "u")

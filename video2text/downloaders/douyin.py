@@ -8,6 +8,9 @@ v3.2.0e 优化：
 - 失败的部分下载文件 ``try/finally`` 清理
 - 文件名用 ``uuid4().hex[:8]`` 避免同秒碰撞
 - ``print`` → ``logger``，日志可分级收集
+
+v3.2.0g: 下载逻辑收敛到 ``_http_download.stream_download``（与
+wechat_mp / xiaohongshu 共享同一实现：.part 临时文件 + 失败清理 + 重试）。
 """
 from __future__ import annotations
 
@@ -17,48 +20,19 @@ import uuid
 from pathlib import Path
 from typing import Any, Optional
 
-import requests
-from requests.adapters import HTTPAdapter
-
 from ..config import Settings
 from ..models import DownloadResult, SourceRef
+from ._http_download import build_http_session as _build_http_session
+from ._http_download import stream_download
 from .base import Downloader
 
 logger = logging.getLogger(__name__)
 
-# 重试配置
-_HTTP_MAX_RETRIES = 3
-_HTTP_BACKOFF_FACTOR = 1.0  # 1s, 2s, 4s
 _PLAYWRIGHT_MAX_ATTEMPTS = 3
 _PLAYWRIGHT_WAIT_MS = 5000
 
-
-def _build_session() -> requests.Session:
-    """构造带重试的 ``requests.Session``。
-
-    重试条件：
-    - 连接错误（ConnectTimeout / ConnectionError）
-    - 读取超时（ReadTimeout）
-    - 5xx 响应
-    不重试：4xx（除 429 由 urllib3 自动处理）
-    """
-    session = requests.Session()
-    try:
-        from urllib3.util.retry import Retry
-        retry = Retry(
-            total=_HTTP_MAX_RETRIES,
-            connect=_HTTP_MAX_RETRIES,
-            read=_HTTP_MAX_RETRIES,
-            backoff_factor=_HTTP_BACKOFF_FACTOR,
-            status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["GET", "HEAD"],
-        )
-        adapter = HTTPAdapter(max_retries=retry)
-    except ImportError:  # pragma: no cover - urllib3 总是随 requests 安装
-        adapter = HTTPAdapter()
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
-    return session
+# 兼容别名：旧代码/测试通过 ``douyin._build_session`` 构造带重试的 session
+_build_session = _build_http_session
 
 
 class DouyinDownloader(Downloader):
@@ -147,14 +121,15 @@ class DouyinDownloader(Downloader):
         3. 等待 DOMContentLoaded + 5s 额外时间
         4. 取第一个匹配的 douyinvod 链接
 
-        如果 playwright 未安装或解析失败,返回 None (调用方可回退到 yt-dlp)。
+        返回 ``(media_url, audio_url)``；如果 playwright 未安装或解析失败，
+        返回 ``(None, None)``（调用方可回退到 yt-dlp）。
         """
         try:
             from playwright.sync_api import sync_playwright
         except ImportError:
             logger.warning("Playwright 未安装,无法使用浏览器自动化")
             logger.warning("安装: pip install playwright && playwright install chromium")
-            return None
+            return (None, None)
 
         last_error: Optional[Exception] = None
         for attempt in range(1, _PLAYWRIGHT_MAX_ATTEMPTS + 1):
@@ -260,8 +235,8 @@ class DouyinDownloader(Downloader):
     ) -> Optional[Path]:
         """下载真实媒体文件。
 
-        v3.2.0e: 复用 ``_build_session()`` 拿到带重试的 session，
-        失败时 ``try/finally`` 清理 ``.part`` 文件。
+        v3.2.0g: 委托公共 ``stream_download``（带 ``HTTPAdapter`` 重试的
+        session、``.part`` 临时文件、失败清理），与其他下载器共享实现。
         v3.2.0f: 支持 ``suffix`` 参数以下载音频流等非 mp4 资源。
         """
         save_dir.mkdir(parents=True, exist_ok=True)
@@ -274,44 +249,17 @@ class DouyinDownloader(Downloader):
         # 用 uuid4 防止同秒下载文件名碰撞
         file_name = f"douyin_{uuid.uuid4().hex[:8]}{suffix}"
         file_path = save_dir / file_name
-        session = _build_session()
 
         try:
-            response = session.get(
-                media_url, headers=headers, stream=True, timeout=(10, 60)
+            return stream_download(
+                media_url,
+                file_path,
+                session=_build_http_session(),
+                headers=headers,
+                timeout=(10, 60),
             )
-            response.raise_for_status()
-
-            total_size = int(response.headers.get("content-length", 0))
-            downloaded = 0
-
-            # 进度日志按 5% 分桶降频，避免高带宽下逐 chunk 刷屏。
-            last_logged_bucket = -1
-            with open(file_path, "wb") as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        if total_size > 0:
-                            percent = (downloaded / total_size) * 100
-                            bucket = int(percent // 5)
-                            if bucket != last_logged_bucket:
-                                last_logged_bucket = bucket
-                                logger.info(
-                                    "下载进度: %.1f%% (%d/%d 字节)",
-                                    percent, downloaded, total_size,
-                                )
-
-            return file_path
-
         except Exception as e:
             logger.warning("下载媒体文件失败: %r", e)
-            # 清理失败的部分下载文件
-            if file_path.exists():
-                try:
-                    file_path.unlink()
-                except OSError:
-                    pass
             return None
 
     def _merge_av(
@@ -346,7 +294,18 @@ class DouyinDownloader(Downloader):
         try:
             subprocess.run(cmd, check=True, capture_output=True, timeout=600)
         except Exception as e:  # 合并失败不应中断主流程
-            logger.warning("ffmpeg 合并音视频失败: %r", e)
+            # P2-12: CalledProcessError 时输出 ffmpeg stderr 末尾，方便定位
+            stderr_tail = ""
+            if hasattr(e, "stderr") and e.stderr:
+                stderr_tail = (
+                    e.stderr.decode("utf-8", errors="replace")
+                    if isinstance(e.stderr, bytes)
+                    else str(e.stderr)
+                )[-2000:]
+            logger.warning(
+                "ffmpeg 合并音视频失败: %r%s", e,
+                f"\nffmpeg stderr 末尾:\n{stderr_tail}" if stderr_tail else "",
+            )
             if out_path.exists():
                 try:
                     out_path.unlink()
