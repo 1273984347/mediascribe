@@ -46,7 +46,7 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/mediascribe.git
+git clone https://github.com/1273984347/mediascribe.git
 cd mediascribe
 
 # Install dependencies
@@ -386,7 +386,7 @@ The library uses `pathlib` everywhere, normalises `~` and env-vars in user paths
 
 ```bash
 # 克隆仓库
-git clone https://github.com/yourusername/mediascribe.git
+git clone https://github.com/1273984347/mediascribe.git
 cd mediascribe
 
 # 安装依赖
