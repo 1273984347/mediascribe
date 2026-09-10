@@ -31,6 +31,30 @@ from typing import Any, Callable, Dict, List, Optional
 
 STAGES = ("download", "extract_audio", "transcribe", "merge")
 
+# P2-9: events 队列上限 — 旧实现是无界 ``queue.Queue``, 慢/无消费者时
+# 事件无限堆积 (内存泄漏)。满时丢弃**最旧**事件, 保证最新事件(尤其是
+# ``succeeded`` / ``failed`` / ``cancelled`` 等终态事件)永不丢失。
+EVENTS_QUEUE_MAXSIZE = 1000
+
+
+def _put_bounded(q: "queue.Queue[dict]", payload: Dict[str, Any]) -> bool:
+    """把事件放入有界队列; 队列满时丢弃最旧事件再入队。
+
+    返回 ``True`` 表示发生了丢弃(丢弃计数由调用方累加)。丢最旧策略
+    下终态事件总是最后 emit, 因此天然不会被丢弃。
+    """
+    dropped = False
+    while True:
+        try:
+            q.put_nowait(payload)
+            return dropped
+        except queue.Full:
+            dropped = True
+            try:
+                q.get_nowait()
+            except queue.Empty:  # pragma: no cover - 并发竞争下的防御
+                pass
+
 
 @dataclass
 class JobProgress:
@@ -50,7 +74,12 @@ class JobProgress:
     # The events queue is consumed by the WebSocket layer.  New
     # listeners are not auto-attached; use ProgressRegistry.subscribe()
     # to obtain a fresh iterator over a snapshot.
-    events: "queue.Queue[dict]" = field(default_factory=queue.Queue)
+    # P2-9: bounded queue — see ``EVENTS_QUEUE_MAXSIZE``.
+    events: "queue.Queue[dict]" = field(
+        default_factory=lambda: queue.Queue(maxsize=EVENTS_QUEUE_MAXSIZE)
+    )
+    # P2-9: 因队列满而被丢弃的事件数(丢最旧策略), 仅供观测。
+    dropped_events: int = 0
 
     def emit(
         self,
@@ -72,7 +101,8 @@ class JobProgress:
             "finished": self.finished,
         }
         payload.update(extra)
-        self.events.put(payload)
+        if _put_bounded(self.events, payload):
+            self.dropped_events += 1
 
     def start_stage(self, stage: str, total: int) -> None:
         if stage not in STAGES:

@@ -2,7 +2,9 @@
 Unit tests for the MCP server.
 """
 import json
+import os
 import sys
+import threading
 import unittest
 from pathlib import Path
 
@@ -278,6 +280,257 @@ class TestMCPServerStdio(unittest.TestCase):
         self.assertIn('"result"', out)
         # Must not have crashed
         self.assertNotIn('"error"', out)
+
+    def test_stdio_survives_malformed_request(self):
+        """P1-4④: 畸形请求返回 error 对象, 主循环继续服务后续请求。"""
+        import io
+
+        from video2text.mcp_server import _run_stdio
+
+        lines = (
+            json.dumps([1, 2, 3]) + "\n"
+            + json.dumps({"jsonrpc": "2.0", "id": 2, "method": "ping"}) + "\n"
+        )
+        stdin = io.StringIO(lines)
+        stdout = io.StringIO()
+        sys.stdin = stdin
+        sys.stdout = stdout
+        try:
+            _run_stdio()
+        finally:
+            sys.stdin = sys.__stdin__
+            sys.stdout = sys.__stdout__
+        out = stdout.getvalue()
+        self.assertIn('"error"', out.splitlines()[0])
+        self.assertIn('"result"', out.splitlines()[1])
+
+
+# ---------------------------------------------------------------------------
+# P1-4⑤ — malformed request objects
+# ---------------------------------------------------------------------------
+class TestMCPRequestHardening(unittest.TestCase):
+    def _request(self, method, params=None, req_id=1):
+        from video2text.mcp_server import _handle_request
+        req = {"jsonrpc": "2.0", "id": req_id, "method": method, "params": params or {}}
+        return _handle_request(req)
+
+    def test_non_dict_request_returns_error(self):
+        from video2text.mcp_server import _handle_request
+        r = _handle_request([1, 2, 3])
+        self.assertIn("error", r)
+        self.assertEqual(r["error"]["code"], -32600)
+
+    def test_non_dict_params_returns_error(self):
+        r = self._request("tools/call", ["not", "a", "dict"])
+        self.assertIn("error", r)
+        self.assertEqual(r["error"]["code"], -32602)
+
+    def test_safe_handle_request_never_raises(self):
+        from video2text.mcp_server import _safe_handle_request
+        for bad in ([], "string", 42, None, {"method": "tools/call", "params": 7}):
+            r = _safe_handle_request(bad)
+            self.assertIsInstance(r, dict, repr(bad))
+
+
+# ---------------------------------------------------------------------------
+# P1-4①②③ — HTTP transport security (token / Host allowlist / body cap)
+# ---------------------------------------------------------------------------
+class TestMCPHttpTransportSecurity(unittest.TestCase):
+    """Spin up the real hardened HTTP server on an ephemeral port."""
+
+    def setUp(self):
+        from video2text.mcp_server import _make_http_server
+        self._saved_token = os.environ.pop("VIDEO2TEXT_MCP_TOKEN", None)
+        self._saved_hosts = os.environ.pop("VIDEO2TEXT_MCP_ALLOWED_HOSTS", None)
+        self.server = _make_http_server("127.0.0.1", 0)
+        self.port = self.server.server_address[1]
+        self.thread = threading.Thread(
+            target=self.server.serve_forever, daemon=True,
+        )
+        self.thread.start()
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+        os.environ.pop("VIDEO2TEXT_MCP_TOKEN", None)
+        os.environ.pop("VIDEO2TEXT_MCP_ALLOWED_HOSTS", None)
+        if self._saved_token is not None:
+            os.environ["VIDEO2TEXT_MCP_TOKEN"] = self._saved_token
+        if self._saved_hosts is not None:
+            os.environ["VIDEO2TEXT_MCP_ALLOWED_HOSTS"] = self._saved_hosts
+
+    def _post(self, body: bytes, headers=None, host_header=None):
+        import http.client
+
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        try:
+            if host_header is not None:
+                conn.putrequest("POST", "/", skip_host=True,
+                                skip_accept_encoding=True)
+                conn.putheader("Host", host_header)
+            else:
+                conn.putrequest("POST", "/", skip_accept_encoding=True)
+            for key, value in (headers or {}).items():
+                conn.putheader(key, value)
+            conn.putheader("Content-Type", "application/json")
+            conn.putheader("Content-Length", str(len(body)))
+            conn.endheaders()
+            conn.send(body)
+            resp = conn.getresponse()
+            return resp.status, resp.read().decode("utf-8", "replace")
+        finally:
+            conn.close()
+
+    def _ping(self) -> bytes:
+        return json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}).encode()
+
+    # ---- no token configured: behaviour unchanged ----
+
+    def test_open_when_no_token_configured(self):
+        status, body = self._post(self._ping())
+        self.assertEqual(status, 200)
+        self.assertIn('"result"', body)
+
+    # ---- token enforcement ----
+
+    def test_missing_token_is_401(self):
+        os.environ["VIDEO2TEXT_MCP_TOKEN"] = "s3cret"
+        status, _ = self._post(self._ping())
+        self.assertEqual(status, 401)
+
+    def test_wrong_token_is_401(self):
+        os.environ["VIDEO2TEXT_MCP_TOKEN"] = "s3cret"
+        status, _ = self._post(self._ping(), headers={"X-MCP-Token": "wrong"})
+        self.assertEqual(status, 401)
+
+    def test_token_via_x_mcp_token_header(self):
+        os.environ["VIDEO2TEXT_MCP_TOKEN"] = "s3cret"
+        status, body = self._post(
+            self._ping(), headers={"X-MCP-Token": "s3cret"})
+        self.assertEqual(status, 200)
+        self.assertIn('"result"', body)
+
+    def test_token_via_bearer_authorization(self):
+        os.environ["VIDEO2TEXT_MCP_TOKEN"] = "s3cret"
+        status, body = self._post(
+            self._ping(), headers={"Authorization": "Bearer s3cret"})
+        self.assertEqual(status, 200)
+        self.assertIn('"result"', body)
+
+    # ---- Host allowlist (DNS rebinding) ----
+
+    def test_foreign_host_is_403(self):
+        status, _ = self._post(self._ping(), host_header="evil.example.com")
+        self.assertEqual(status, 403)
+
+    def test_localhost_host_allowed(self):
+        status, _ = self._post(self._ping(), host_header=f"localhost:{self.port}")
+        self.assertEqual(status, 200)
+
+    def test_extra_allowed_host_via_env(self):
+        os.environ["VIDEO2TEXT_MCP_ALLOWED_HOSTS"] = "mcp.internal:443"
+        status, _ = self._post(self._ping(), host_header="mcp.internal:443")
+        self.assertEqual(status, 200)
+        status2, _ = self._post(self._ping(), host_header="mcp.internal:9999")
+        self.assertEqual(status2, 403)
+
+    # ---- body size cap ----
+
+    def test_oversized_body_is_413(self):
+        big = b'{"pad": "' + b"a" * (1024 * 1024 + 16) + b'"}'
+        self.assertGreater(len(big), 1024 * 1024)
+        status, _ = self._post(big)
+        self.assertEqual(status, 413)
+
+    # ---- malformed JSON ----
+
+    def test_malformed_json_returns_parse_error(self):
+        status, body = self._post(b"this is not json")
+        self.assertEqual(status, 200)
+        self.assertIn("-32700", body)
+
+    def test_malformed_body_does_not_kill_server(self):
+        self._post(b"garbage-1")
+        self._post(b"garbage-2")
+        status, body = self._post(self._ping())
+        self.assertEqual(status, 200)
+        self.assertIn('"result"', body)
+
+
+class TestMCPBatchMaxVideosClamp(unittest.TestCase):
+    """P1-4⑥: batch 工具的 max_videos 在 handler 层 clamp 到 1-200。"""
+
+    def test_clamp_in_command(self):
+        import json as _json
+        from unittest import mock
+
+        from video2text import mcp_server
+
+        captured = {}
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            proc = mock.MagicMock()
+            proc.stdout = _json.dumps({"ok": True})
+            return proc
+
+        with mock.patch("subprocess.run", side_effect=fake_run):
+            r = self._request_tool(mcp_server, {"user_url": "https://v.douyin.com/x",
+                                                "max_videos": 99999})
+        self.assertFalse(r["result"]["isError"])
+        cmd = captured["cmd"]
+        n_index = cmd.index("-n")
+        self.assertEqual(cmd[n_index + 1], "200")
+
+    @staticmethod
+    def _request_tool(module, arguments):
+        req = {
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "batch_transcribe_creator", "arguments": arguments},
+        }
+        return module._handle_request(req)
+
+    def test_clamp_lower_bound(self):
+        import json as _json
+        from unittest import mock
+
+        from video2text import mcp_server
+
+        captured = {}
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            proc = mock.MagicMock()
+            proc.stdout = _json.dumps({"ok": True})
+            return proc
+
+        with mock.patch("subprocess.run", side_effect=fake_run):
+            r = self._request_tool(mcp_server, {"user_url": "https://v.douyin.com/x",
+                                                "max_videos": -5})
+        self.assertFalse(r["result"]["isError"])
+        cmd = captured["cmd"]
+        self.assertEqual(cmd[cmd.index("-n") + 1], "1")
+
+    def test_non_integer_falls_back_to_default(self):
+        import json as _json
+        from unittest import mock
+
+        from video2text import mcp_server
+
+        captured = {}
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            proc = mock.MagicMock()
+            proc.stdout = _json.dumps({"ok": True})
+            return proc
+
+        with mock.patch("subprocess.run", side_effect=fake_run):
+            r = self._request_tool(mcp_server, {"user_url": "u", "max_videos": "abc"})
+        self.assertFalse(r["result"]["isError"])
+        cmd = captured["cmd"]
+        self.assertEqual(cmd[cmd.index("-n") + 1], "10")
 
 
 if __name__ == "__main__":
