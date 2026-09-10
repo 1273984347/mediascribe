@@ -152,20 +152,19 @@ class TestAsyncPipelineRunBatch(unittest.TestCase):
             ap = AsyncPipeline(sync, max_concurrent=2)
             in_flight = 0
             peak = 0
-            lock = asyncio.Lock()
-
+            # 不需要 asyncio.Lock — 协程只在 await 点交错,计数段
+            # 无 await 即天然原子;且 py3.9 的 Lock() 在循环外急切
+            # 绑定 event loop 会直接 RuntimeError。
             original_run = ap.run
 
             async def tracked_run(src, **kw):
                 nonlocal in_flight, peak
-                async with lock:
-                    in_flight += 1
-                    peak = max(peak, in_flight)
+                in_flight += 1
+                peak = max(peak, in_flight)
                 try:
                     return await original_run(src, **kw)
                 finally:
-                    async with lock:
-                        in_flight -= 1
+                    in_flight -= 1
 
             ap.run = tracked_run  # type: ignore[assignment]
             inputs = [str(tmp / f"a{i}.wav") for i in range(6)]

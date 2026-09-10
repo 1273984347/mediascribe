@@ -102,14 +102,20 @@ Source detection happens in [`mediascribe/inputs.py::parse_source`](../mediascri
 ```python
 # mediascribe/pipeline.py
 if source.kind == "xiaohongshu":
-    try: return XiaohongshuDownloader()
-    except Exception: pass   # → YtDlpDownloader
+    try:
+        return XiaohongshuDownloader()
+    except Exception:
+        pass  # → YtDlpDownloader
 if source.kind == "douyin":
-    try: return DouyinDownloader()
-    except Exception: pass
+    try:
+        return DouyinDownloader()
+    except Exception:
+        pass
 if source.kind == "youtube":
-    try: return YouTubeDownloader()
-    except Exception: pass
+    try:
+        return YouTubeDownloader()
+    except Exception:
+        pass
 return YtDlpDownloader()
 ```
 

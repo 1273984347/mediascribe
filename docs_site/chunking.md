@@ -14,7 +14,8 @@ strategy implemented in `mediascribe.transcribers.chunked.ChunkedTranscriber`.
 
 ```python
 from mediascribe.transcribers import (
-    get_transcriber, ChunkedTranscriber,
+    get_transcriber,
+    ChunkedTranscriber,
 )
 
 inner = get_transcriber("faster-whisper", model="small")

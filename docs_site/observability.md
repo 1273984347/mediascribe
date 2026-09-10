@@ -18,7 +18,9 @@ MediaScribe ships a tiny **OpenTelemetry-compatible** SDK at
 
 ```python
 from mediascribe.observability import (
-    get_tracer, get_meter, OBSERVABILITY,
+    get_tracer,
+    get_meter,
+    OBSERVABILITY,
 )
 
 tracer = get_tracer()
