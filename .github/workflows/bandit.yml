@@ -67,6 +67,10 @@ jobs:
         # ``--exclude`` — they are allowed to use obviously-fake
         # secrets and weak tokens.  ``-q`` silences per-file noise so
         # the workflow log stays readable.
+        #
+        # ``shell: bash`` 必须显式声明 — Windows runner 默认 pwsh，
+        # 既不认 "\" 续行，也不认下面的 bash 条件语句。
+        shell: bash
         run: |
           mkdir -p bandit-reports
           bandit \
