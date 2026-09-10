@@ -293,7 +293,7 @@ class TestChunkedWithVad(unittest.TestCase):
                  return_value=30.0,
              ):
             tx = ChunkedTranscriber(inner, chunk_seconds=10, overlap_seconds=0, use_vad=False)
-            result = tx.transcribe(str(self.wav), str(self.tmp / "out.md"))
+            result = tx.transcribe(str(self.wav), output_dir=str(self.tmp))
         # 3 fixed windows (10s each over 30s, no overlap)
         self.assertEqual(len(result.chunks), 3)
         self.assertEqual(inner.transcribe.call_count, 3)
@@ -313,7 +313,7 @@ class TestChunkedWithVad(unittest.TestCase):
                  return_value=[(0.0, 10.0), (10.0, 20.0), (20.0, 30.0)],
              ) as wfv:
             tx = ChunkedTranscriber(inner, chunk_seconds=10, overlap_seconds=0, use_vad=True)
-            result = tx.transcribe(str(self.wav), str(self.tmp / "out.md"))
+            result = tx.transcribe(str(self.wav), output_dir=str(self.tmp))
         wfv.assert_called_once()
         self.assertEqual(len(result.chunks), 3)
         for cr in result.chunks:
@@ -331,7 +331,7 @@ class TestChunkedWithVad(unittest.TestCase):
              mock.patch("video2text.transcribers.chunked.probe_duration", return_value=30.0), \
              mock.patch("video2text.transcribers.chunked._vad_segmentation_available", return_value=False):
             tx = ChunkedTranscriber(inner, chunk_seconds=10, overlap_seconds=0, use_vad=True)
-            result = tx.transcribe(str(self.wav), str(self.tmp / "out.md"))
+            result = tx.transcribe(str(self.wav), output_dir=str(self.tmp))
         self.assertEqual(len(result.chunks), 3)
 
     def test_vad_falls_back_when_detect_raises(self):
@@ -350,7 +350,7 @@ class TestChunkedWithVad(unittest.TestCase):
              ), \
              mock.patch("builtins.print") as mprint:
             tx = ChunkedTranscriber(inner, chunk_seconds=10, overlap_seconds=0, use_vad=True)
-            result = tx.transcribe(str(self.wav), str(self.tmp / "out.md"))
+            result = tx.transcribe(str(self.wav), output_dir=str(self.tmp))
         self.assertEqual(len(result.chunks), 3)
         printed = " ".join(str(c.args[0]) for c in mprint.call_args_list)
         self.assertIn("VAD split failed", printed)
