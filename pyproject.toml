@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "video2text"
-version = "3.2.0a"
+version = "3.3.0"
 description = "Offline video transcription for Bilibili / Douyin / YouTube / Xiaohongshu / WeChat MP"
 readme = "README.md"
 requires-python = ">=3.8"
-license = "MIT"
+license = {text = "MIT"}
 authors = [
     {name = "Video2Text Contributors"},
 ]
@@ -35,7 +35,7 @@ keywords = [
     "model-context-protocol",
 ]
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: End Users/Desktop",
     "Intended Audience :: Science/Research",
@@ -102,6 +102,14 @@ ocr = [
 mcp = [
     "mcp>=0.5.0",
 ]
+# LLM post-process (video2text.llm_post_process, OpenAI-compatible API)
+llm = [
+    "openai>=1.0.0",
+]
+# OpenTelemetry export backend for video2text.observability
+otel = [
+    "opentelemetry-sdk>=1.20",
+]
 # Web UI (FastAPI + uvicorn, served via ``uvicorn video2text.web.app:app``)
 web = [
     "fastapi>=0.110.0",
@@ -110,7 +118,7 @@ web = [
 ]
 # Convenience meta-packages
 all = [
-    "video2text[whisperx,faster-whisper,ocr,mcp,web]",
+    "video2text[whisperx,faster-whisper,ocr,mcp,web,llm]",
 ]
 # Dev / CI tooling
 dev = [
@@ -135,12 +143,19 @@ video2text = "video2text.__main__:main"
 video2text-batch = "douyin_batch_v3:main"
 
 [tool.setuptools]
+# py-modules: top-level script modules shipped with the wheel
+# (``douyin_batch_v3`` backs the ``video2text-batch`` entry point).
+py-modules = ["douyin_batch_v3"]
 packages = [
     "video2text",
     "video2text.downloaders",
     "video2text.transcribers",
+    "video2text.web",
+    "video2text.plugins",
     "douyin_batch",
     "douyin_batch.tests",
+    "examples",
+    "examples.plugins",
 ]
 
 [tool.setuptools.package-data]
@@ -202,18 +217,14 @@ extend-exclude = [
 [tool.ruff.lint]
 # E402 (module level import not at top) is allowed in test files where
 # we adjust sys.path before importing the package under test.
-# F401 (unused import) is allowed in __init__.py files.
-# UP045 (X | None) is kept as Optional[X] for Python 3.8/3.9 compat
-# (PEP 604 unions are 3.10+; we use `from __future__ import annotations`).
-# SIM/B warnings are stylistic; not required for functional correctness.
+# F401 (unused import) is allowed in __init__.py files (see per-file-ignores).
+# E501 is ignored globally: ``ruff format`` (line-length = 100) handles
+# wrapping, and legacy lines slightly over 100 chars are not worth
+# churning the whole repo for.
 select = ["E", "F", "W", "I", "C4"]
 ignore = [
-    "E501",   # line too long (covered by formatter)
-    "B008",   # function call in default argument (idiomatic in some cases)
-    "E402",   # module level import not at top of file (test convention)
-    "UP045",  # X | None (we use Optional[X] for 3.8 compat)
-    "SIM",    # flake8-simplify stylistic suggestions
-    "B",      # flake8-bugbear stylistic suggestions (B904 etc.)
+    "E501",  # line too long — enforced by ruff format (line-length = 100)
+    "E402",  # module level import not at top of file (test convention)
 ]
 
 [tool.ruff.lint.per-file-ignores]

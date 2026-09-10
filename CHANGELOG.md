@@ -5,6 +5,176 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0] - 2026-09-10
+
+### Fixed (engineering / packaging)
+
+- **Docker image build** (P1-5): `Dockerfile` now copies `douyin_batch/` and
+  `douyin_batch_v3.py` into the build context so `pip install .` no longer
+  fails with "package directory 'douyin_batch' does not exist".
+- **Wheel contents & entry points** (P1-6): `pyproject.toml` now packages
+  `video2text.web`, `video2text.plugins` and the `examples.plugins` entry
+  point targets, and declares `douyin_batch_v3` as a top-level py-module, so
+  `video2text-batch` and the vimeo/tcn plugin entry points resolve after
+  install. Verified with `pip wheel` + unpack inspection.
+- **`openai` dependency declared** (P1-3): new `llm` extra
+  (`openai>=1.0.0`) for `video2text.llm_post_process`; included in `all`.
+- **`otel` extra** (P2-12): `opentelemetry-sdk>=1.20` for the optional
+  OpenTelemetry export backend in `video2text.observability`.
+- **`make lint` / `make format`** (P1-4): now run `ruff check .` /
+  `ruff format` instead of the uninstallable flake8+black combo; dead
+  `BLACK`/`ISORT`/`FLAKE8` variables removed; `test-i18n`/`test-cross`/
+  `test-imports`/`test-syntax` added to `.PHONY`.
+- **LLM post-process defaults are safe** (P1-5): `enabled` now defaults to
+  `False` and must be turned on explicitly via `VIDEO2TEXT_LLM_ENABLED`;
+  `api_base` no longer silently defaults to a vendor endpoint — enabling
+  without configuring it raises a clear error at `Settings` construction;
+  truncation keeps the head (comment corrected) and `finish_reason=length`
+  now logs a truncation warning.
+- **`batch` subcommand exit code** (P1-6): partial failures now exit `1`
+  instead of `0`; `--device` accepts `auto`.
+- **`Settings` validation** (P1-7): engine/model validated at construction
+  (`ValueError` on unknown values, aligned with `transcribers/factory.py`
+  and the web layer); missing cookie files log a warning instead of failing
+  silently; `VIDEO2TEXT_WORKSPACE` env is honoured (explicit argument still
+  wins, env beats the `./output` default).
+- **Docker Compose** (P1-7): image pinned to the local build
+  (`video2text:local`) instead of a drifting `web-3.1.0` tag; `/etc/localtime`
+  mount commented out with a Windows-compatibility note; comments match
+  actual behaviour.
+- **Packaging metadata** (P1-1): `license = {text = "MIT"}` (setuptools>=61
+  compatible), classifier downgraded to *Development Status :: 4 - Beta*
+  to match the `3.2.0a` pre-release.
+- **requirements single-sourcing** (P2-1): `requirements.txt` is now a thin
+  shim (`-e .[web,ocr,faster-whisper,mcp]`) over `pyproject.toml`;
+  `requirements-dev.txt` is `-e .[dev]`.
+- **CI drift** (P2-3): `bandit.yml` also triggers on `develop`;
+  `release.yml` test job installs the same extras as `test.yml`;
+  duplicate non-strict `build-docs` job removed from `test.yml`
+  (`docs.yml` with `--strict` is authoritative); dependabot comment now
+  describes the real PR matrix.
+- **ruff config** (P2-4): removed `ignore` entries for rules that were never
+  selected (`B008`/`UP045`/`SIM`/`B`); `E501` comment now reflects reality.
+- **`.gitignore`** (P2-5): `output/` → `output/*` + `!output/.gitkeep` so
+  the negation actually works; added `.ruff_cache/`, `test-ws-*/`,
+  `pytest-cache-files-*/`.
+- **Tracked residue removed** (P2-6/P2-7): `test_chunked_src.md`,
+  `docs/lint-report.json`, `docs/lint-report.md` and the orphaned
+  `douyin_batch/tests/test_skill_frontmatter.py` (asserted a `.trae/`
+  directory that is not in the repo) deleted.
+- **profile CLI docs** (P2-10): documented command corrected to
+  `python -m video2text.profile_cli`; the CLI exits `2` with a clean
+  message on missing file / bad `--since`; README no longer advertises a
+  CSV output format.
+
+### Fixed (transcribers / pipeline core)
+
+- **`ChunkedTranscriber` interface** (P0): `transcribe` now matches the
+  `Transcriber` base contract; the inner engine is called with keyword
+  arguments, so chunked transcription works with every built-in engine
+  instead of raising `TypeError`. Chunk windows no longer double-apply the
+  overlap (each chunk boundary was re-transcribed twice), merged segments
+  drop timeline-overlapping duplicates, and the temporary chunk directory is
+  cleaned up in `finally` (previously leaked ~19 MB per 10 min of audio).
+- **WhisperX model caching** (P1): the main model and alignment models are
+  now cached module-level (double-checked lock) instead of being reloaded on
+  every transcription; `clear_model_cache()` releases VRAM.
+- **faster-whisper model cache LRU** (P1): `_MODEL_CACHE` is now an
+  `OrderedDict` LRU capped at 2 models, so switching model/device combos no
+  longer accumulates VRAM until CUDA OOM.
+- **`torch.load` monkeypatch scoped** (P2): `video2text/transcribers/
+  whisper.py` no longer replaces `torch.load` process-wide at import time;
+  the compatibility patch now applies only around `whisper.load_model`.
+- **Device resolution in the factory** (P1): `Pipeline._create_transcriber`
+  now calls `resolve_device()`, so `"auto"` no longer reaches the engines
+  (faster-whisper gets `int8_float16` on CUDA; WhisperX alignment no longer
+  crashes on `"auto"`).
+- **Process-wide GPU semaphore** (P1): GPU concurrency is now shared across
+  all `AsyncPipeline` batches, so two concurrent batch jobs can no longer
+  double the GPU task count into a CUDA OOM.
+- **Cancellation semantics** (P1): cancelling in-flight tasks converts
+  `CancelledError` into `_FailedResult` instead of breaking the `gather`
+  contract; the cancel event is cleared per `run_batch` and is checked
+  cooperatively between stages; `Pipeline.transcribe` accepts
+  `cancel_event`.
+- **Download cache wiring** (P2): `PersistentDownloadCache` is now actually
+  used by `DownloadStage` when `VIDEO2TEXT_DOWNLOAD_CACHE=1` (hit = reuse
+  cached file, miss = download + store; off by default).
+- **Cache hardening** (P2): cache index is persisted on write/close instead
+  of on every hit; file copies are atomic (tmp + `os.replace`), so
+  half-written files can no longer be cached as valid; `PersistentChunkCache`
+  gained TTL pruning and an LRU entry cap.
+- **Audio utilities** (P2): `extract_audio` output names carry a
+  path+size+mtime fingerprint so concurrent same-title jobs no longer
+  overwrite each other's wav (failures clean up partial files); VAD now
+  streams the PCM instead of loading the whole audio into memory.
+- **Profile timing isolation** (P2): step timings are contextvars-scoped
+  per run, so concurrent `AsyncPipeline` runs no longer clobber each
+  other's `STEP_TIMES`.
+- **Misc** (P2): download fallback chain deduplicated into
+  `_smart_pick_downloader`; `engine_name` declared on `PipelineContext`;
+  critical stage-chain `assert`s became real exceptions; `VIDEO2TEXT_CUSTOM_TERMS`
+  JSON errors are logged instead of swallowed; active span tracking is
+  contextvars-based (concurrency-safe).
+
+### Fixed (web / MCP security)
+
+- **WebSocket authentication** (P1): `/ws/progress/{job_id}` now validates
+  the shared token (query `?token=` or `Sec-WebSocket-Protocol`) before
+  accept, closing the unauthenticated read/cancel bypass; the built-in UI
+  gained an API-token field (persisted in `localStorage`) and sends Bearer
+  headers + the WS token.
+- **SSRF hardening** (P1): submitted URLs must resolve to public addresses
+  (private/loopback/link-local/reserved are rejected fail-closed; userinfo
+  tricks rejected); `VIDEO2TEXT_ALLOWED_HOSTS` opt-out for local testing.
+- **Local-file exfiltration closed** (P1): the web API no longer accepts
+  arbitrary local media paths — only URLs, or paths inside the workspace.
+- **MCP HTTP transport** (P1): optional `VIDEO2TEXT_MCP_TOKEN` (401),
+  Host allow-list (403, anti DNS-rebinding), 1 MiB body cap (413), malformed
+  JSON-RPC no longer kills the stdio loop, `max_videos` clamped to schema.
+- **Rate limiter** (P2): expired buckets are swept globally (60 s interval);
+  docstring matches behaviour and documents the `--proxy-headers` caveat.
+- **Hardening sweep** (P2): `file://` CORS origin removed; JSON endpoints
+  reject non-`application/json` content types (415); batch thread no longer
+  swallows `BaseException`; internal exception details are logged, not
+  echoed; duplicate URLs are deduplicated on submit; WS sessions get max
+  duration + idle timeouts via a per-job event bridge (no more 0.5 s
+  thread-pool polling per connection); progress events queue is bounded;
+  generated INSTALL.md uses `VIDEO2TEXT_PUBLIC_BASE_URL` or a sanitised
+  request origin.
+
+### Fixed (downloaders / douyin_batch)
+
+- **Douyin downloader** (P0): missing Playwright now returns `(None, None)`
+  and falls back to yt-dlp instead of crashing on tuple unpacking.
+- **`--config` entry point** (P0): `BatchConfig` gained `user_url`, so
+  config-file-driven runs work as documented.
+- **Config contract** (P1): env prefix corrected to `DOUYIN_BATCH_*` (old
+  `DOYIN_BATCH_*` still read with a deprecation warning); `TranscriberPool`
+  now honours `whisper_model`/`language` from the config; `workers > 1`
+  actually parallelises with a thread pool; `scroll_pause`/
+  `max_scroll_rounds` wired into the browser session.
+- **Resume semantics** (P1): failed videos are no longer marked processed
+  (they retry on the next run) and their audio files survive cleanup.
+- **WeChat MP extractor** (P1): `js_content` extraction balances nested
+  `<div>`s instead of truncating at the first inner `</div>` (silently
+  dropping the rest of the article).
+- **Downloader convergence** (P1): new shared `downloaders/_http_download.py`
+  (retrying session, `.part` temp file, failure cleanup) used by douyin /
+  xiaohongshu / wechat_mp; xiaohongshu image notes fail with a clear
+  message instead of feeding a `.jpg` to ffmpeg.
+- **Hygiene** (P2): PaddleOCR reader cached (was re-initialised per image);
+  uuid-suffixed filenames prevent same-second collisions; library prints →
+  logger (stdout stays clean under `--json`); batch cache writes are atomic
+  with corruption quarantine; version sourced from
+  `douyin_batch.__version__`; yt-dlp fetches metadata once with throttled
+  progress hooks; ffmpeg merge failures log stderr; `BrowserManager` no
+  longer launches a browser on cache-hit shutdown; deprecated
+  `locale.getdefaultlocale()` replaced; report filenames ASCII-fied for the
+  i18n CLI; short-link host matching uses parsed hostname (closing the
+  `http://b23.tv@127.0.0.1/` bypass).
+
+
 ## [3.1.0] - 2026-06-04
 
 ### Added
@@ -646,6 +816,6 @@ coverage report -m (video2text scope)   # 75% overall, all v3.2.0a modules ≥ 8
 - Douyin required cookies in early versions
 - Markdown output added in 2.1.0
 
-[Unreleased]: https://github.com/yourusername/video2text/compare/v2.1.0...HEAD
+[3.3.0]: https://github.com/yourusername/video2text/compare/v2.1.0...v3.3.0
 [2.1.0]: https://github.com/yourusername/video2text/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/yourusername/video2text/releases/tag/v2.0.0
