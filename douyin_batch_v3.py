@@ -19,6 +19,7 @@ v3.2.0g:
 - 收尾清理跳过失败视频的文件（可重试）
 - 收尾只在浏览器已在运行时关闭（不再凭空启动一次 Playwright）
 """
+
 import argparse
 import sys
 import threading
@@ -40,7 +41,12 @@ def build_parser(i18n_t) -> argparse.ArgumentParser:
     )
 
 
-def main():
+def main(argv: Optional[List[str]] = None) -> int:
+    """入口。
+
+    v3.4.0: 接受可选 ``argv``（``python -m mediascribe archive`` 子命令
+    复用本流程时传入）；``None`` 时照旧读 ``sys.argv[1:]``。
+    """
     # Initialize i18n first (use default detection; --lang can override)
     from douyin_batch.i18n import init_language, set_language, t
 
@@ -93,7 +99,7 @@ def main():
         help=t("CLI_HELP_PLATFORM"),
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # Re-apply language in case --lang was passed after pre-parse
     if args.lang:
@@ -132,6 +138,7 @@ def main():
     agent_out = None
     if args.json or args.bilingual_json:
         from douyin_batch.agent_output import AgentOutput
+
         agent_out = AgentOutput(command="douyin_batch_v3")
         if args.bilingual_json:
             agent_out.set_bilingual(True)
@@ -171,19 +178,24 @@ def main():
     log.info(f"📚 {t('INFO_BANNER_TITLE')}")
     log.info("=" * 60)
     log.info(f"   {t('INFO_BANNER_CONFIG', workers=config.workers, max_videos=config.max_videos)}")
-    log.info(f"   {t('INFO_BANNER_BROWSER_HEADLESS') if config.headless else t('INFO_BANNER_BROWSER_VISIBLE')}")
+    log.info(
+        f"   {t('INFO_BANNER_BROWSER_HEADLESS') if config.headless else t('INFO_BANNER_BROWSER_VISIBLE')}"
+    )
     log.info(f"   {t('INFO_BANNER_RETRIES', count=config.max_retries)}")
     log.info(f"   {t('INFO_BANNER_CACHE_ON') if not args.no_cache else t('INFO_BANNER_CACHE_OFF')}")
     log.info("")
 
     # 2. 初始化缓存
     from douyin_batch.cache import ProcessCache
+
     cache = ProcessCache(cache_dir=Path(config.output_dir) / "cache")
     if args.clear_cache:
         cache.clear()
         log.warning(f"🧹 {t('INFO_CACHE_CLEARED')}")
     stats = cache.get_stats()
-    log.info(f"📦 {t('INFO_CACHE_STATS', total=stats['total'], success=stats['success'], failed=stats['failed'])}")
+    log.info(
+        f"📦 {t('INFO_CACHE_STATS', total=stats['total'], success=stats['success'], failed=stats['failed'])}"
+    )
 
     # 3. 启动浏览器
     from douyin_batch.browser import (
@@ -232,7 +244,7 @@ def main():
         cached_videos = cache.get_user_videos(user_url) if not args.no_cache else []
         if cached_videos:
             log.info(f"   📦 {t('INFO_STEP2_CACHED', count=len(cached_videos))}")
-            videos = cached_videos[:config.max_videos]
+            videos = cached_videos[: config.max_videos]
         else:
             # P2-13: 滚动节奏由 BatchConfig 注入（scroll_pause / max_scroll_rounds）
             videos = get_user_videos(
@@ -344,8 +356,7 @@ def main():
             log.info(f"🚵 并发 workers={workers}")
             with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="worker") as pool:
                 futures = {
-                    pool.submit(_run_one, i, video): video
-                    for i, video in enumerate(videos, 1)
+                    pool.submit(_run_one, i, video): video for i, video in enumerate(videos, 1)
                 }
                 for fut in as_completed(futures):
                     result, task_time, worker_name = fut.result()
@@ -418,6 +429,7 @@ def main():
     except Exception as e:
         log.error(f"💥 {t('ERROR_UNHANDLED', error=e)}")
         import traceback
+
         log.error(traceback.format_exc())
         if agent_out is not None:
             agent_out.add_error("unhandled", str(e))
@@ -456,6 +468,7 @@ def process_single_video_safe(
     if i18n_t is None:
         # Late import to avoid circular issues
         from douyin_batch.i18n import t as _t
+
         i18n_t = _t
 
     video_id = video["video_id"]
@@ -482,7 +495,9 @@ def process_single_video_safe(
 
     try:
         # 1. 获取媒体URL
-        media_url = get_media_url_fn(video_url, headless=config.headless, timeout=config.max_wait_for_media)
+        media_url = get_media_url_fn(
+            video_url, headless=config.headless, timeout=config.max_wait_for_media
+        )
         if not media_url:
             log.error(i18n_t("ERROR_VIDEO_MEDIA", index=index, total=total, id=video_id))
             return {

@@ -11,6 +11,7 @@ v3.2.0b 重构：把 ``transcribe()`` 中的串行 4 步抽到
 * ``Pipeline.transcribe(source_input, **kwargs)`` 签名与返回类型不变
 * 微信公众号文本型文章走老的 ``_handle_wechat_mp`` 路径
 """
+
 from __future__ import annotations
 
 import json
@@ -25,6 +26,8 @@ from .audio_utils import extract_audio
 from .config import Settings
 from .downloaders import Downloader
 from .inputs import parse_source, safe_stem
+from .markdown_builder import build_markdown as _build_markdown_structured
+from .markdown_builder import split_into_paragraphs as _split_text_paragraphs
 from .models import DownloadResult, SourceRef, TranscriptResult
 from .pipeline_stages import (
     PipelineContext,
@@ -71,10 +74,7 @@ def resolve_device(requested: Optional[str] = "auto") -> str:
         if torch.cuda.is_available():
             return "cuda"
         # 2. Apple Silicon Metal
-        if (
-            hasattr(torch.backends, "mps")
-            and torch.backends.mps.is_available()
-        ):
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             return "metal"
         # 3. AMD ROCm
         if getattr(torch.version, "hip", None):
@@ -151,6 +151,78 @@ def gpu_health() -> dict:
     return info
 
 
+class _AutoModelTranscriber:
+    """``settings.model == "auto"`` 时的惰性转写器代理 (v3.4.0)。
+
+    ``auto_select_model`` 按视频时长推荐模型,但 Pipeline 构造时音频
+    还没落地,真实时长未知 — 因此第一次 ``transcribe()`` 调用时才用
+    ffprobe 探测音频时长并实例化真正的转写器。对 ``TranscribeStage``
+    透明:``.name`` 与 ``.transcribe(audio_path, **kwargs)`` 契约一致。
+
+    时长探测失败(无 ffprobe / 异常)按 0 秒处理,回退 ``"small"`` —
+    保守选择,避免未知时长误配 large 拖慢小任务。
+    """
+
+    def __init__(self, pipeline: "Pipeline"):
+        self._pipeline = pipeline
+        self._real: Optional[Transcriber] = None
+        self._duration_seconds: float = 0.0
+
+    @property
+    def name(self) -> str:
+        return f"auto({self._resolve().name})"
+
+    def _resolve(self) -> Transcriber:
+        if self._real is None:
+            import copy as _copy
+
+            from .post_process import auto_select_model
+
+            duration = self._duration_seconds
+            if duration and duration > 0:
+                model = auto_select_model(int(duration))
+            else:
+                model = "small"
+            settings = _copy.copy(self._pipeline.settings)
+            settings.model = model
+            self._real = self._pipeline._create_transcriber(settings, model=model)
+        return self._real
+
+    def transcribe(self, audio_path, **kwargs) -> dict:
+        if self._real is None:
+            self._duration_seconds = _probe_audio_duration(Path(audio_path))
+        return self._resolve().transcribe(audio_path, **kwargs)
+
+
+def _probe_audio_duration(path: Path) -> float:
+    """ffprobe 探测音频时长(秒);失败返回 0.0 不抛错。"""
+    import shutil
+    import subprocess
+
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return 0.0
+    try:
+        out = subprocess.run(  # noqa: S603 — 固定参数,无 shell
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        return float(out.stdout.strip())
+    except Exception:
+        return 0.0
+
+
 class Pipeline:
     """核心工作流 Pipeline"""
 
@@ -184,29 +256,36 @@ class Pipeline:
         self.profile = bool(profile)
         self.profile_log = Path(profile_log) if profile_log else None
 
-    def _create_transcriber(self, settings: Settings) -> Transcriber:
+    def _create_transcriber(self, settings: Settings, model: Optional[str] = None) -> Transcriber:
         """根据设置创建转录器
 
         v3.2.0x P1-1: ``"auto"`` 必须先经 :func:`resolve_device` 归一化 —
         原样透传会让 faster-whisper 拿不到 ``int8_float16`` (CUDA 加速
         静默失效),whisperx 则把 ``"auto"`` 传进 ``.to(device)`` 直接崩。
+
+        v3.4.0: ``model="auto"`` 时返回 :class:`_AutoModelTranscriber`
+        惰性代理 — 真实时长要等音频落地才知道,不能在 ``__init__``
+        就把模型定死。``model`` 参数供代理解析后回填使用。
         """
         device = resolve_device(settings.device)
+        resolved_model = model or settings.model
+        if resolved_model == "auto":
+            return _AutoModelTranscriber(self)  # type: ignore[return-value]
         if settings.engine == "whisperx":
             return WhisperXTranscriber(
-                model=settings.model,
+                model=resolved_model,
                 device=device,
                 hf_token=settings.hf_token,
                 diarization=settings.diarization,
             )
         elif settings.engine == "faster-whisper":
             return FasterWhisperTranscriber(
-                model=settings.model,
+                model=resolved_model,
                 device=device,
             )
         else:
             return WhisperTranscriber(
-                model=settings.model,
+                model=resolved_model,
                 device=device,
             )
 
@@ -234,6 +313,7 @@ class Pipeline:
         ocr_lang: Optional[str] = None,
         save_images: bool = False,
         bilingual: bool = False,
+        timestamps: bool = False,
         cancel_event: Optional[threading.Event] = None,
     ) -> TranscriptResult:
         """
@@ -255,12 +335,20 @@ class Pipeline:
         - ``save_images``：是否把图片 URL 下载到本地
         - ``bilingual``：公众号视频消息是否输出双语字幕标签
 
+        v3.4.0 新增：
+        - ``timestamps``：Markdown 正文按 ASR segments 分段,且每段前缀
+          ``**[mm:ss]**`` 时间戳。False 时仍按 segments 分段但不带时间戳。
+
         v3.2.0x P1-8: ``cancel_event`` 可选注入 — 置位后各 stage 在
         阻塞点抛 :class:`PipelineCancelled` 协作式退出(由
         :class:`AsyncPipeline` 传入实现批量任务的协作取消)。
         """
         self.settings.ensure_directories()
         source = parse_source(source_input)
+
+        # v3.4.0: --timestamps 可经 Settings（--config JSON / CLI 公共选项）
+        # 全局打开，kwargs 显式传 True 优先。
+        effective_timestamps = timestamps or bool(getattr(self.settings, "timestamps", False))
 
         print(f"\n🎬 处理: {source.display_name}")
         print(f"📋 类型: {source.kind}")
@@ -287,6 +375,7 @@ class Pipeline:
             ocr_lang=ocr_lang,
             save_images=save_images,
             bilingual=bilingual,
+            timestamps=effective_timestamps,
             cancel_event=cancel_event,
             source=source,
         )
@@ -319,6 +408,7 @@ class Pipeline:
                 clear_step_times,
                 profile_step,
             )
+
             clear_step_times()  # fresh slate (全局) + 脱离残留 run registry
             begin_run_registry()  # per-run 隔离的计时注册表 (P2-7)
         for stage in self._build_chain():
@@ -333,9 +423,7 @@ class Pipeline:
                 # timing label matches the stage name.  ``log_to`` is
                 # passed through so the JSONL sidecar is written if the
                 # user supplied ``profile_log``.
-                runner = profile_step(stage.name, log_to=self.profile_log)(
-                    stage.run_with_progress
-                )
+                runner = profile_step(stage.name, log_to=self.profile_log)(stage.run_with_progress)
                 ctx = runner(ctx)
             else:
                 ctx = stage.run_with_progress(ctx)
@@ -366,90 +454,33 @@ class Pipeline:
         text: str,
         transcription: dict,
         downloaded: Optional[DownloadResult],
+        ctx: Optional["PipelineContext"] = None,
     ) -> str:
-        """构建 Markdown 格式的内容"""
-        lines = []
+        """构建 Markdown 格式的内容 (v3.4.0 委托 markdown_builder)。
 
-        # 标题
-        lines.append(f"# {title}")
-        lines.append("")
+        升级点：
+        * H1 优先用平台元数据真实标题（不再是 ``douyin_<id>.mp4``）
+        * 「基本信息」聚合 平台 / 作者 / 时长 / 来源链接
+        * 正文按 ASR ``segments`` 分段，不再输出无标点文字墙
+        * ``ctx.timestamps=True``（CLI ``--timestamps``）时每段前缀时间戳
 
-        # 元数据信息
-        lines.append("## 基本信息")
-        lines.append("")
-
-        if downloaded and downloaded.metadata:
-            meta = downloaded.metadata
-            if meta.get("uploader"):
-                lines.append(f"- **作者**: {meta['uploader']}")
-            if meta.get("duration"):
-                duration_min = int(meta["duration"] // 60)
-                duration_sec = int(meta["duration"] % 60)
-                lines.append(f"- **时长**: {duration_min}分{duration_sec}秒")
-
-        lines.append(f"- **生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        lines.append(f"- **转录引擎**: {transcription.get('model', 'unknown')}")
-        lines.append(f"- **识别语言**: {transcription.get('language', 'unknown')}")
-        lines.append("")
-
-        # 处理段落，自动分段
-        paragraphs = self._split_into_paragraphs(text)
-
-        # 转录内容
-        lines.append("## 转录内容")
-        lines.append("")
-
-        for paragraph in paragraphs:
-            if paragraph.strip():
-                lines.append(paragraph)
-                lines.append("")
-
-        return "\n".join(lines)
+        ``ctx`` 为可选参数 — :class:`AssembleStage` 通过签名探测决定
+        是否注入；直接调用本方法的旧代码无需改动。
+        """
+        timestamps = bool(getattr(ctx, "timestamps", False))
+        source = getattr(ctx, "source", None)
+        return _build_markdown_structured(
+            title,
+            text,
+            transcription,
+            downloaded,
+            timestamps=timestamps,
+            source=source,
+        )
 
     def _split_into_paragraphs(self, text: str) -> list[str]:
-        """将文本分割成段落"""
-        # 简单的分段：按常见的中文标点符号分割
-        # 根据句子长度和标点符号自动分段
-        sentences = []
-        current = []
-
-        # 按常见标点分割
-        chars = list(text)
-        i = 0
-        n = len(chars)
-
-        while i < n:
-            c = chars[i]
-            current.append(c)
-
-            # 遇到句号、问号、感叹号等标点时，考虑分段
-            if c in ['。', '！', '？', '!', '?'] and i + 1 < n:
-                # 如果当前段落较长，或者后面是空字符，就分段
-                if len(current) > 50 or chars[i + 1] in [' ', '\n', '\t']:
-                    sentences.append(''.join(current).strip())
-                    current = []
-
-            i += 1
-
-        if current:
-            sentences.append(''.join(current).strip())
-
-        # 组合成段落
-        paragraphs = []
-        current_paragraph = []
-
-        for sentence in sentences:
-            if sentence:
-                current_paragraph.append(sentence)
-                # 每 2-4 句组合成一个段落
-                if len(current_paragraph) >= 3:
-                    paragraphs.append(''.join(current_paragraph))
-                    current_paragraph = []
-
-        if current_paragraph:
-            paragraphs.append(''.join(current_paragraph))
-
-        return paragraphs if paragraphs else [text]
+        """将文本分割成段落（逻辑已迁至 markdown_builder,保留委托）。"""
+        return _split_text_paragraphs(text)
 
     def _resolve_output_path(self, base_name: str, output: Optional[Path] = None) -> Path:
         """解析输出路径 - 参考 bili2text"""
@@ -537,9 +568,7 @@ class Pipeline:
         ocr_total = int(meta.get("ocr_total") or 0)
         ocr_success = int(meta.get("ocr_success") or 0)
         if ocr_total:
-            lines.append(
-                f"- **图片 OCR**: {ocr_success}/{ocr_total}（已附在文末）"
-            )
+            lines.append(f"- **图片 OCR**: {ocr_success}/{ocr_total}（已附在文末）")
         wechat_status = meta.get("wechat_mp_status") or "success"
         lines.append(f"- **状态**: {wechat_status}")
         lines.append(f"- **生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -622,9 +651,7 @@ class Pipeline:
         """
         video_path = downloaded.video_path
         print("🔊 提取音频...")
-        audio_result = extract_audio(
-            video_path, self.settings.audio_dir, safe_stem(base_name)
-        )
+        audio_result = extract_audio(video_path, self.settings.audio_dir, safe_stem(base_name))
         if audio_result is None:
             raise RuntimeError("音频提取失败")
         audio_path = audio_result
@@ -682,13 +709,9 @@ class Pipeline:
                 for lang in ("en", "zh"):
                     set_language(lang)
                     if lang == "en":
-                        labels_en["platform"] = (
-                            Messages.PLATFORM_WECHAT_MP.get(lang, "")
-                        )
+                        labels_en["platform"] = Messages.PLATFORM_WECHAT_MP.get(lang, "")
                     else:
-                        labels_zh["platform"] = (
-                            Messages.PLATFORM_WECHAT_MP.get(lang, "")
-                        )
+                        labels_zh["platform"] = Messages.PLATFORM_WECHAT_MP.get(lang, "")
                 set_language(prev_lang)
                 metadata["i18n_labels"] = {
                     "en": labels_en,
@@ -751,16 +774,11 @@ class Pipeline:
             lines.append(f"- **原文链接 / Source URL**: {meta['url']}")
         lines.append("- **类型 / Type**: 微信公众号视频消息 / WeChat MP video message")
         lines.append(
-            f"- **生成时间 / Generated At**: "
-            f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            f"- **生成时间 / Generated At**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         )
+        lines.append(f"- **转录引擎 / Engine**: {transcription.get('model', 'unknown')}")
         lines.append(
-            f"- **转录引擎 / Engine**: "
-            f"{transcription.get('model', 'unknown')}"
-        )
-        lines.append(
-            f"- **识别语言 / Detected Language**: "
-            f"{transcription.get('language', 'unknown')}"
+            f"- **识别语言 / Detected Language**: {transcription.get('language', 'unknown')}"
         )
         lines.append("")
 
@@ -778,24 +796,21 @@ class Pipeline:
                 disabled_zh = Messages.LABEL_BILINGUAL_DISABLED.get("zh", "未启用")
                 disabled_en = Messages.LABEL_BILINGUAL_DISABLED.get("en", "Disabled")
                 speaker_label = (
-                    f"{enabled_zh} / {enabled_en}"
-                    if diar
-                    else f"{disabled_zh} / {disabled_en}"
+                    f"{enabled_zh} / {enabled_en}" if diar else f"{disabled_zh} / {disabled_en}"
                 )
                 platform_zh = Messages.PLATFORM_WECHAT_MP.get("zh", "微信公众号")
                 platform_en = Messages.PLATFORM_WECHAT_MP.get("en", "WeChat MP")
                 platform_label_zh = Messages.LABEL_BILINGUAL_PLATFORM.get("zh", "平台")
                 platform_label_en = Messages.LABEL_BILINGUAL_PLATFORM.get("en", "Platform")
                 speakers_label_zh = Messages.LABEL_BILINGUAL_SPEAKERS.get("zh", "说话人分离")
-                speakers_label_en = Messages.LABEL_BILINGUAL_SPEAKERS.get("en", "Speaker Diarization")
+                speakers_label_en = Messages.LABEL_BILINGUAL_SPEAKERS.get(
+                    "en", "Speaker Diarization"
+                )
                 lines.append(
                     f"- **{platform_label_zh} / {platform_label_en}**: "
                     f"{platform_zh} / {platform_en}"
                 )
-                lines.append(
-                    f"- **{speakers_label_zh} / {speakers_label_en}**: "
-                    f"{speaker_label}"
-                )
+                lines.append(f"- **{speakers_label_zh} / {speakers_label_en}**: {speaker_label}")
                 lines.append("")
 
                 # 文末追加字幕说明块
@@ -803,9 +818,7 @@ class Pipeline:
                 engine_label_en = Messages.LABEL_BILINGUAL_ENGINE.get("en", "Transcription Engine")
                 lang_label_zh = Messages.LABEL_BILINGUAL_LANG.get("zh", "检测语言")
                 lang_label_en = Messages.LABEL_BILINGUAL_LANG.get("en", "Detected Language")
-                subtitle_header_zh = Messages.LABEL_BILINGUAL_SUBTITLE_HEADER.get(
-                    "zh", "## 字幕"
-                )
+                subtitle_header_zh = Messages.LABEL_BILINGUAL_SUBTITLE_HEADER.get("zh", "## 字幕")
                 lines.append(subtitle_header_zh)
                 lines.append("")
                 lines.append(
@@ -841,9 +854,7 @@ class Pipeline:
                             ts_str = f" @ {float(ts):.1f}s"
                         else:
                             ts_str = ""
-                        lines.append(
-                            f"{zh_prefix} {seg_text} {en_prefix}{ts_str}"
-                        )
+                        lines.append(f"{zh_prefix} {seg_text} {en_prefix}{ts_str}")
                     lines.append("")
 
         # 转录内容
