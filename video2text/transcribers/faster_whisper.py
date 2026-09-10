@@ -7,22 +7,28 @@ v3.2.0e 优化：
 - 模块级 ``_MODEL_CACHE`` 按 ``(model_name, device, compute_type)`` 复用
   ``WhisperModel`` 实例，Web 多请求场景模型加载 5s→0ms。
 - ``vad_filter=True`` 默认开启，过滤长静音段，错字率降 20-30%，速度提升 15%。
+
+缓存为 LRU（容量 ``_MODEL_CACHE_MAX``），多模型轮换时自动淘汰最久未用的
+实例，避免显存只增不减。
 """
 from __future__ import annotations
 
 import logging
+import threading
+from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional, Tuple
 
 from .base import Transcriber
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# 模型缓存 — 按 (model_name, device, compute_type) 复用 WhisperModel 实例
+# 模型缓存 — LRU，按 (model_name, device, compute_type) 复用 WhisperModel 实例
 # ---------------------------------------------------------------------------
-_MODEL_CACHE: Dict[Tuple[str, str, str], Any] = {}
-_MODEL_CACHE_LOCK = __import__("threading").Lock()
+_MODEL_CACHE_MAX = 2
+_MODEL_CACHE: "OrderedDict[Tuple[str, str, str], Any]" = OrderedDict()
+_MODEL_CACHE_LOCK = threading.Lock()
 
 
 def _resolve_compute_type(device: str) -> str:
@@ -41,18 +47,17 @@ def _resolve_compute_type(device: str) -> str:
 def _get_cached_model(
     model_name: str, device: str, compute_type: str
 ) -> Any:
-    """从 ``_MODEL_CACHE`` 取或新建 ``WhisperModel``。
+    """从 ``_MODEL_CACHE`` 取或新建 ``WhisperModel``（LRU，容量 2）。
 
     线程安全：多 Web 请求并发加载同一模型时只有一个会真正 ``__init__``。
+    命中即 ``move_to_end`` 刷新 LRU 顺位；超过容量时弹出最久未用的
+    实例并删除引用，交由 GC 释放显存。
     """
     key = (model_name, device, compute_type)
-    cached = _MODEL_CACHE.get(key)
-    if cached is not None:
-        return cached
     with _MODEL_CACHE_LOCK:
-        # 双检锁 - 避免两个线程同时通过了上面的 None 检查
         cached = _MODEL_CACHE.get(key)
         if cached is not None:
+            _MODEL_CACHE.move_to_end(key)
             return cached
         try:
             from faster_whisper import WhisperModel
@@ -70,6 +75,9 @@ def _get_cached_model(
             compute_type=compute_type,
         )
         _MODEL_CACHE[key] = model
+        while len(_MODEL_CACHE) > _MODEL_CACHE_MAX:
+            _evicted_key, evicted_model = _MODEL_CACHE.popitem(last=False)
+            del evicted_model
         return model
 
 
@@ -145,7 +153,7 @@ class FasterWhisperTranscriber(Transcriber):
             language=language,
             initial_prompt=initial_prompt,
             vad_filter=self.vad_filter,
-            vad_parameters=dict(min_silence_duration_ms=500),
+            vad_parameters={"min_silence_duration_ms": 500},
         )
 
         seg_list = []
