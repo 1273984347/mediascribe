@@ -120,7 +120,7 @@ v2t down
 ## Loading the browser extension
 
 After the Web UI is up, the launcher prints these steps (also in
-[extension/README.md](../../extension/README.md)):
+``extension/README.md``:
 
 1. Open `chrome://extensions` (or `edge://extensions`).
 2. Enable **Developer mode** (top right).

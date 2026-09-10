@@ -56,7 +56,7 @@ None.  v3.1.0 already meets all declared v3.1.0 goals.  v3.2.0 is a
 ### 4. CI matrix split (lint / unit / integration)
 **Effort** S · **Impact** Medium
 
-* Reorganise [`.github/workflows/test.yml`](.github/workflows/test.yml)
+* Reorganise ``.github/workflows/test.yml``
   into three jobs that run in parallel:
   * `lint` — ruff + bandit + mypy (≈ 15 s)
   * `unit` — `pytest -m "not integration"` (≈ 60 s)
