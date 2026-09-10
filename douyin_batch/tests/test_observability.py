@@ -107,6 +107,56 @@ class TestClearObservability(unittest.TestCase):
         self.assertEqual(len(OBSERVABILITY["metrics"]), 0)
 
 
+class TestConcurrentSpanContexts(unittest.TestCase):
+    """P2-15: 并发 asyncio task 的 span 栈经 ContextVar 隔离,
+    child 的 parent/trace 不得串到别的 task 上。"""
+
+    def setUp(self):
+        from video2text.observability import clear_observability
+        clear_observability()
+
+    def test_concurrent_tasks_do_not_cross_contaminate(self):
+        import asyncio
+
+        from video2text.observability import OBSERVABILITY, get_tracer
+
+        tracer = get_tracer()
+
+        async def one(tag):
+            with tracer.start_as_current_span(f"root-{tag}") as root:
+                root.set_attribute("tag", tag)
+                await asyncio.sleep(0.01)
+                with tracer.start_as_current_span(f"child-{tag}"):
+                    await asyncio.sleep(0.01)
+
+        async def driver():
+            await asyncio.gather(one("a"), one("b"))
+
+        asyncio.run(driver())
+
+        spans = OBSERVABILITY["spans"]
+        self.assertEqual(len(spans), 4)
+        by_id = {s["span_id"]: s for s in spans}
+        for tag in ("a", "b"):
+            child = next(s for s in spans if s["name"] == f"child-{tag}")
+            parent = by_id[child["parent_id"]]
+            self.assertEqual(parent["name"], f"root-{tag}")
+            self.assertEqual(parent["trace_id"], child["trace_id"])
+
+    def test_root_span_after_nested_context_is_clean(self):
+        """嵌套 span 退出后,栈被正确恢复 — 后续根 span 的 parent 为空。"""
+        from video2text.observability import OBSERVABILITY, get_tracer
+
+        tracer = get_tracer()
+        with tracer.start_as_current_span("outer"):
+            with tracer.start_as_current_span("inner"):
+                pass
+        with tracer.start_as_current_span("after") as span:
+            self.assertIsNone(span.parent_id)
+        rec = OBSERVABILITY["spans"][-1]
+        self.assertIsNone(rec["parent_id"])
+
+
 class TestOptionalOtelUpgrade(unittest.TestCase):
 
     def test_install_returns_bool(self):

@@ -118,6 +118,86 @@ class TestParallelMap(unittest.TestCase):
                         f"parallel map should be faster than serial: {dur}")
 
 
+class TestRunScopedTimings(unittest.TestCase):
+    """P2-7: per-run 计时注册表 — 并发 run 经由 contextvars 隔离,
+    全局 ``STEP_TIMES`` 与无 run 上下文的调用方行为保持不变。"""
+
+    def setUp(self):
+        from video2text.performance import clear_step_times
+        clear_step_times()
+
+    def tearDown(self):
+        from video2text.performance import clear_step_times
+        clear_step_times()
+
+    def test_run_registry_isolated_from_global(self):
+        from video2text.performance import (
+            STEP_TIMES,
+            begin_run_registry,
+            end_run_registry,
+            get_step_times,
+            profile_step,
+        )
+
+        @profile_step("iso")
+        def f():
+            return "ok"
+
+        reg = begin_run_registry()
+        self.assertEqual(f(), "ok")
+        # 记录进 run 注册表,不污染全局
+        self.assertIn("iso", reg)
+        self.assertNotIn("iso", STEP_TIMES)
+        self.assertIn("iso", get_step_times())
+        end_run_registry()
+        # 脱离 run 上下文后回落全局,run 计时不再可见
+        self.assertNotIn("iso", get_step_times())
+        self.assertEqual(STEP_TIMES, {})
+
+    def test_second_run_gets_fresh_registry(self):
+        """连续两次 profile run,第二次的计数不叠加第一次。"""
+        from video2text.performance import (
+            begin_run_registry,
+            end_run_registry,
+            get_step_times,
+            profile_step,
+        )
+
+        @profile_step("iso2")
+        def f():
+            time.sleep(0.001)
+
+        begin_run_registry()
+        f(); f()
+        first = get_step_times()
+        self.assertEqual(len(first["iso2"]), 2)
+
+        begin_run_registry()  # 第二个 run
+        second = get_step_times()
+        self.assertEqual(second, {})
+        end_run_registry()
+        end_run_registry()
+
+    def test_clear_step_times_detaches_run_registry(self):
+        from video2text.performance import (
+            STEP_TIMES,
+            begin_run_registry,
+            clear_step_times,
+            get_step_times,
+            profile_step,
+        )
+
+        @profile_step("iso3")
+        def f():
+            pass
+
+        begin_run_registry()
+        clear_step_times()  # 回到全局模式
+        f()
+        self.assertIn("iso3", STEP_TIMES)
+        self.assertIn("iso3", get_step_times())
+
+
 class TestDownloadCache(unittest.TestCase):
 
     def test_put_and_get(self):

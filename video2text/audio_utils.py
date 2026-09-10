@@ -3,6 +3,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import shutil
@@ -21,6 +22,25 @@ _logger = logging.getLogger(__name__)
 _FFMPEG_DEFAULT_TIMEOUT_SECONDS = 600.0
 
 
+def _source_tag(video_path: Path) -> str:
+    """返回源文件的 8 字符短指纹,掺入输出文件名。
+
+    P2-8: 输出文件名固定为 ``{stem}.wav`` 时,并发/连续处理同
+    stem 的不同视频会互相覆盖(后写胜出,先完成的 pipeline 拿到
+    被覆盖的文件)。指纹取 路径 + 大小 + mtime_ns 的 SHA-256 前
+    8 位 — 不读文件内容(视频可达数 GB,全量哈希太贵),同一文件
+    被重新下载/修改后指纹也会变化。
+    """
+    try:
+        st = video_path.stat()
+        payload = (
+            f"{video_path.resolve()}|{st.st_size}|{st.st_mtime_ns}"
+        )
+    except OSError:
+        payload = str(video_path.resolve())
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:8]
+
+
 def extract_audio(
     video_path: Path,
     output_dir: Path,
@@ -35,13 +55,16 @@ def extract_audio(
         > 默认 ``_FFMPEG_DEFAULT_TIMEOUT_SECONDS`` (600s)。
       * 超时抛 ``RuntimeError`` (包裹 ``subprocess.TimeoutExpired``)，
         避免损坏视频/无限流导致 pipeline 永久阻塞。
+
+    v3.2.0x P2-8: 输出文件名掺入源文件短指纹(``{stem}_{tag}.wav``),
+    同 stem 的不同源不再互相覆盖;失败/超时路径清理半写的输出文件。
     """
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         raise RuntimeError("未找到 FFmpeg，请先安装并添加到 PATH")
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    audio_path = output_dir / f"{stem}.wav"
+    audio_path = output_dir / f"{stem}_{_source_tag(video_path)}.wav"
 
     cmd = [
         ffmpeg,
@@ -84,12 +107,16 @@ def extract_audio(
             timeout=resolved_timeout,
         )
     except subprocess.TimeoutExpired as exc:
+        # P2-8: 超时路径清理半写输出,避免留下被误认为完整的 wav
+        audio_path.unlink(missing_ok=True)
         timeout_desc = f"{resolved_timeout:.0f}s" if resolved_timeout else "N/A"
         raise RuntimeError(
             f"FFmpeg 提取音频超时 (>{timeout_desc}): {video_path.name}"
         ) from exc
 
     if result.returncode != 0:
+        # P2-8: 失败路径同样清理半写输出
+        audio_path.unlink(missing_ok=True)
         raise RuntimeError(f"FFmpeg 错误: {result.stderr}")
 
     if audio_path.exists():
@@ -131,25 +158,35 @@ def _read_wave_pcm16(path: Path) -> Tuple[bytes, int]:
 
     Raises ValueError if the file is not in a format compatible with
     webrtcvad (16-bit, mono, supported rate).
+
+    Note: 整段 PCM 驻留内存 — 仅供 ``transcribers.chunked`` 做格式
+    校验等小文件场景;``detect_speech_segments`` 已改为流式读取
+    (P2-9),不再经过本函数。
     """
     if path.suffix.lower() != ".wav":
         raise ValueError(f"webrtcvad needs a WAV file, got {path.suffix}")
     with wave.open(str(path), "rb") as w:
-        if w.getsampwidth() != 2:
-            raise ValueError(
-                f"webrtcvad needs 16-bit audio (got {w.getsampwidth() * 8}-bit)"
-            )
-        if w.getnchannels() != 1:
-            raise ValueError(
-                f"webrtcvad needs mono audio (got {w.getnchannels()}-channel)"
-            )
-        rate = w.getframerate()
-        if rate not in _VAD_SAMPLE_RATES:
-            raise ValueError(
-                f"webrtcvad needs sample rate in {_VAD_SAMPLE_RATES}, got {rate}"
-            )
+        rate = _validate_wave_params(w)
         frames = w.readframes(w.getnframes())
     return frames, rate
+
+
+def _validate_wave_params(w: wave.Wave_read) -> int:
+    """Validate an open WAV against webrtcvad requirements; return rate."""
+    if w.getsampwidth() != 2:
+        raise ValueError(
+            f"webrtcvad needs 16-bit audio (got {w.getsampwidth() * 8}-bit)"
+        )
+    if w.getnchannels() != 1:
+        raise ValueError(
+            f"webrtcvad needs mono audio (got {w.getnchannels()}-channel)"
+        )
+    rate = w.getframerate()
+    if rate not in _VAD_SAMPLE_RATES:
+        raise ValueError(
+            f"webrtcvad needs sample rate in {_VAD_SAMPLE_RATES}, got {rate}"
+        )
+    return rate
 
 
 def detect_speech_segments(
@@ -178,6 +215,10 @@ def detect_speech_segments(
     list of (start_sec, end_sec) tuples covering all speech regions.
     Raises ``ImportError`` if ``webrtcvad`` is not installed.
     Raises ``ValueError`` if the audio is not in a compatible format.
+
+    P2-9: 音频按 ``wave.readframes`` 分块流式读取 — 内存中只保留
+    每帧 1 bit 的语音布尔列表与最终区间列表,30 分钟 16 kHz 单声道
+    (~57 MB PCM) 不再整段驻留。签名与输出语义不变。
     """
     if not _is_webrtcvad_available():
         raise ImportError(
@@ -186,24 +227,39 @@ def detect_speech_segments(
         )
     import webrtcvad  # local import so the module loads even if missing
 
-    pcm, rate = _read_wave_pcm16(audio_path)
-    vad = webrtcvad.Vad(int(aggressiveness))
-
-    frame_bytes = int(rate * _VAD_FRAME_MS / 1000) * _VAD_FRAME_BYTES_MULT
-    n_frames = len(pcm) // frame_bytes
-    if n_frames == 0:
-        return []
+    if audio_path.suffix.lower() != ".wav":
+        raise ValueError(f"webrtcvad needs a WAV file, got {audio_path.suffix}")
 
     frame_is_speech: List[bool] = []
-    for i in range(n_frames):
-        chunk = pcm[i * frame_bytes : (i + 1) * frame_bytes]
-        if not chunk:
-            break
-        try:
-            flag = vad.is_speech(chunk, rate)
-        except Exception:
-            flag = False
-        frame_is_speech.append(flag)
+    with wave.open(str(audio_path), "rb") as w:
+        rate = _validate_wave_params(w)
+        vad = webrtcvad.Vad(int(aggressiveness))
+
+        frame_bytes = int(rate * _VAD_FRAME_MS / 1000) * _VAD_FRAME_BYTES_MULT
+        # 每次 readframes 读 0.5 s 的帧数(32000 字节 @16 kHz),
+        # 比逐帧读减少 ~2000x 系统调用,又不会整段驻留内存。
+        frames_per_read = max(1, rate // 2)
+
+        tail = b""
+        while True:
+            buf = w.readframes(frames_per_read)
+            if not buf:
+                break
+            buf = tail + buf
+            n_complete = len(buf) // frame_bytes
+            for i in range(n_complete):
+                chunk = buf[i * frame_bytes : (i + 1) * frame_bytes]
+                try:
+                    flag = vad.is_speech(chunk, rate)
+                except Exception:
+                    flag = False
+                frame_is_speech.append(flag)
+            # 不完整的尾部帧留到下一个块(readframes 可能恰好截断)
+            tail = buf[n_complete * frame_bytes :]
+
+    n_frames = len(frame_is_speech)
+    if n_frames == 0:
+        return []
 
     # Convert per-frame flags to (start, end) segments in seconds.
     segments: List[Tuple[float, float]] = []

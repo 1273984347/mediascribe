@@ -283,6 +283,137 @@ class TestPersistentChunkCache(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# P2-2/3/4 — 原子性 / 写放大 / TTL+LRU 清理
+# ---------------------------------------------------------------------------
+
+
+class TestCacheAtomicityAndWriteAmplification(unittest.TestCase):
+    def setUp(self) -> None:
+        import tempfile
+
+        self.tmp = Path(tempfile.mkdtemp(prefix="v2t_pcache_atomic_"))
+        self.src = self.tmp / "src.bin"
+        self.src.write_bytes(b"payload" * 10)
+
+    def _cache(self, **kw):
+        from video2text.cache import PersistentDownloadCache
+
+        return PersistentDownloadCache(base=self.tmp / "cache", **kw)
+
+    def test_put_leaves_no_tmp_files(self):
+        c = self._cache()
+        c.put("u1", self.src, suffix=".bin")
+        leftovers = [
+            p.name for p in (self.tmp / "cache").iterdir() if ".tmp" in p.name
+        ]
+        self.assertEqual(leftovers, [])
+
+    def test_get_hit_does_not_rewrite_index_file(self):
+        """P2-2: get() 命中只更新内存,不再全量重写 index(写放大)。"""
+        c = self._cache()
+        c.put("u1", self.src)
+        index_path = self.tmp / "cache" / "downloads.index.json"
+        mtime_before = index_path.stat().st_mtime_ns
+        c.get("u1")
+        c.get("u1")
+        self.assertEqual(index_path.stat().st_mtime_ns, mtime_before)
+        # 但 LRU 触点仍记录在内存里
+        self.assertGreater(c._index[c._key_for("u1")]["last_access"], 0)
+
+    def test_close_flushes_in_memory_touches(self):
+        c = self._cache()
+        c.put("u1", self.src)
+        c.get("u1")  # last_access 更新只在内存(dirty)
+        first_access = c._index[c._key_for("u1")]["last_access"]
+        c.close()
+        # 重新加载 — last_access 已落盘
+        c2 = self._cache()
+        self.assertEqual(c2._index[c2._key_for("u1")]["last_access"], first_access)
+
+    def test_half_written_tmp_never_visible_as_cache(self):
+        """P2-3: put 中途崩溃(拷贝抛异常)不会留下可命中的坏文件。"""
+        from unittest import mock as _mock
+
+        c = self._cache()
+        import video2text.cache as cache_mod
+
+        with _mock.patch.object(
+            cache_mod.shutil, "copy2", side_effect=OSError("disk full")
+        ):
+            with self.assertRaises(OSError):
+                c.put("u1", self.src)
+        self.assertIsNone(c.get("u1"))
+        leftovers = [
+            p.name for p in (self.tmp / "cache").iterdir() if ".tmp" in p.name
+        ]
+        self.assertEqual(leftovers, [])
+
+
+class TestPersistentChunkCacheTtlAndCap(unittest.TestCase):
+    def setUp(self) -> None:
+        import tempfile
+
+        self.tmp = Path(tempfile.mkdtemp(prefix="v2t_pchunk_cap_"))
+        self.src = self.tmp / "source.wav"
+        self.src.write_bytes(b"X" * 100)
+
+    def _chunks_dir(self, name: str) -> Path:
+        d = self.tmp / name
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "chunk_000.wav").write_bytes(b"audio")
+        return d
+
+    def _cache(self, **kw):
+        from video2text.cache import PersistentChunkCache
+
+        return PersistentChunkCache(base=self.tmp / "chunk_cache", **kw)
+
+    def _params(self) -> dict:
+        return {"chunk_seconds": 60}
+
+    def test_put_leaves_no_tmp_files(self):
+        c = self._cache()
+        c.put(self.src, self._params(), self._chunks_dir("c1"))
+        leftovers = [
+            p.name for p in (self.tmp / "chunk_cache").rglob("*")
+            if p.is_file() and ".tmp" in p.name
+        ]
+        self.assertEqual(leftovers, [])
+
+    def test_prune_removes_expired_entries(self):
+        c = self._cache(ttl_seconds=10)
+        c.put(self.src, self._params(), self._chunks_dir("c1"))
+        for entry in c._index.values():
+            entry["created"] = time.time() - 100
+        self._save_index(c)
+        n = c.prune()
+        self.assertEqual(n, 1)
+        self.assertFalse(c.has(self.src, self._params()))
+        # chunk 目录也被删除
+        self.assertEqual(c.info()["entries"], 0)
+
+    def test_max_entries_lru_eviction(self):
+        c = self._cache(max_entries=2)
+        p1 = self._params()
+        c.put(self.src, p1, self._chunks_dir("c1"))
+        src2 = self.tmp / "s2.wav"
+        src2.write_bytes(b"Y" * 101)
+        src3 = self.tmp / "s3.wav"
+        src3.write_bytes(b"Z" * 102)
+        c.put(src2, p1, self._chunks_dir("c2"))
+        c.get(self.src, p1)  # touch src1 → 最新
+        c.put(src3, p1, self._chunks_dir("c3"))  # 超 2 条 → 驱逐 src2(最旧)
+        self.assertTrue(c.has(self.src, p1))
+        self.assertTrue(c.has(src3, p1))
+        self.assertFalse(c.has(src2, p1))
+
+    def _save_index(self, c) -> None:
+        from video2text.cache import _save_index
+
+        _save_index(c._base, c._name, c._index)
+
+
+# ---------------------------------------------------------------------------
 # Settings.cache_dir — new optional field
 # ---------------------------------------------------------------------------
 

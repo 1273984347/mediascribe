@@ -16,26 +16,21 @@ from __future__ import annotations
 import json
 import logging
 import platform
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
 from .audio_utils import extract_audio
 from .config import Settings
-from .downloaders import (
-    DouyinDownloader,
-    Downloader,
-    WechatMpDownloader,
-    XiaohongshuDownloader,
-    YouTubeDownloader,
-    YtDlpDownloader,
-)
+from .downloaders import Downloader
 from .inputs import parse_source, safe_stem
 from .models import DownloadResult, SourceRef, TranscriptResult
 from .pipeline_stages import (
     PipelineContext,
     Stage,
     _atomic_write_text,
+    _smart_pick_downloader,
     default_chain,
 )
 from .transcribers import (
@@ -190,70 +185,43 @@ class Pipeline:
         self.profile_log = Path(profile_log) if profile_log else None
 
     def _create_transcriber(self, settings: Settings) -> Transcriber:
-        """根据设置创建转录器"""
+        """根据设置创建转录器
+
+        v3.2.0x P1-1: ``"auto"`` 必须先经 :func:`resolve_device` 归一化 —
+        原样透传会让 faster-whisper 拿不到 ``int8_float16`` (CUDA 加速
+        静默失效),whisperx 则把 ``"auto"`` 传进 ``.to(device)`` 直接崩。
+        """
+        device = resolve_device(settings.device)
         if settings.engine == "whisperx":
             return WhisperXTranscriber(
                 model=settings.model,
-                device=settings.device,
+                device=device,
                 hf_token=settings.hf_token,
                 diarization=settings.diarization,
             )
         elif settings.engine == "faster-whisper":
             return FasterWhisperTranscriber(
                 model=settings.model,
-                device=settings.device,
+                device=device,
             )
         else:
             return WhisperTranscriber(
                 model=settings.model,
-                device=settings.device,
+                device=device,
             )
 
     def _get_downloader(self, source: SourceRef) -> Downloader:
         """根据源类型获取合适的下载器。
 
-        路由策略（fallback 链）：
-        1. 显式传入的下载器 → 始终使用
-        2. 小红书 → XiaohongshuDownloader（Playwright 必需），失败时回退 YtDlpDownloader
-        3. 抖音 → DouyinDownloader（无需 cookies），失败时回退 YtDlpDownloader
-        4. YouTube → YouTubeDownloader（player_client 调优）
-        5. 微信公众号 → WechatMpDownloader（文本/视频），失败时回退 YtDlpDownloader
-        6. 其他 → YtDlpDownloader
+        v3.2.0x P2-14: fallback 链唯一实现收敛到
+        :func:`video2text.pipeline_stages._smart_pick_downloader`,
+        这里只处理「显式传入的下载器优先」并委托,删除旧副本。
+
+        路由策略见 :func:`_smart_pick_downloader` 的 docstring。
         """
         if self.downloader:
             return self.downloader
-
-        if source.kind == "xiaohongshu":
-            try:
-                return XiaohongshuDownloader()
-            except Exception as e:
-                print(f"   ⚠️  小红书下载器初始化失败: {e}")
-                print("   💡 将回退到 yt-dlp")
-
-        if source.kind == "douyin":
-            # 先尝试 DouyinDownloader
-            try:
-                return DouyinDownloader()
-            except Exception as e:
-                print(f"   ⚠️  抖音专用下载器初始化失败: {e}")
-                print("   💡 将回退到 yt-dlp")
-
-        if source.kind == "youtube":
-            try:
-                return YouTubeDownloader()
-            except Exception as e:
-                print(f"   ⚠️  YouTube 下载器初始化失败: {e}")
-                print("   💡 将回退到 yt-dlp")
-
-        if source.kind == "wechat_mp":
-            try:
-                return WechatMpDownloader()
-            except Exception as e:
-                print(f"   ⚠️  微信公众号下载器初始化失败: {e}")
-                print("   💡 将回退到 yt-dlp")
-
-        # 默认使用 yt-dlp
-        return YtDlpDownloader()
+        return _smart_pick_downloader(source)
 
     def transcribe(
         self,
@@ -266,6 +234,7 @@ class Pipeline:
         ocr_lang: Optional[str] = None,
         save_images: bool = False,
         bilingual: bool = False,
+        cancel_event: Optional[threading.Event] = None,
     ) -> TranscriptResult:
         """
         完整的转录流程：
@@ -285,6 +254,10 @@ class Pipeline:
         - ``ocr_lang``：OCR 语言代码（默认 chi_sim+eng）
         - ``save_images``：是否把图片 URL 下载到本地
         - ``bilingual``：公众号视频消息是否输出双语字幕标签
+
+        v3.2.0x P1-8: ``cancel_event`` 可选注入 — 置位后各 stage 在
+        阻塞点抛 :class:`PipelineCancelled` 协作式退出(由
+        :class:`AsyncPipeline` 传入实现批量任务的协作取消)。
         """
         self.settings.ensure_directories()
         source = parse_source(source_input)
@@ -314,6 +287,7 @@ class Pipeline:
             ocr_lang=ocr_lang,
             save_images=save_images,
             bilingual=bilingual,
+            cancel_event=cancel_event,
             source=source,
         )
         return self._run_stage_chain(ctx).result
@@ -332,13 +306,26 @@ class Pipeline:
 
         v3.2.0c Tier 2 — 当 ``self.profile=True`` 时,每个 stage 调用
         被 :func:`video2text.performance.profile_step` 包装,记录
-        wall-clock 到 :data:`STEP_TIMES` (内存) + 可选 JSONL 文件。
+        wall-clock 到 per-run 计时注册表 (内存) + 可选 JSONL 文件。
+
+        v3.2.0x P2-7: 计时注册表用 :class:`contextvars.ContextVar`
+        按 run 隔离,并发 run 不再互相清空/混入全局 ``STEP_TIMES``;
+        ``get_step_times`` 无 run 上下文时回退全局,API 兼容。
         """
         # Lazy import so performance.py is only touched when profile is used.
         if self.profile:
-            from .performance import clear_step_times, profile_step
-            clear_step_times()  # fresh slate per pipeline run
+            from .performance import (
+                begin_run_registry,
+                clear_step_times,
+                profile_step,
+            )
+            clear_step_times()  # fresh slate (全局) + 脱离残留 run registry
+            begin_run_registry()  # per-run 隔离的计时注册表 (P2-7)
         for stage in self._build_chain():
+            # P1-8: stage 之间协作式取消检查点 — cancel_event 置位时
+            # 抛 PipelineCancelled,让 AsyncPipeline 提早退出而非等
+            # 当前阻塞操作完成。
+            ctx.raise_if_cancelled()
             if not stage.should_run(ctx):
                 continue
             if self.profile:
@@ -356,7 +343,10 @@ class Pipeline:
                 # 微信公众号文本型文章等场景:assemble 提前写入 result 后
                 # chain 也应停止,避免后续 stage 在不完整 ctx 上出错
                 break
-        assert ctx.result is not None, "stage chain did not produce a result"
+        if ctx.result is None:
+            # P2-11: 跨 stage 边界的关键校验不用 assert —
+            # ``python -O`` 会剥掉 assert,静默放行 None。
+            raise RuntimeError("stage chain did not produce a result")
         return ctx
 
     def _build_chain(self) -> List[Stage]:

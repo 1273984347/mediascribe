@@ -41,6 +41,7 @@ shipping to their collector / Jaeger / Tempo backend.
 """
 from __future__ import annotations
 
+import contextvars
 import os
 import time
 import uuid
@@ -127,7 +128,19 @@ class _Span:
         }
 
 
-_ACTIVE_SPAN: List[Optional[_Span]] = [None]
+# P2-15: 当前 span 栈改用 contextvars.ContextVar — 原先的模块级
+# 单槽 ``_ACTIVE_SPAN: List[Optional[_Span]]`` 在并发 run 下互相串
+# parent/trace_id(后进的 span 污染先进行的 trace)。栈值用不可变
+# tuple,每个 context(线程 / asyncio task)拿到独立副本;跨
+# context 关闭 span 时 ``reset(token)`` 会失败,回退到进入时快照。
+_ACTIVE_SPANS: contextvars.ContextVar[Tuple[_Span, ...]] = (
+    contextvars.ContextVar("video2text_active_span_stack", default=())
+)
+
+
+def _current_span() -> Optional[_Span]:
+    stack = _ACTIVE_SPANS.get()
+    return stack[-1] if stack else None
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +150,7 @@ class Tracer:
     """A minimal Tracer; mirrors ``opentelemetry.trace.Tracer``."""
 
     def start_as_current_span(self, name: str, **kwargs: Any) -> "_SpanCM":
-        parent = _ACTIVE_SPAN[0]
+        parent = _current_span()
         trace_id = parent.trace_id if parent else uuid.uuid4().hex
         parent_id = parent.span_id if parent else None
         span = _Span(
@@ -154,11 +167,12 @@ class _SpanCM:
     """Context manager returned by ``Tracer.start_as_current_span``."""
     def __init__(self, span: _Span) -> None:
         self._span = span
-        self._token: Optional[Tuple[Any, Any]] = None
+        self._token: Optional[Any] = None
+        self._prev_stack: Tuple[_Span, ...] = ()
 
     def __enter__(self) -> _Span:
-        self._token = (_ACTIVE_SPAN[0], self._span)
-        _ACTIVE_SPAN[0] = self._span
+        self._prev_stack = _ACTIVE_SPANS.get()
+        self._token = _ACTIVE_SPANS.set(self._prev_stack + (self._span,))
         return self._span
 
     def __exit__(self, exc_type, exc, tb) -> bool:
@@ -172,8 +186,14 @@ class _SpanCM:
             # cap the in-memory ring
             if len(OBSERVABILITY["spans"]) > _MAX_RECORDS:
                 OBSERVABILITY["spans"] = OBSERVABILITY["spans"][-_MAX_RECORDS:]
-        prev_parent, _ = self._token or (None, None)
-        _ACTIVE_SPAN[0] = prev_parent
+        # P2-15: 优先 reset(token)(严格恢复进入前状态);若 __enter__
+        # 与 __exit__ 不在同一 context(async task 边界),回退快照。
+        if self._token is not None:
+            try:
+                _ACTIVE_SPANS.reset(self._token)
+            except ValueError:
+                _ACTIVE_SPANS.set(self._prev_stack)
+            self._token = None
         return False  # don't suppress
 
 

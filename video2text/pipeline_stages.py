@@ -42,6 +42,7 @@ v3.1.0 / v3.2.0a 的公共契约全部保持:
 """
 from __future__ import annotations
 
+import logging
 import os
 import threading
 import uuid
@@ -52,6 +53,7 @@ from pathlib import Path
 from typing import Any, Callable, ClassVar, Dict, List, Optional
 
 from .audio_utils import extract_audio
+from .cache import PersistentDownloadCache
 from .config import Settings
 from .downloaders import (
     DouyinDownloader,
@@ -65,10 +67,46 @@ from .inputs import parse_source, safe_stem
 from .models import DownloadResult, SourceRef, TranscriptResult
 from .transcribers import Transcriber
 
+logger = logging.getLogger(__name__)
+
 # 来源类型白名单(URL 类,需要下载)
 URL_KINDS = frozenset({"bilibili", "douyin", "tiktok", "youtube", "xiaohongshu"})
 # 来源类型白名单(视频类,需要下载后提取音频)
 VIDEO_KINDS = URL_KINDS | {"video"}
+
+
+# ---------------------------------------------------------------------------
+# v3.2.0x P2-5: 持久化下载缓存接线(默认关闭)
+# ---------------------------------------------------------------------------
+# 环境变量 ``VIDEO2TEXT_DOWNLOAD_CACHE=1`` 启用(读 os.environ,不改
+# config.py)。启用后 DownloadStage 下载前先按 URL 查
+# :class:`PersistentDownloadCache`,命中直接复用缓存文件,未命中下载
+# 成功后回写缓存 — 同一 URL 跨 run 不再重复下载。
+_DOWNLOAD_CACHE_ENV = "VIDEO2TEXT_DOWNLOAD_CACHE"
+
+# 进程级单例(懒创建);测试用 :func:`_reset_download_cache` 重置。
+_download_cache_singleton: Optional[PersistentDownloadCache] = None
+
+
+def _download_cache_enabled() -> bool:
+    raw = (os.environ.get(_DOWNLOAD_CACHE_ENV) or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _get_download_cache() -> Optional[PersistentDownloadCache]:
+    """返回进程级下载缓存单例;环境开关未启用时返回 ``None``。"""
+    global _download_cache_singleton
+    if not _download_cache_enabled():
+        return None
+    if _download_cache_singleton is None:
+        _download_cache_singleton = PersistentDownloadCache()
+    return _download_cache_singleton
+
+
+def _reset_download_cache() -> None:
+    """丢弃进程级单例(测试钩子;关闭开关后也用它释放实例)。"""
+    global _download_cache_singleton
+    _download_cache_singleton = None
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +161,10 @@ class PipelineContext:
     base_name: Optional[str] = None
     transcription: Optional[Dict[str, Any]] = None
     text: Optional[str] = None
+    # v3.2.0x P2-12: TranscribeStage 写入的 transcriber.name 供
+    # AssembleStage._transcriber_name 读取 — 显式声明,不再靠
+    # getattr 兜底访问未声明字段。
+    engine_name: Optional[str] = None
     transcript_path: Optional[Path] = None
     metadata_path: Optional[Path] = None
     metadata: Optional[Dict[str, Any]] = None
@@ -274,16 +316,49 @@ class DownloadStage(Stage):
         return False
 
     def run(self, ctx: PipelineContext) -> PipelineContext:
-        assert ctx.source is not None
+        # P2-11: 跨 stage 边界校验改 RuntimeError(assert 会被 -O 剥掉)
+        if ctx.source is None:
+            raise RuntimeError(
+                "DownloadStage requires ctx.source (run ParseSourceStage first)"
+            )
         ctx.raise_if_cancelled()  # 网络下载前
         # 本地视频文件: 直接把 source.path 视作 video_path
         if ctx.source.kind == "video" and ctx.source.path is not None:
             ctx.video_path = ctx.source.path
             ctx.base_name = ctx.source.display_name
             return ctx
+
+        cache = _get_download_cache()
+        url = ctx.source.url
+        # P2-5: 持久化下载缓存 — 命中直接复用,跳过网络
+        if cache is not None and url:
+            cached = cache.get(url)
+            if cached is not None:
+                ctx.downloaded = DownloadResult(
+                    source=ctx.source,
+                    video_path=cached,
+                    title=ctx.source.display_name,
+                    metadata={"download_cache": "hit"},
+                )
+                ctx.video_path = cached
+                ctx.base_name = ctx.source.display_name
+                return ctx
+
         downloader = self._resolve_downloader(ctx.source)
         downloaded = downloader.download(ctx.source, ctx.settings)
         ctx.raise_if_cancelled()  # 下载完成后(可能耗时数十秒)
+        # P2-5: 下载成功后回写缓存(失败不阻塞主流程)
+        if cache is not None and url and downloaded.video_path is not None:
+            try:
+                cache.put(
+                    url,
+                    downloaded.video_path,
+                    suffix=downloaded.video_path.suffix,
+                )
+            except Exception as exc:  # 缓存写失败不影响本次结果
+                logger.warning(
+                    "PersistentDownloadCache.put failed for %s: %r", url, exc
+                )
         ctx.downloaded = downloaded
         ctx.video_path = downloaded.video_path
         ctx.base_name = downloaded.title or ctx.source.display_name
@@ -301,32 +376,31 @@ class DownloadStage(Stage):
 def _smart_pick_downloader(source: SourceRef) -> Downloader:
     """与 v3.2.0a ``Pipeline._get_downloader`` 行为兼容的路由函数。
 
+    v3.2.0x P2-14: 抽出为唯一实现 — ``Pipeline._get_downloader``
+    直接委托到这里,删除旧副本;fallback 提示从 print 改 logger。
+
     抽出来便于 stage 测试中独立 mock 任一具体 downloader。
     """
     if source.kind == "xiaohongshu":
         try:
             return XiaohongshuDownloader()
         except Exception as e:  # pragma: no cover - 真实 fallback
-            print(f"   ⚠️  小红书下载器初始化失败: {e}")
-            print("   💡 将回退到 yt-dlp")
+            logger.warning("小红书下载器初始化失败: %s — 将回退到 yt-dlp", e)
     if source.kind == "douyin":
         try:
             return DouyinDownloader()
         except Exception as e:  # pragma: no cover
-            print(f"   ⚠️  抖音专用下载器初始化失败: {e}")
-            print("   💡 将回退到 yt-dlp")
+            logger.warning("抖音专用下载器初始化失败: %s — 将回退到 yt-dlp", e)
     if source.kind == "youtube":
         try:
             return YouTubeDownloader()
         except Exception as e:  # pragma: no cover
-            print(f"   ⚠️  YouTube 下载器初始化失败: {e}")
-            print("   💡 将回退到 yt-dlp")
+            logger.warning("YouTube 下载器初始化失败: %s — 将回退到 yt-dlp", e)
     if source.kind == "wechat_mp":
         try:
             return WechatMpDownloader()
         except Exception as e:  # pragma: no cover
-            print(f"   ⚠️  微信公众号下载器初始化失败: {e}")
-            print("   💡 将回退到 yt-dlp")
+            logger.warning("微信公众号下载器初始化失败: %s — 将回退到 yt-dlp", e)
     return YtDlpDownloader()
 
 
@@ -349,7 +423,10 @@ class ExtractAudioStage(Stage):
         return ctx.source.kind in VIDEO_KINDS and ctx.video_path is not None
 
     def run(self, ctx: PipelineContext) -> PipelineContext:
-        assert ctx.source is not None
+        if ctx.source is None:  # P2-11: 边界校验,-O 下 assert 会被剥掉
+            raise RuntimeError(
+                "ExtractAudioStage requires ctx.source (run ParseSourceStage first)"
+            )
         ctx.raise_if_cancelled()  # ffmpeg 前
         if ctx.source.kind == "audio":
             assert ctx.source.path is not None
@@ -357,7 +434,10 @@ class ExtractAudioStage(Stage):
                 ctx.base_name = ctx.source.display_name
             ctx.audio_path = ctx.source.path
             return ctx
-        assert ctx.video_path is not None
+        if ctx.video_path is None:
+            raise RuntimeError(
+                "ExtractAudioStage requires ctx.video_path (run DownloadStage first)"
+            )
         if ctx.base_name is None:
             ctx.base_name = ctx.source.display_name
         audio = extract_audio(
@@ -386,7 +466,11 @@ class TranscribeStage(Stage):
         return ctx.audio_path is not None
 
     def run(self, ctx: PipelineContext) -> PipelineContext:
-        assert ctx.audio_path is not None
+        if ctx.audio_path is None:  # P2-11: 边界校验,-O 下 assert 会被剥掉
+            raise RuntimeError(
+                "TranscribeStage requires ctx.audio_path "
+                "(run ExtractAudioStage first)"
+            )
         ctx.raise_if_cancelled()  # ASR 前(最长阻塞,通常数分钟)
         lang = ctx.language or ctx.settings.language
 
@@ -475,9 +559,21 @@ class AssembleStage(Stage):
         return bool(ctx.text)
 
     def run(self, ctx: PipelineContext) -> PipelineContext:
-        assert ctx.source is not None
-        assert ctx.text is not None
-        assert ctx.transcription is not None
+        # P2-11: 跨 stage 边界的关键校验改 RuntimeError(-O 下 assert
+        # 会被剥掉,ctx 不完整时会带着 None 一路炸到更深处)。
+        if ctx.source is None:
+            raise RuntimeError(
+                "AssembleStage requires ctx.source (run ParseSourceStage first)"
+            )
+        if ctx.text is None:
+            raise RuntimeError(
+                "AssembleStage requires ctx.text (run TranscribeStage first)"
+            )
+        if ctx.transcription is None:
+            raise RuntimeError(
+                "AssembleStage requires ctx.transcription "
+                "(run TranscribeStage first)"
+            )
         ctx.raise_if_cancelled()  # 落盘前(LLM 后处理可能阻塞)
         base_name = ctx.base_name or ctx.source.display_name
 
@@ -552,9 +648,8 @@ class AssembleStage(Stage):
 
     @staticmethod
     def _transcriber_name(ctx: PipelineContext) -> str:
-        # Pipeline 透传 transcriber.name 在 result 里;stage 拿不到,
-        # 简单 fallback: 如果 ctx 有 engine hint 字段就用,否则 unknown。
-        return getattr(ctx, "engine_name", "unknown")
+        # P2-12: engine_name 已在 PipelineContext 显式声明,直接读。
+        return ctx.engine_name or "unknown"
 
     @staticmethod
     def _post_process(text: str) -> str:

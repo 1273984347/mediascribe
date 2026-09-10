@@ -471,6 +471,62 @@ class TestPipelineTranscribeUsesChain(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# P1-1 — _create_transcriber 必须先 resolve_device
+# ---------------------------------------------------------------------------
+class TestCreateTranscriberResolvesDevice(unittest.TestCase):
+    """``"auto"`` 不能原样透传给引擎: faster-whisper 拿不到
+    int8_float16(CUDA 加速静默失效),whisperx 把 "auto" 传进
+    ``.to(device)`` 直接崩。"""
+
+    def _torch_cuda(self):
+        fake_torch = mock.MagicMock()
+        fake_torch.cuda.is_available.return_value = True
+        return fake_torch
+
+    def test_faster_whisper_gets_resolved_device(self):
+        with mock.patch.dict("sys.modules", {"torch": self._torch_cuda()}), \
+             mock.patch(
+                 "video2text.pipeline.FasterWhisperTranscriber"
+             ) as fwt:
+            fwt.return_value = "SENTINEL"
+            s = _fake_settings(Path("/tmp"))
+            s.engine = "faster-whisper"
+            s.device = "auto"
+            t = Pipeline(settings=s, transcriber=None)._create_transcriber(s)
+            self.assertEqual(t, "SENTINEL")
+            self.assertEqual(fwt.call_args.kwargs["device"], "cuda")
+
+    def test_whisperx_gets_resolved_device_not_auto(self):
+        with mock.patch.dict("sys.modules", {"torch": self._torch_cuda()}), \
+             mock.patch("video2text.pipeline.WhisperXTranscriber") as wx:
+            wx.return_value = "SENTINEL"
+            s = _fake_settings(Path("/tmp"))
+            s.engine = "whisperx"
+            s.device = "auto"
+            Pipeline(settings=s, transcriber=None)._create_transcriber(s)
+            self.assertEqual(wx.call_args.kwargs["device"], "cuda")
+
+    def test_explicit_device_passthrough(self):
+        with mock.patch.dict("sys.modules", {"torch": self._torch_cuda()}), \
+             mock.patch("video2text.pipeline.WhisperTranscriber") as wt:
+            wt.return_value = "SENTINEL"
+            s = _fake_settings(Path("/tmp"))
+            s.device = "cuda:0"
+            Pipeline(settings=s, transcriber=None)._create_transcriber(s)
+            self.assertEqual(wt.call_args.kwargs["device"], "cuda:0")
+
+    def test_engine_none_device_resolves(self):
+        """device=None 也走归一化(torch 不可用 → cpu)。"""
+        with mock.patch.dict("sys.modules", {"torch": None}), \
+             mock.patch("video2text.pipeline.WhisperTranscriber") as wt:
+            wt.return_value = "SENTINEL"
+            s = _fake_settings(Path("/tmp"))
+            s.device = None
+            Pipeline(settings=s, transcriber=None)._create_transcriber(s)
+            self.assertEqual(wt.call_args.kwargs["device"], "cpu")
+
+
+# ---------------------------------------------------------------------------
 # resolve_device / gpu_health
 # ---------------------------------------------------------------------------
 class TestResolveDevice(unittest.TestCase):
@@ -707,16 +763,18 @@ class TestAtomicWriteText(unittest.TestCase):
     """
 
     def test_writes_content_to_target(self):
-        from video2text.pipeline_stages import _atomic_write_text
         import tempfile
+
+        from video2text.pipeline_stages import _atomic_write_text
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "out.md"
             _atomic_write_text(p, "hello world", encoding="utf-8")
             self.assertEqual(p.read_text(encoding="utf-8"), "hello world")
 
     def test_creates_parent_dir(self):
-        from video2text.pipeline_stages import _atomic_write_text
         import tempfile
+
+        from video2text.pipeline_stages import _atomic_write_text
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "deep" / "nested" / "out.md"
             _atomic_write_text(p, "x")
@@ -724,8 +782,9 @@ class TestAtomicWriteText(unittest.TestCase):
             self.assertEqual(p.read_text(encoding="utf-8"), "x")
 
     def test_no_tmp_left_after_success(self):
-        from video2text.pipeline_stages import _atomic_write_text
         import tempfile
+
+        from video2text.pipeline_stages import _atomic_write_text
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "out.md"
             _atomic_write_text(p, "x")
@@ -734,8 +793,9 @@ class TestAtomicWriteText(unittest.TestCase):
 
     def test_no_tmp_left_after_failure(self):
         """写失败 (mock write_text 抛异常) 时 tmp 必须被清理。"""
-        from video2text.pipeline_stages import _atomic_write_text
         import tempfile
+
+        from video2text.pipeline_stages import _atomic_write_text
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "out.md"
             # 拦截 os.replace 抛异常模拟"原子替换失败"
@@ -746,8 +806,9 @@ class TestAtomicWriteText(unittest.TestCase):
             self.assertEqual(tmp_files, [], f"失败后残留 tmp: {tmp_files}")
 
     def test_replaces_existing_file_atomically(self):
-        from video2text.pipeline_stages import _atomic_write_text
         import tempfile
+
+        from video2text.pipeline_stages import _atomic_write_text
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "out.md"
             p.write_text("OLD", encoding="utf-8")
