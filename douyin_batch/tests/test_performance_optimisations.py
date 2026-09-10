@@ -1,4 +1,5 @@
 """Tests for performance optimisations (round 6 / task F)."""
+
 import sys
 import unittest
 from pathlib import Path
@@ -13,6 +14,7 @@ class TestEasyOcrReaderCache(unittest.TestCase):
 
     def setUp(self):
         from mediascribe.downloaders import wechat_mp
+
         wechat_mp.clear_ocr_cache()
         self.mod = wechat_mp
 
@@ -35,8 +37,14 @@ class TestEasyOcrReaderCache(unittest.TestCase):
         ImportError so callers can fall back gracefully."""
         # Force a cache miss
         self.assertNotIn(("missing", "lang"), self.mod._EASYOCR_READER_CACHE)
-        with self.assertRaises(ImportError):
-            self.mod._get_easyocr_reader(["missing", "lang"])
+        # CI 可能真的装了 easyocr（ocr extra），会对不支持的语言抛
+        # ValueError 而非 ImportError — 用 sys.modules 注入 None 强制
+        # import 失败，让用例在任何环境下都走 ImportError 分支。
+        import unittest.mock
+
+        with unittest.mock.patch.dict(sys.modules, {"easyocr": None}):
+            with self.assertRaises(ImportError):
+                self.mod._get_easyocr_reader(["missing", "lang"])
 
     def test_clear_cache_empties_dict(self):
         self.mod._EASYOCR_READER_CACHE[("a",)] = object()
@@ -51,6 +59,7 @@ class TestParallelOcr(unittest.TestCase):
 
     def test_concurrent_invocation(self):
         from mediascribe.downloaders.wechat_mp import WechatMpDownloader
+
         d = WechatMpDownloader()
         d._ocr_engine = "auto"
         d._ocr_lang = "chi_sim+eng"
@@ -69,13 +78,19 @@ class TestParallelOcr(unittest.TestCase):
             )
         self.assertEqual(total, 4)
         self.assertEqual(success, 4)
-        self.assertEqual(set(texts), {
-            "text-for-u1", "text-for-u2",
-            "text-for-u3", "text-for-u4",
-        })
+        self.assertEqual(
+            set(texts),
+            {
+                "text-for-u1",
+                "text-for-u2",
+                "text-for-u3",
+                "text-for-u4",
+            },
+        )
 
     def test_empty_list_returns_zero(self):
         from mediascribe.downloaders.wechat_mp import WechatMpDownloader
+
         d = WechatMpDownloader()
         texts, success, total = d._ocr_images([], Path("/tmp"))
         self.assertEqual(total, 0)
@@ -86,6 +101,7 @@ class TestParallelOcr(unittest.TestCase):
         from unittest.mock import patch
 
         from mediascribe.downloaders.wechat_mp import WechatMpDownloader
+
         d = WechatMpDownloader()
 
         def stub_ocr(url, save_dir):

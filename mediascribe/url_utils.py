@@ -6,6 +6,7 @@ v3.2.0g:
 - 短链域名判断改用 ``urlparse(...).hostname`` 精确匹配
   （原 ``"b23.tv" in url`` 子串匹配可被 ``http://b23.tv@127.0.0.1/`` 绕过）
 """
+
 from __future__ import annotations
 
 import logging
@@ -73,7 +74,10 @@ def resolve_short_url(url: str, timeout: int = 10) -> Optional[str]:
         req = urllib.request.Request(url, headers=headers, method="HEAD")
 
         # 发送请求，允许自动重定向
-        with urllib.request.urlopen(req, timeout=timeout) as response:
+        # B310 已审计：上面强制 https 前缀，且仅 _RESOLVABLE_SHORT_DOMAINS
+        # 白名单主机（b23.tv / v.douyin.com 等）会走到这里；解析短链重定向
+        # 正是本函数的职责。
+        with urllib.request.urlopen(req, timeout=timeout) as response:  # nosec B310
             real_url = response.url
             logger.info("解析成功: %s", real_url)
             return real_url
@@ -83,7 +87,8 @@ def resolve_short_url(url: str, timeout: int = 10) -> Optional[str]:
         if e.code in [403, 405, 412]:
             try:
                 req = urllib.request.Request(url, headers=headers)
-                with urllib.request.urlopen(req, timeout=timeout) as response:
+                # 行内 nosec 的理由同上（https 前缀 + 白名单主机）
+                with urllib.request.urlopen(req, timeout=timeout) as response:  # nosec B310
                     real_url = response.url
                     logger.info("解析成功: %s", real_url)
                     return real_url

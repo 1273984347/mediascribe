@@ -9,6 +9,7 @@ v3.2.0g:
   失败的视频下一轮可以重试，不会被永久跳过（P1-2）
 - ``mark_processed`` 加线程锁（workers>1 并发安全）
 """
+
 import hashlib
 import json
 import logging
@@ -41,7 +42,8 @@ class ProcessCache:
         except Exception as e:
             logger.warning(
                 "缓存文件损坏（%s），将改名保留为 .bak 并重新开始: %s",
-                self.cache_file, e,
+                self.cache_file,
+                e,
             )
             try:
                 bak = self.cache_file.with_name(self.cache_file.name + ".bak")
@@ -101,14 +103,14 @@ class ProcessCache:
 
     def get_user_videos(self, user_url: str) -> list:
         """获取缓存的某用户的所有视频"""
-        # nosec B324 - 仅作缓存键去重用，非安全敏感哈希
-        user_hash = hashlib.md5(user_url.encode()).hexdigest()[:12]
+        # 仅作缓存键去重用，非安全敏感哈希（nosec 须与代码同行，见下）
+        user_hash = hashlib.md5(user_url.encode()).hexdigest()[:12]  # nosec B324
         return self._cache_data["users"].get(user_hash, {}).get("videos", [])
 
     def save_user_videos(self, user_url: str, videos: list):
         """保存用户视频列表到缓存"""
-        # nosec B324 - 仅作缓存键去重用，非安全敏感哈希
-        user_hash = hashlib.md5(user_url.encode()).hexdigest()[:12]
+        # 仅作缓存键去重用，非安全敏感哈希（nosec 须与代码同行，见下）
+        user_hash = hashlib.md5(user_url.encode()).hexdigest()[:12]  # nosec B324
         with self._lock:
             self._cache_data["users"][user_hash] = {
                 "user_url": user_url,
