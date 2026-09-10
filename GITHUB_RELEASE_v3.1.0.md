@@ -1,4 +1,4 @@
-# Video2Text v3.1.0
+# MediaScribe v3.1.0
 
 > **Offline video transcription tool** — download videos from multiple
 > platforms and transcribe them with local AI models. No cloud, no API
@@ -17,7 +17,7 @@
 
 ### 🔌 Plugin system via `entry_points`
 Third-party `Downloader` / `Transcriber` / `URLTransformer` registration
-through standard Python entry_points — zero changes to `video2text` itself.
+through standard Python entry_points — zero changes to `mediascribe` itself.
 See `examples/plugins/` (TCN transformer, Vimeo downloader) and
 [docs_site/plugins.md](docs_site/plugins.md).
 
@@ -41,7 +41,7 @@ Upgrade to real `opentelemetry-sdk` with one call:
 ### 🛡️ Production hardening
 - **Rate limiting** — thread-safe sliding window (default 10 req/60 s per
   IP), RFC 6585 headers (`429` / `Retry-After` / `X-RateLimit-*`),
-  configurable via `VIDEO2TEXT_RATE_LIMIT` (set to `0` to disable)
+  configurable via `MEDIASCRIBE_RATE_LIMIT` (set to `0` to disable)
 - **Security** — path-traversal protection, CORS, basic auth
 - **CORS** — explicit allow-list with credentials toggle
 - **Cookies** — JSON / Netscape formats, env-var injection
@@ -55,9 +55,9 @@ Upgrade to real `opentelemetry-sdk` with one call:
 ### 🤖 AI agent native
 - `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, `.clinerules`, `.cody.yml`,
   `.windsurfrules`, `.aider.conf.yml`, `.traerules`, GitHub Copilot
-- **MCP server** (`video2text.mcp_server`) for Claude Code / Cursor / Cline
+- **MCP server** (`mediascribe.mcp_server`) for Claude Code / Cursor / Cline
 - **JSON output mode** for agent-friendly consumption
-- **Skills**: `video2text`, `video2text-benchmark`, `video2text-wechat`
+- **Skills**: `mediascribe`, `mediascribe-benchmark`, `mediascribe-wechat`
 
 ### 🚀 One-click start
 Five paths, all runnable out of the box:
@@ -74,17 +74,17 @@ Five paths, all runnable out of the box:
 ### Added
 - **Browser Side Panel support** (`extension/manifest.json`,
   `extension/background.js`, `extension/popup.{html,js,css}`)
-- **Plugin system** (`video2text/plugins/registry.py`)
-- **Long-video chunking** (`video2text/transcribers/chunked.py`,
+- **Plugin system** (`mediascribe/plugins/registry.py`)
+- **Long-video chunking** (`mediascribe/transcribers/chunked.py`,
   `douyin_batch/`)
-- **Performance utilities** (`video2text/performance.py`)
-- **OpenTelemetry-compatible mini-SDK** (`video2text/observability.py`,
+- **Performance utilities** (`mediascribe/performance.py`)
+- **OpenTelemetry-compatible mini-SDK** (`mediascribe/observability.py`,
   `douyin_batch/observability.py`)
-- **Rate limiting** with `VIDEO2TEXT_RATE_LIMIT` env var
+- **Rate limiting** with `MEDIASCRIBE_RATE_LIMIT` env var
 - **Security**: path-traversal guards, CORS, basic auth
 - **MCP server** with `transcribe_video` and `transcribe_batch` tools
-- **Skill files** for `video2text`, `video2text-benchmark`,
-  `video2text-wechat`
+- **Skill files** for `mediascribe`, `mediascribe-benchmark`,
+  `mediascribe-wechat`
 - **Web UI extension builder** (one-click ZIP download at `/extension`)
 - **CI matrix**: Python 3.8-3.12 × Windows/macOS/Linux
 - **Bandit security scanning** in CI
@@ -133,8 +133,8 @@ Five paths, all runnable out of the box:
 ### From source (recommended for v3.1.0)
 
 ```bash
-git clone https://github.com/<your-org>/video2text.git
-cd video2text
+git clone https://github.com/<your-org>/mediascribe.git
+cd mediascribe
 pip install -r requirements.txt
 # optional: pip install -r requirements-dev.txt  (for testing)
 ```
@@ -143,9 +143,9 @@ pip install -r requirements.txt
 
 ```bash
 # WhisperX (faster, word-level timestamps)
-pip install video2text[whisperx]
+pip install mediascribe[whisperx]
 # or faster-whisper (CTranslate2 backend)
-pip install video2text[faster-whisper]
+pip install mediascribe[faster-whisper]
 ```
 
 ### Docker
@@ -169,19 +169,19 @@ python scripts/one_click_up.py    # macOS / Linux / Windows
 
 ```bash
 # Single video
-python -m video2text "https://www.bilibili.com/video/BVxxxxxx"
+python -m mediascribe "https://www.bilibili.com/video/BVxxxxxx"
 
 # Batch from a user profile
-python -m video2text "https://www.douyin.com/user/MS4wLjABAAAA..."
+python -m mediascribe "https://www.douyin.com/user/MS4wLjABAAAA..."
 
 # JSON output for agents
-python -m video2text --json "URL"
+python -m mediascribe --json "URL"
 ```
 
 ### Python API
 
 ```python
-from video2text import Pipeline, Settings
+from mediascribe import Pipeline, Settings
 
 settings = Settings(workspace_root="./workspace")
 pipeline = Pipeline(settings)
@@ -192,21 +192,21 @@ print(result.transcript_path.read_text(encoding="utf-8"))
 ### MCP server (for AI agents)
 
 ```bash
-python -m video2text.mcp_server
+python -m mediascribe.mcp_server
 # configure Claude Code / Cursor to connect via stdio
 ```
 
 ### Web UI
 
 ```bash
-python -m video2text.web
+python -m mediascribe.web
 # or: python main.py --mode web
 # then open http://localhost:8000
 ```
 
 ### Browser extension
 
-1. Run the Web UI: `python -m video2text.web`
+1. Run the Web UI: `python -m mediascribe.web`
 2. Visit `http://localhost:8000/extension`
 3. Click **Download ZIP**
 4. Chrome / Edge → `chrome://extensions` → enable Developer mode →

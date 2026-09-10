@@ -9,7 +9,7 @@ results programmatically without parsing free-form text.
 Output schema (v1, stable):
 
     {
-      "schema": "video2text.agent-output/v1",
+      "schema": "mediascribe.agent-output/v1",
       "ok": true | false,
       "command": "douyin_batch_v3",
       "version": "<douyin_batch.__version__>",
@@ -79,7 +79,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-SCHEMA_VERSION = "video2text.agent-output/v1"
+SCHEMA_VERSION = "mediascribe.agent-output/v1"
 
 try:  # P2-9: 版本号统一来自包元数据，避免多处漂移
     from douyin_batch import __version__ as APP_VERSION

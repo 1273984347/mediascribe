@@ -3,7 +3,7 @@
 这是整个系统的核心工作流
 
 v3.2.0b 重构：把 ``transcribe()`` 中的串行 4 步抽到
-:mod:`video2text.pipeline_stages` 的 5 个 :class:`Stage` 子类,
+:mod:`mediascribe.pipeline_stages` 的 5 个 :class:`Stage` 子类,
 :func:`Pipeline._run_stage_chain` 负责把 chain 串起来。
 保留所有 v3.1.0 / v3.2.0a 公共契约:
 
@@ -168,14 +168,14 @@ class Pipeline:
         ----------
         profile
             v3.2.0c Tier 2.  When ``True``, every ``stage.run_with_progress``
-            call is wrapped in :func:`video2text.performance.profile_step`
+            call is wrapped in :func:`mediascribe.performance.profile_step`
             so per-stage wall-clock is recorded in ``STEP_TIMES`` and
             (optionally) appended to ``profile_log`` as JSONL.  Use the
             v3.2.0a ``profile`` CLI to read it back.
         profile_log
             Optional JSONL path; only used when ``profile=True``.
             If ``None``, timings are still recorded in memory via
-            :data:`video2text.performance.STEP_TIMES` and can be
+            :data:`mediascribe.performance.STEP_TIMES` and can be
             inspected via :func:`get_step_times`.
         """
         self.settings = settings
@@ -214,7 +214,7 @@ class Pipeline:
         """根据源类型获取合适的下载器。
 
         v3.2.0x P2-14: fallback 链唯一实现收敛到
-        :func:`video2text.pipeline_stages._smart_pick_downloader`,
+        :func:`mediascribe.pipeline_stages._smart_pick_downloader`,
         这里只处理「显式传入的下载器优先」并委托,删除旧副本。
 
         路由策略见 :func:`_smart_pick_downloader` 的 docstring。
@@ -244,7 +244,7 @@ class Pipeline:
         4. 转录
         5. 保存结果
 
-        v3.2.0b: 1-5 步被 :func:`video2text.pipeline_stages.default_chain`
+        v3.2.0b: 1-5 步被 :func:`mediascribe.pipeline_stages.default_chain`
         拆成 5 个 :class:`Stage` 子类顺序执行;本方法只负责组装
         :class:`PipelineContext`、跑 chain,并在微信公众号文本型文章
         这条分支上走老的 ``_handle_wechat_mp``。
@@ -305,7 +305,7 @@ class Pipeline:
         必须保留以维持 :class:`Pipeline` 公共契约。
 
         v3.2.0c Tier 2 — 当 ``self.profile=True`` 时,每个 stage 调用
-        被 :func:`video2text.performance.profile_step` 包装,记录
+        被 :func:`mediascribe.performance.profile_step` 包装,记录
         wall-clock 到 per-run 计时注册表 (内存) + 可选 JSONL 文件。
 
         v3.2.0x P2-7: 计时注册表用 :class:`contextvars.ContextVar`

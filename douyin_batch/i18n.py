@@ -16,7 +16,7 @@ def detect_language() -> str:
         "zh" for Chinese, "en" for English (default)
     """
     # 1. Check environment variable
-    env_lang = os.environ.get("VIDEO2TEXT_LANG") or os.environ.get("LANG")
+    env_lang = os.environ.get("MEDIASCRIBE_LANG") or os.environ.get("LANG")
     if env_lang:
         env_lang = env_lang.lower()
         if env_lang.startswith("zh"):
@@ -58,8 +58,8 @@ class Messages:
 
     # ==================== Header / 标题 ====================
     HEADER_TITLE = {
-        "en": "Video2Text - Batch Transcription",
-        "zh": "Video2Text - 批量转录",
+        "en": "MediaScribe - Batch Transcription",
+        "zh": "MediaScribe - 批量转录",
     }
 
     # ==================== Steps / 步骤 ====================
@@ -341,7 +341,7 @@ Environment variables:
     }
 
     INFO_BANNER_TITLE = {
-        "en": "Video2Text - Douyin Batch Transcription",
+        "en": "MediaScribe - Douyin Batch Transcription",
         "zh": "抖音作者往期内容批量转录",
     }
 

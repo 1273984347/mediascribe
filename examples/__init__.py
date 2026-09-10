@@ -1,4 +1,4 @@
-"""Example plugins for the video2text extension points.
+"""Example plugins for the mediascribe extension points.
 
 These modules are packaged so the entry points registered in
 ``pyproject.toml`` (``vimeo`` downloader, ``t.cn`` URL transformer)

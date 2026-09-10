@@ -1,11 +1,11 @@
-# Video2Text v3.1.0 Release Notes
+# MediaScribe v3.1.0 Release Notes
 
 > Released 2026-06-04 · MIT · 547 tests passing (9 skipped) · 97% coverage
 
 ## Highlights
 
 * **Plugin system** — third-party `Downloader` / `Transcriber` / `URLTransformer`
-  registration via `entry_points` (zero changes to video2text itself).
+  registration via `entry_points` (zero changes to mediascribe itself).
 * **Long-video chunking** — `ChunkedTranscriber` splits long audio into
   overlapping windows (default 600 s + 5 s overlap) and merges per-chunk
   segments with global timestamps.
@@ -15,7 +15,7 @@
   that can be upgraded to the real `opentelemetry-sdk` with one call.
 * **Browser extension** — Chrome / Edge Manifest v3 popup that POSTs
   the active tab URL to a self-hosted Web UI.
-* **Web UI** — FastAPI + vanilla HTML, served by `python -m video2text.web.app`.
+* **Web UI** — FastAPI + vanilla HTML, served by `python -m mediascribe.web.app`.
 * **mkdocs documentation site** — 18 pages, Material theme, GitHub Pages
   workflow ready to enable.
 * **CI matrix** — 5 Python × 3 OS = 15 cells with system ffmpeg install
@@ -33,7 +33,7 @@
 ## New / changed files
 
 ```
-video2text/
+mediascribe/
 ├── plugins/                  (new) entry_points-based plugin system
 ├── observability.py          (new) zero-deps OTel-compatible mini-SDK
 ├── performance.py            (new) @profile_step, parallel_map, DownloadCache
@@ -67,19 +67,19 @@ mkdocs.yml                    (new) Material theme + dark/light toggle
 ## How to upgrade
 
 ```bash
-pip install --upgrade video2text
+pip install --upgrade mediascribe
 ```
 
 If you use the Web UI / browser extension:
 
 ```bash
-pip install --upgrade "video2text[web]"
+pip install --upgrade "mediascribe[web]"
 ```
 
 ## How to verify
 
 ```bash
-python -c "import video2text; print(video2text.__version__)"
+python -c "import mediascribe; print(mediascribe.__version__)"
 python -m pytest douyin_batch/tests/ -q
 ```
 

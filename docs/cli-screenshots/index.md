@@ -6,8 +6,8 @@ releases.
 
 | File | Bytes | Description |
 |------|------:|-------------|
-| `video2text-help.txt` | 1551 | Main video2text CLI help (English) |
-| `video2text-mcp-help.txt` | 342 | MCP server CLI options |
+| `mediascribe-help.txt` | 1551 | Main mediascribe CLI help (English) |
+| `mediascribe-mcp-help.txt` | 342 | MCP server CLI options |
 | `douyin-batch-v3-help.txt` | 1964 | douyin_batch_v3 (auto-detect language) |
 | `douyin-batch-v3-help-zh.txt` | 1964 | douyin_batch_v3 forced to Chinese |
 | `douyin-batch-v3-help-en.txt` | 2664 | douyin_batch_v3 forced to English |
@@ -18,7 +18,7 @@ releases.
 python scripts/capture_cli_help.py
 ```
 
-## `video2text-help.txt`
+## `mediascribe-help.txt`
 
 ```text
 usage: __main__.py [-h] [--workspace WORKSPACE]
@@ -28,7 +28,7 @@ usage: __main__.py [-h] [--workspace WORKSPACE]
                    [--language LANGUAGE]
                    {transcribe,t,batch} ...
 
-🎬 Video2Text - 视频转文字工具（深度整合版）
+🎬 MediaScribe - 视频转文字工具（深度整合版）
 
 options:
   -h, --help            show this help message and exit
@@ -56,28 +56,28 @@ options:
 
 🚀 使用示例：
   # 基本使用（Whisper）
-  python -m video2text transcribe video.mp4
-  python -m video2text transcribe https://www.bilibili.com/video/BV...
+  python -m mediascribe transcribe video.mp4
+  python -m mediascribe transcribe https://www.bilibili.com/video/BV...
 
   # 使用 WhisperX + 说话人分离
-  python -m video2text transcribe video.mp4 --engine whisperx --diarization --hf-token YOUR_TOKEN
+  python -m mediascribe transcribe video.mp4 --engine whisperx --diarization --hf-token YOUR_TOKEN
 
   # 使用 faster-whisper（更快）
-  python -m video2text transcribe video.mp4 --engine faster-whisper
+  python -m mediascribe transcribe video.mp4 --engine faster-whisper
 
   # 批量处理
-  python -m video2text batch video1.mp4 video2.mp4 https://...
+  python -m mediascribe batch video1.mp4 video2.mp4 https://...
         
 
 ```
 
-## `video2text-mcp-help.txt`
+## `mediascribe-mcp-help.txt`
 
 ```text
 usage: mcp_server.py [-h] [--transport {stdio,http}] [--host HOST]
                      [--port PORT]
 
-Video2Text MCP server — expose transcription as MCP tools
+MediaScribe MCP server — expose transcription as MCP tools
 
 options:
   -h, --help            show this help message and exit

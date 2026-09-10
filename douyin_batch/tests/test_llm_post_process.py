@@ -33,14 +33,14 @@ class TestLLMPostProcessorDisabled(unittest.TestCase):
     """未启用 / 无 api_key → 返回原文 + llm-disabled。"""
 
     def test_no_api_key_returns_disabled(self):
-        from video2text.llm_post_process import STATUS_DISABLED, LLMPostProcessor
+        from mediascribe.llm_post_process import STATUS_DISABLED, LLMPostProcessor
         proc = LLMPostProcessor(api_key="", enabled=True)
         text, status = proc.post_process("这是一段足够长的中文文本用于测试。" * 5)
         self.assertEqual(status, STATUS_DISABLED)
         self.assertIn("这是一段", text)
 
     def test_enabled_false_returns_disabled(self):
-        from video2text.llm_post_process import STATUS_DISABLED, LLMPostProcessor
+        from mediascribe.llm_post_process import STATUS_DISABLED, LLMPostProcessor
         proc = LLMPostProcessor(api_key="fake-key", enabled=False)
         text, status = proc.post_process("这是一段足够长的中文文本用于测试。" * 5)
         self.assertEqual(status, STATUS_DISABLED)
@@ -50,14 +50,14 @@ class TestLLMPostProcessorSkipped(unittest.TestCase):
     """文本过短 → 返回原文 + llm-skipped。"""
 
     def test_short_text_returns_skipped(self):
-        from video2text.llm_post_process import STATUS_SKIPPED, LLMPostProcessor
+        from mediascribe.llm_post_process import STATUS_SKIPPED, LLMPostProcessor
         proc = LLMPostProcessor(api_key="fake-key", enabled=True)
         text, status = proc.post_process("短文本")
         self.assertEqual(status, STATUS_SKIPPED)
         self.assertEqual(text, "短文本")
 
     def test_empty_text_returns_skipped(self):
-        from video2text.llm_post_process import STATUS_SKIPPED, LLMPostProcessor
+        from mediascribe.llm_post_process import STATUS_SKIPPED, LLMPostProcessor
         proc = LLMPostProcessor(api_key="fake-key", enabled=True)
         text, status = proc.post_process("")
         self.assertEqual(status, STATUS_SKIPPED)
@@ -67,7 +67,7 @@ class TestLLMPostProcessorReviewed(unittest.TestCase):
     """API 成功 → 返回修正文本 + llm-reviewed。"""
 
     def test_successful_call_returns_reviewed(self):
-        from video2text.llm_post_process import STATUS_REVIEWED, LLMPostProcessor
+        from mediascribe.llm_post_process import STATUS_REVIEWED, LLMPostProcessor
         proc = LLMPostProcessor(api_key="fake-key", enabled=True)
         original = "佛尔摩斯蹲下身审视太武士河边的钢国死尸。" * 5
         fixed = "福尔摩斯蹲下身审视泰晤士河边的刚果死尸。" * 5
@@ -97,7 +97,7 @@ class TestLLMPostProcessorReviewed(unittest.TestCase):
 
     def test_strips_code_fences_from_response(self):
         """模型可能输出 ```markdown ... ``` 包裹,应剥离。"""
-        from video2text.llm_post_process import STATUS_REVIEWED, LLMPostProcessor
+        from mediascribe.llm_post_process import STATUS_REVIEWED, LLMPostProcessor
         proc = LLMPostProcessor(api_key="fake-key", enabled=True)
         original = "原始 ASR 文本需要修正的内容。" * 5
         fixed_content = "修正后的 ASR 文本内容。" * 5
@@ -120,7 +120,7 @@ class TestLLMPostProcessorFailed(unittest.TestCase):
     """API 抛错 → 返回原文 + llm-failed,不阻塞。"""
 
     def test_api_exception_returns_failed_and_original_text(self):
-        from video2text.llm_post_process import STATUS_FAILED, LLMPostProcessor
+        from mediascribe.llm_post_process import STATUS_FAILED, LLMPostProcessor
         proc = LLMPostProcessor(api_key="fake-key", enabled=True)
         original = "原始 ASR 文本需要修正的内容。" * 5
 
@@ -136,7 +136,7 @@ class TestLLMPostProcessorFailed(unittest.TestCase):
         self.assertEqual(text, original)
 
     def test_empty_api_response_returns_failed(self):
-        from video2text.llm_post_process import STATUS_FAILED, LLMPostProcessor
+        from mediascribe.llm_post_process import STATUS_FAILED, LLMPostProcessor
         proc = LLMPostProcessor(api_key="fake-key", enabled=True)
         original = "原始 ASR 文本需要修正的内容。" * 5
 
@@ -155,14 +155,14 @@ class TestLLMPostProcessorFromEnv(unittest.TestCase):
     """from_env / from_settings 构造正确。"""
 
     def test_from_env_reads_all_vars(self):
-        from video2text.llm_post_process import LLMPostProcessor
+        from mediascribe.llm_post_process import LLMPostProcessor
         env = {
-            "VIDEO2TEXT_LLM_API_KEY": "env-key-123",
-            "VIDEO2TEXT_LLM_API_BASE": "https://api.example.com",
-            "VIDEO2TEXT_LLM_MODEL": "gpt-4o-mini",
-            "VIDEO2TEXT_LLM_ENABLED": "true",
-            "VIDEO2TEXT_LLM_TIMEOUT": "60",
-            "VIDEO2TEXT_LLM_MAX_CHARS": "8000",
+            "MEDIASCRIBE_LLM_API_KEY": "env-key-123",
+            "MEDIASCRIBE_LLM_API_BASE": "https://api.example.com",
+            "MEDIASCRIBE_LLM_MODEL": "gpt-4o-mini",
+            "MEDIASCRIBE_LLM_ENABLED": "true",
+            "MEDIASCRIBE_LLM_TIMEOUT": "60",
+            "MEDIASCRIBE_LLM_MAX_CHARS": "8000",
         }
         with mock.patch.dict("os.environ", env, clear=False):
             proc = LLMPostProcessor.from_env()
@@ -175,15 +175,15 @@ class TestLLMPostProcessorFromEnv(unittest.TestCase):
 
     def test_from_env_disabled_by_default(self):
         """无 api_key 时 enabled=False。"""
-        from video2text.llm_post_process import LLMPostProcessor
+        from mediascribe.llm_post_process import LLMPostProcessor
         # 清空所有相关环境变量
         env_keys = [
-            "VIDEO2TEXT_LLM_API_KEY",
-            "VIDEO2TEXT_LLM_API_BASE",
-            "VIDEO2TEXT_LLM_MODEL",
-            "VIDEO2TEXT_LLM_ENABLED",
-            "VIDEO2TEXT_LLM_TIMEOUT",
-            "VIDEO2TEXT_LLM_MAX_CHARS",
+            "MEDIASCRIBE_LLM_API_KEY",
+            "MEDIASCRIBE_LLM_API_BASE",
+            "MEDIASCRIBE_LLM_MODEL",
+            "MEDIASCRIBE_LLM_ENABLED",
+            "MEDIASCRIBE_LLM_TIMEOUT",
+            "MEDIASCRIBE_LLM_MAX_CHARS",
         ]
         clean_env = dict.fromkeys(env_keys, "")
         with mock.patch.dict("os.environ", clean_env, clear=False):
@@ -201,7 +201,7 @@ class TestLLMPostProcessorFromEnv(unittest.TestCase):
         """Settings 有 llm_post_process dict 字段时优先用。"""
         from types import SimpleNamespace
 
-        from video2text.llm_post_process import LLMPostProcessor
+        from mediascribe.llm_post_process import LLMPostProcessor
 
         settings = SimpleNamespace(
             llm_post_process={
@@ -222,10 +222,10 @@ class TestLLMPostProcessorFromEnv(unittest.TestCase):
     def test_from_settings_falls_back_to_env(self):
         from types import SimpleNamespace
 
-        from video2text.llm_post_process import LLMPostProcessor
+        from mediascribe.llm_post_process import LLMPostProcessor
 
         settings = SimpleNamespace(llm_post_process=None)
-        env = {"VIDEO2TEXT_LLM_API_KEY": "fallback-key", "VIDEO2TEXT_LLM_ENABLED": "1"}
+        env = {"MEDIASCRIBE_LLM_API_KEY": "fallback-key", "MEDIASCRIBE_LLM_ENABLED": "1"}
         with mock.patch.dict("os.environ", env, clear=False):
             proc = LLMPostProcessor.from_settings(settings)
         self.assertIsNotNone(proc)
@@ -238,7 +238,7 @@ class TestBuildStatusBanner(unittest.TestCase):
     """banner 生成正确。"""
 
     def test_reviewed_with_model(self):
-        from video2text.llm_post_process import STATUS_REVIEWED, build_status_banner
+        from mediascribe.llm_post_process import STATUS_REVIEWED, build_status_banner
         banner = build_status_banner(STATUS_REVIEWED, "deepseek-chat")
         self.assertEqual(
             banner,
@@ -246,13 +246,13 @@ class TestBuildStatusBanner(unittest.TestCase):
         )
 
     def test_disabled_banner(self):
-        from video2text.llm_post_process import STATUS_DISABLED, build_status_banner
+        from mediascribe.llm_post_process import STATUS_DISABLED, build_status_banner
         banner = build_status_banner(STATUS_DISABLED)
         self.assertIn("llm-disabled", banner)
         self.assertIn("not LLM-reviewed", banner)
 
     def test_failed_banner(self):
-        from video2text.llm_post_process import STATUS_FAILED, build_status_banner
+        from mediascribe.llm_post_process import STATUS_FAILED, build_status_banner
         banner = build_status_banner(STATUS_FAILED)
         self.assertIn("llm-failed", banner)
         self.assertIn("fell back", banner)
@@ -263,7 +263,7 @@ class TestAssembleStageIntegration(unittest.TestCase):
 
     def test_disabled_llm_injects_disabled_banner(self):
         """无 api_key → banner 显示 llm-disabled,文本不变。"""
-        from video2text.pipeline_stages import AssembleStage
+        from mediascribe.pipeline_stages import AssembleStage
 
         # 构造最小 stage (helper 函数用 stub)
         def resolve_output(name, output):
@@ -283,7 +283,7 @@ class TestAssembleStageIntegration(unittest.TestCase):
         self.assertIn("原文", result)
 
     def test_reviewed_llm_injects_reviewed_banner(self):
-        from video2text.pipeline_stages import AssembleStage
+        from mediascribe.pipeline_stages import AssembleStage
         stage = AssembleStage(lambda *a: None, lambda *a: None, lambda *a: "")
         result = stage._inject_status_banner("修正后", "llm-reviewed", "deepseek-chat")
         self.assertIn("llm-reviewed", result)

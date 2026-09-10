@@ -72,7 +72,7 @@ jobs:
         os: [ubuntu-latest]
     env:
       # Force-skip the E2E decorator regardless of accidental env vars.
-      VIDEO2TEXT_E2E: "0"
+      MEDIASCRIBE_E2E: "0"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -126,7 +126,7 @@ jobs:
         exclude:
           - { python-version: "3.9", os: "windows-latest" }
     env:
-      VIDEO2TEXT_E2E: "1"
+      MEDIASCRIBE_E2E: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -185,7 +185,7 @@ jobs:
           - { python-version: "3.10", os: "macos-latest" }
           - { python-version: "3.12", os: "macos-latest" }
     env:
-      VIDEO2TEXT_E2E: "0"
+      MEDIASCRIBE_E2E: "0"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -243,12 +243,12 @@ jobs:
           pip install -e ".[dev,ocr,web,faster-whisper,mcp]" pytest-cov
       - name: Run with coverage
         env:
-          VIDEO2TEXT_E2E: "0"
+          MEDIASCRIBE_E2E: "0"
         run: |
           python -m pytest douyin_batch/tests/ \
             --ignore=douyin_batch/tests/test_e2e_real_urls.py \
             -m "not integration and not network" \
-            --cov=video2text --cov=douyin_batch --cov-report=term-missing \
+            --cov=mediascribe --cov=douyin_batch --cov-report=term-missing \
             --cov-report=xml --cov-fail-under=90
       - name: Upload to Codecov
         uses: codecov/codecov-action@v4

@@ -1,7 +1,7 @@
 # Performance
 
-Video2Text includes a small performance utility module:
-`video2text.performance`.
+MediaScribe includes a small performance utility module:
+`mediascribe.performance`.
 
 It provides three things:
 
@@ -21,7 +21,7 @@ It provides three things:
 ## Usage
 
 ```python
-from video2text.performance import (
+from mediascribe.performance import (
     profile_step, PerformanceReport, parallel_map, DownloadCache,
 )
 

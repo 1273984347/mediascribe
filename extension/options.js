@@ -1,4 +1,4 @@
-// Video2Text Sender — options page script
+// MediaScribe Sender — options page script
 const $ = (id) => document.getElementById(id);
 
 const DEFAULTS = { endpoint: "http://127.0.0.1:8000", engine: "whisper", model: "small", apiToken: "" };

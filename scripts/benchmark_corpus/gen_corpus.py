@@ -97,7 +97,7 @@ def write_placeholder_reference(
 ) -> None:
     """写 reference JSON,标记是 placeholder 真实 transcript 不存在。"""
     ref = {
-        "schema_version": "video2text-benchmark-corpus/v1",
+        "schema_version": "mediascribe-benchmark-corpus/v1",
         "file": clip["name"],
         "language": clip["lang"],
         "duration_s": clip["target_duration_s"],

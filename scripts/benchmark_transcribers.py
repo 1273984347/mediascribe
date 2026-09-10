@@ -24,7 +24,7 @@ v3.2.0b 复现 benchmark — whisperx vs faster-whisper 跨 engine / model 对�
 JSON,schema 固定::
 
     {
-      "schema": "video2text-benchmark/v1",
+      "schema": "mediascribe-benchmark/v1",
       "host": { "device": "cuda", "device_name": "RTX 4090", ... },
       "engines": [ {name, model, device, wall_clock_s, real_time_factor,
                      wer_pct, peak_vram_mb, first_token_latency_ms} ],
@@ -48,7 +48,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
-SCHEMA = "video2text-benchmark/v1"
+SCHEMA = "mediascribe-benchmark/v1"
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +96,7 @@ def write_reports(results: Sequence["BenchResult"], out_dir: Path) -> None:
     """把 :class:`BenchResult` 列表写成 json / txt / md 三件套。"""
     out_dir.mkdir(parents=True, exist_ok=True)
     payload = {
-        "schema": "video2text-benchmark-results/v1",
+        "schema": "mediascribe-benchmark-results/v1",
         "results": [
             {
                 "engine": r.engine,

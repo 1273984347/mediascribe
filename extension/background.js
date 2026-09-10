@@ -1,4 +1,4 @@
-// Video2Text Sender — background service worker
+// MediaScribe Sender — background service worker
 //
 // Responsibilities:
 //   1. Configure the Side Panel so the same ``popup.html`` is shared

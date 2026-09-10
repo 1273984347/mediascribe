@@ -1,6 +1,6 @@
-# Video2Text Documentation
+# MediaScribe Documentation
 
-Welcome to the **Video2Text** documentation. This is a single-page index
+Welcome to the **MediaScribe** documentation. This is a single-page index
 pointing at every reference document and the most useful entry points
 into the codebase.
 
@@ -11,13 +11,13 @@ into the codebase.
 pip install -r requirements.txt
 
 # Transcribe a single video
-python -m video2text --url "https://www.bilibili.com/video/BVxxxxx"
+python -m mediascribe --url "https://www.bilibili.com/video/BVxxxxx"
 
 # Batch a creator's feed
 python douyin_batch_v3.py --user "https://www.douyin.com/user/xxxxx"
 
 # Start the MCP server (for Claude Code / Cursor / Cline)
-python -m video2text.mcp_server
+python -m mediascribe.mcp_server
 ```
 
 ## Reference
@@ -43,8 +43,8 @@ python -m video2text.mcp_server
 ## Source layout
 
 ```
-video2text/                      # core library
-├── __main__.py                  # python -m video2text entry
+mediascribe/                      # core library
+├── __main__.py                  # python -m mediascribe entry
 ├── pipeline.py                  # Pipeline.transcribe()
 ├── platform.py                  # detect_platform() URL router
 ├── config.py                    # Settings + cookie parsing
@@ -64,7 +64,7 @@ video2text/                      # core library
 
 douyin_batch/                    # batch CLI library
 ├── __init__.py
-├── agent_output.py              # video2text.agent-output/v1 schema
+├── agent_output.py              # mediascribe.agent-output/v1 schema
 ├── config.py                    # BatchConfig dataclass
 ├── i18n.py                      # 104 i18n keys
 ├── platform_compat.py           # cross-platform helpers
@@ -90,7 +90,7 @@ make test
 python -m pytest douyin_batch/tests/ -q
 
 # With E2E (real network, real cookies, real ASR)
-VIDEO2TEXT_E2E=1 python -m pytest douyin_batch/tests/test_e2e_real_urls.py -v
+MEDIASCRIBE_E2E=1 python -m pytest douyin_batch/tests/test_e2e_real_urls.py -v
 
 # Lint
 make lint

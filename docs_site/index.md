@@ -1,9 +1,9 @@
-# Video2Text
+# MediaScribe
 
 > Transcribe videos from 6 platforms (Bilibili, Douyin, YouTube, Xiaohongshu,
 > WeChat MP, TikTok) to Markdown using Whisper.
 
-Video2Text is a single tool that turns a video URL into a clean
+MediaScribe is a single tool that turns a video URL into a clean
 Markdown transcript.  It handles every step of the pipeline:
 
 1. **Detect** the platform from the URL.
@@ -13,12 +13,12 @@ Markdown transcript.  It handles every step of the pipeline:
 
 The tool ships with three interfaces:
 
-* **CLI** — `python -m video2text --url "..."`
+* **CLI** — `python -m mediascribe --url "..."`
 * **MCP server** — exposes the same operations as LLM-callable tools
 * **Web UI** — FastAPI + HTML for non-technical collaborators
 * **Browser extension** — sends the current tab URL to a self-hosted Web UI
 
-## Why Video2Text?
+## Why MediaScribe?
 
 * **One tool, six platforms** — no need to remember which downloader
   to invoke per site.
@@ -32,9 +32,9 @@ The tool ships with three interfaces:
 ## Quick start
 
 ```bash
-pip install "video2text[all]"
+pip install "mediascribe[all]"
 
-python -m video2text \
+python -m mediascribe \
   --url "https://www.youtube.com/watch?v=..." \
   --model small --lang en
 ```
@@ -45,7 +45,7 @@ and a JSON sidecar at `output/metadata/<title>.json`.
 ## Project layout
 
 ```
-video2text/
+mediascribe/
 ├── pipeline.py              # main entry point
 ├── transcribers/            # whisper, faster-whisper, whisperx, chunked
 ├── downloaders/             # one module per platform

@@ -25,16 +25,16 @@ ASR 自动学习模块 v2 (v3.2.0b)
 .. code-block:: python
 
     # 方式 1: 对比参考文本与转录
-    from video2text.learn import compare, learn
+    from mediascribe.learn import compare, learn
     corrections = compare("霍去病是名将", "获取病是名将")
     learn(corrections)
 
     # 方式 2: 从用户编辑中学习 (推荐)
-    from video2text.learn import learn_from_edit
+    from mediascribe.learn import learn_from_edit
     learn_from_edit(original_transcript, user_corrected_transcript)
 
     # 下次转录自动应用已确认术语
-    from video2text.post_process import post_process_transcript
+    from mediascribe.post_process import post_process_transcript
     fixed = post_process_transcript(raw_text)
 """
 from __future__ import annotations
@@ -177,7 +177,7 @@ class LearnedTermsDB:
 def learned_terms_path() -> Path:
     """返回学习术语库的文件路径。
 
-    遵循缓存目录约定 (XDG / LOCALAPPDATA / VIDEO2TEXT_CACHE_DIR)。
+    遵循缓存目录约定 (XDG / LOCALAPPDATA / MEDIASCRIBE_CACHE_DIR)。
     """
     return persistent_cache_dir() / "learned_terms.json"
 

@@ -7,18 +7,18 @@ Covers:
 * ``/api/transcribe`` is reachable without a token when no token is
   configured, and refused with HTTP 401 / 403 when one is.
 * CORS middleware is wired and serves the configured origins.
-* The ``VIDEO2TEXT_CORS_ORIGINS`` env var overrides the defaults.
-* ``VIDEO2TEXT_API_TOKEN`` env var enables auth in ``create_app()``.
+* The ``MEDIASCRIBE_CORS_ORIGINS`` env var overrides the defaults.
+* ``MEDIASCRIBE_API_TOKEN`` env var enables auth in ``create_app()``.
 * P1-1: the WS handshake enforces the same token (``?token=`` or
   ``Sec-WebSocket-Protocol``) and ``cancel`` needs an authenticated
   connection.
 * P1-2: SSRF — private/loopback/link-local URLs are rejected at the
-  submit endpoints; ``VIDEO2TEXT_ALLOWED_HOSTS`` opts out.
+  submit endpoints; ``MEDIASCRIBE_ALLOWED_HOSTS`` opts out.
 * P1-3: local-path sources outside the workspace are rejected.
 * P2-3: JSON POST endpoints require ``Content-Type: application/json``.
 * P2-7: ``_run_batch_job`` logs exceptions and never swallows
   ``SystemExit`` / ``KeyboardInterrupt``.
-* P2-10: INSTALL.md origin prefers ``VIDEO2TEXT_PUBLIC_BASE_URL`` and
+* P2-10: INSTALL.md origin prefers ``MEDIASCRIBE_PUBLIC_BASE_URL`` and
   never reflects Host userinfo.
 """
 import json
@@ -31,7 +31,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "video2text" / "web"))
+sys.path.insert(0, str(ROOT / "mediascribe" / "web"))
 
 # These tests need the optional fastapi dep.  Skip cleanly otherwise.
 try:
@@ -54,7 +54,7 @@ class TestWebAppPublicHealth(unittest.TestCase):
 
     def setUp(self):
         # Make sure no token is leaking from a parent test environment.
-        os.environ.pop("VIDEO2TEXT_API_TOKEN", None)
+        os.environ.pop("MEDIASCRIBE_API_TOKEN", None)
         self.app = create_app(workspace=Path.cwd() / "test-ws-public")
 
     def test_health_is_public(self):
@@ -79,12 +79,12 @@ class TestWebAppAuth(unittest.TestCase):
     def setUp(self):
         # Per-test token: never commit a real secret; just use a sentinel.
         self._token = "test-token-deadbeef"
-        os.environ["VIDEO2TEXT_API_TOKEN"] = self._token
+        os.environ["MEDIASCRIBE_API_TOKEN"] = self._token
         self.app = create_app(workspace=Path.cwd() / "test-ws-auth")
         self.client = TestClient(self.app)
 
     def tearDown(self):
-        os.environ.pop("VIDEO2TEXT_API_TOKEN", None)
+        os.environ.pop("MEDIASCRIBE_API_TOKEN", None)
 
     def test_health_reports_auth_enabled(self):
         r = self.client.get("/api/health")
@@ -121,7 +121,7 @@ class TestWebAppCORS(unittest.TestCase):
     """CORS preflight must succeed for the configured origins."""
 
     def setUp(self):
-        os.environ.pop("VIDEO2TEXT_API_TOKEN", None)
+        os.environ.pop("MEDIASCRIBE_API_TOKEN", None)
         self.app = create_app(workspace=Path.cwd() / "test-ws-cors")
         self.client = TestClient(self.app)
 
@@ -154,7 +154,7 @@ class TestWebAppCORS(unittest.TestCase):
         )
 
     def test_cors_env_var_overrides_defaults(self):
-        os.environ["VIDEO2TEXT_CORS_ORIGINS"] = (
+        os.environ["MEDIASCRIBE_CORS_ORIGINS"] = (
             "https://my-dashboard.example.com, https://other.example.com"
         )
         try:
@@ -188,7 +188,7 @@ class TestWebAppCORS(unittest.TestCase):
                 "http://localhost:5173",
             )
         finally:
-            os.environ.pop("VIDEO2TEXT_CORS_ORIGINS", None)
+            os.environ.pop("MEDIASCRIBE_CORS_ORIGINS", None)
 
 
 @unittest.skipUnless(_HAS_FASTAPI, "fastapi not installed")
@@ -222,13 +222,13 @@ class TestWsAuth(unittest.TestCase):
     """/ws/progress 握手必须与 HTTP 侧共用同一 token 语义。"""
 
     def setUp(self):
-        os.environ.pop("VIDEO2TEXT_API_TOKEN", None)
+        os.environ.pop("MEDIASCRIBE_API_TOKEN", None)
         self._tmp = tempfile.TemporaryDirectory()
         self.app_obj = create_app(workspace=Path(self._tmp.name))
         self.client = TestClient(self.app_obj)
 
     def tearDown(self):
-        os.environ.pop("VIDEO2TEXT_API_TOKEN", None)
+        os.environ.pop("MEDIASCRIBE_API_TOKEN", None)
         self._tmp.cleanup()
 
     def _make_job(self):
@@ -241,7 +241,7 @@ class TestWsAuth(unittest.TestCase):
         self.assertEqual(msg["event"], "snapshot")
 
     def test_ws_rejected_without_token_when_auth_enabled(self):
-        os.environ["VIDEO2TEXT_API_TOKEN"] = "tok-123"
+        os.environ["MEDIASCRIBE_API_TOKEN"] = "tok-123"
         job = self._make_job()
         rejected = False
         try:
@@ -254,7 +254,7 @@ class TestWsAuth(unittest.TestCase):
         self.assertTrue(rejected, "WS without token must be closed with 1008")
 
     def test_ws_rejected_with_wrong_token(self):
-        os.environ["VIDEO2TEXT_API_TOKEN"] = "tok-123"
+        os.environ["MEDIASCRIBE_API_TOKEN"] = "tok-123"
         job = self._make_job()
         rejected = False
         try:
@@ -267,7 +267,7 @@ class TestWsAuth(unittest.TestCase):
         self.assertTrue(rejected, "WS with a wrong token must be closed with 1008")
 
     def test_ws_accepts_query_token(self):
-        os.environ["VIDEO2TEXT_API_TOKEN"] = "tok-123"
+        os.environ["MEDIASCRIBE_API_TOKEN"] = "tok-123"
         job = self._make_job()
         with self.client.websocket_connect(
             f"/ws/progress/{job.job_id}?token=tok-123"
@@ -276,7 +276,7 @@ class TestWsAuth(unittest.TestCase):
         self.assertEqual(msg["event"], "snapshot")
 
     def test_ws_accepts_token_via_subprotocol(self):
-        os.environ["VIDEO2TEXT_API_TOKEN"] = "tok-123"
+        os.environ["MEDIASCRIBE_API_TOKEN"] = "tok-123"
         job = self._make_job()
         with self.client.websocket_connect(
             f"/ws/progress/{job.job_id}", subprotocols=["tok-123"],
@@ -285,7 +285,7 @@ class TestWsAuth(unittest.TestCase):
         self.assertEqual(msg["event"], "snapshot")
 
     def test_ws_cancel_works_with_valid_token(self):
-        os.environ["VIDEO2TEXT_API_TOKEN"] = "tok-123"
+        os.environ["MEDIASCRIBE_API_TOKEN"] = "tok-123"
         job = self._make_job()
         try:
             with self.client.websocket_connect(
@@ -354,14 +354,14 @@ class TestSsrfUrlValidation(unittest.TestCase):
     def test_public_url_passes(self):
         url = "http://no-such-host-v2t.invalid"
         # Whitelisted host skips the resolver check entirely (offline-safe).
-        old = os.environ.pop("VIDEO2TEXT_ALLOWED_HOSTS", None)
-        os.environ["VIDEO2TEXT_ALLOWED_HOSTS"] = "no-such-host-v2t.invalid"
+        old = os.environ.pop("MEDIASCRIBE_ALLOWED_HOSTS", None)
+        os.environ["MEDIASCRIBE_ALLOWED_HOSTS"] = "no-such-host-v2t.invalid"
         try:
             self.assertEqual(_validate_public_url(url), url)
         finally:
-            os.environ.pop("VIDEO2TEXT_ALLOWED_HOSTS", None)
+            os.environ.pop("MEDIASCRIBE_ALLOWED_HOSTS", None)
             if old is not None:
-                os.environ["VIDEO2TEXT_ALLOWED_HOSTS"] = old
+                os.environ["MEDIASCRIBE_ALLOWED_HOSTS"] = old
 
 
 @unittest.skipUnless(_HAS_FASTAPI, "fastapi not installed")
@@ -369,7 +369,7 @@ class TestSsrfSubmitRejected(unittest.TestCase):
     """提交入口(/api/jobs、/api/transcribe)必须拒绝私网 URL。"""
 
     def setUp(self):
-        os.environ.pop("VIDEO2TEXT_API_TOKEN", None)
+        os.environ.pop("MEDIASCRIBE_API_TOKEN", None)
         self._tmp = tempfile.TemporaryDirectory()
         self.client = TestClient(create_app(workspace=Path(self._tmp.name)))
 
@@ -393,7 +393,7 @@ class TestLocalPathSource(unittest.TestCase):
     """本地路径仅允许 workspace 目录内; 其余必须 http(s) URL。"""
 
     def setUp(self):
-        os.environ.pop("VIDEO2TEXT_API_TOKEN", None)
+        os.environ.pop("MEDIASCRIBE_API_TOKEN", None)
 
     def test_outside_workspace_rejected(self):
         with tempfile.TemporaryDirectory() as td:
@@ -445,7 +445,7 @@ class TestJsonContentTypeRequired(unittest.TestCase):
     """text/plain "简单请求" 不能驱动 JSON API(415)。"""
 
     def setUp(self):
-        os.environ.pop("VIDEO2TEXT_API_TOKEN", None)
+        os.environ.pop("MEDIASCRIBE_API_TOKEN", None)
         self._tmp = tempfile.TemporaryDirectory()
         self.client = TestClient(create_app(workspace=Path(self._tmp.name)))
 
@@ -505,16 +505,16 @@ class TestRunBatchJobErrorHandling(unittest.TestCase):
 @unittest.skipUnless(_HAS_FASTAPI, "fastapi not installed")
 class TestPublicBaseUrl(unittest.TestCase):
     def setUp(self):
-        os.environ.pop("VIDEO2TEXT_PUBLIC_BASE_URL", None)
+        os.environ.pop("MEDIASCRIBE_PUBLIC_BASE_URL", None)
         self._tmp = tempfile.TemporaryDirectory()
         self.client = TestClient(create_app(workspace=Path(self._tmp.name)))
 
     def tearDown(self):
-        os.environ.pop("VIDEO2TEXT_PUBLIC_BASE_URL", None)
+        os.environ.pop("MEDIASCRIBE_PUBLIC_BASE_URL", None)
         self._tmp.cleanup()
 
     def test_env_override_wins(self):
-        os.environ["VIDEO2TEXT_PUBLIC_BASE_URL"] = "https://v2t.example.internal"
+        os.environ["MEDIASCRIBE_PUBLIC_BASE_URL"] = "https://v2t.example.internal"
         r = self.client.get("/api/extension/install.md?raw=1")
         self.assertEqual(r.status_code, 200)
         self.assertIn("https://v2t.example.internal", r.text)

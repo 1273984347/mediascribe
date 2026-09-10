@@ -27,8 +27,8 @@ class TestTranscriberPoolSingleton(unittest.TestCase):
     def test_singleton_same_instance(self):
         from douyin_batch.transcribe import TranscriberPool
 
-        with mock.patch("video2text.Pipeline") as PipeCls, mock.patch(
-            "video2text.Settings"
+        with mock.patch("mediascribe.Pipeline") as PipeCls, mock.patch(
+            "mediascribe.Settings"
         ) as SetCls:
             SetCls.return_value = mock.MagicMock(name="Settings")
             PipeCls.return_value = mock.MagicMock(name="Pipeline")
@@ -41,8 +41,8 @@ class TestTranscriberPoolSingleton(unittest.TestCase):
     def test_init_is_idempotent(self):
         from douyin_batch.transcribe import TranscriberPool
 
-        with mock.patch("video2text.Pipeline") as PipeCls, mock.patch(
-            "video2text.Settings"
+        with mock.patch("mediascribe.Pipeline") as PipeCls, mock.patch(
+            "mediascribe.Settings"
         ) as SetCls:
             SetCls.return_value = mock.MagicMock(name="Settings")
             PipeCls.return_value = mock.MagicMock(name="Pipeline")
@@ -62,7 +62,7 @@ class TestTranscriberPoolSingleton(unittest.TestCase):
         # Pre-set an instance; new() should return it without calling __init__
         sentinel = object()
         transcribe.TranscriberPool._instance = sentinel
-        with mock.patch("video2text.Pipeline") as PipeCls:
+        with mock.patch("mediascribe.Pipeline") as PipeCls:
             result = transcribe.TranscriberPool()
         self.assertIs(result, sentinel)
         PipeCls.assert_not_called()

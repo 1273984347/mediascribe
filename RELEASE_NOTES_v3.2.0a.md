@@ -1,4 +1,4 @@
-# Video2Text v3.2.0a — Tier 2 Polish Release
+# MediaScribe v3.2.0a — Tier 2 Polish Release
 
 > **Released:** 2026-06-06
 > **Tag:** `v3.2.0a` (annotated)
@@ -18,8 +18,8 @@ or the feature flag is missing.
 
 ### 1. VAD-based long-video chunking
 
-[audio_utils.py](video2text/audio_utils.py) ·
-[transcribers/chunked.py](video2text/transcribers/chunked.py)
+[audio_utils.py](mediascribe/audio_utils.py) ·
+[transcribers/chunked.py](mediascribe/transcribers/chunked.py)
 
 Long videos no longer get sliced on a hard 30 s clock.  When
 [`webrtcvad`](https://pypi.org/project/webrtcvad/) is installed, the
@@ -33,7 +33,7 @@ fallback when `webrtcvad` is not importable, so existing callers are
 unaffected.
 
 ```python
-from video2text.transcribers.chunked import ChunkedTranscriber
+from mediascribe.transcribers.chunked import ChunkedTranscriber
 
 transcriber = ChunkedTranscriber(
     model="base",
@@ -56,7 +56,7 @@ transcriber = ChunkedTranscriber(
 
 ### 2. Cross-run persistent cache
 
-[cache.py](video2text/cache.py)
+[cache.py](mediascribe/cache.py)
 
 Downloads and transcriptions are now memoised to **disk across
 processes**, not just within a single Python run.  Layout follows the
@@ -64,11 +64,11 @@ processes**, not just within a single Python run.  Layout follows the
 
 | Platform | Default cache root |
 |---|---|
-| Linux | `$XDG_CACHE_HOME/video2text` (or `~/.cache/video2text`) |
-| macOS | `~/Library/Caches/video2text` |
-| Windows | `%LOCALAPPDATA%\video2text\cache` |
+| Linux | `$XDG_CACHE_HOME/mediascribe` (or `~/.cache/mediascribe`) |
+| macOS | `~/Library/Caches/mediascribe` |
+| Windows | `%LOCALAPPDATA%\mediascribe\cache` |
 
-Override with the `VIDEO2TEXT_CACHE_DIR` environment variable.
+Override with the `MEDIASCRIBE_CACHE_DIR` environment variable.
 
 Each entry is keyed by `SHA-256(platform, url, params)` and lives in
 one of two index files (`downloads.json` / `transcripts.json`) for
@@ -78,7 +78,7 @@ index files are detected via a monotonic schema version and silently
 rebuilt.  `Cache.prune()` is exposed for cron / CI garbage collection.
 
 ```python
-from video2text.cache import Cache
+from mediascribe.cache import Cache
 
 c = Cache()                                # XDG-default location
 c.put("downloads", "douyin:ABC", payload)   # persisted
@@ -95,10 +95,10 @@ semantics, OSError on `_save_index`, and 4 KB payload round-trip.
 
 ### 3. `profile` CLI sub-command
 
-[__main__.py](video2text/__main__.py) ·
-[profile_cli.py](video2text/profile_cli.py)
+[__main__.py](mediascribe/__main__.py) ·
+[profile_cli.py](mediascribe/profile_cli.py)
 
-`python -m video2text profile <run.jsonl>` aggregates pipeline
+`python -m mediascribe profile <run.jsonl>` aggregates pipeline
 profiling JSONL output into a Markdown report, a JSON summary, or a
 CSV — the 3-axis breakdown (stage / event / percentiles) is identical
 to the Web UI.  The dispatcher preserves the v3.1.0 `transcribe` /
@@ -107,14 +107,14 @@ are not touched.
 
 ```bash
 # Markdown report, slowest 10 events
-python -m video2text profile runs/2026-06-06.jsonl
+python -m mediascribe profile runs/2026-06-06.jsonl
 
 # JSON summary, only events after 09:00 UTC, slowest 5
-python -m video2text profile runs/2026-06-06.jsonl \
+python -m mediascribe profile runs/2026-06-06.jsonl \
     --format json --top 5 --since 2026-06-06T09:00:00Z
 
 # CSV, all events, naive timestamps treated as UTC
-python -m video2text profile runs/2026-06-06.jsonl \
+python -m mediascribe profile runs/2026-06-06.jsonl \
     --format csv --tz-aware
 ```
 
@@ -133,8 +133,8 @@ python -m video2text profile runs/2026-06-06.jsonl \
 
 ### 4. WebSocket real-time job progress
 
-[progress.py](video2text/progress.py) ·
-[web/app.py](video2text/web/app.py)
+[progress.py](mediascribe/progress.py) ·
+[web/app.py](mediascribe/web/app.py)
 
 Long-running `/api/transcribe` and `/api/batch` jobs now publish a
 **3-bar progress event** (download / transcribe / assemble) that the
@@ -192,11 +192,11 @@ code review.  Net result:
 
 | Module | v3.1.0 | v3.2.0a | Δ |
 |---|---:|---:|---:|
-| `video2text/progress.py` | — | 100% | new |
-| `video2text/cache.py` | 92% | 94% | +2 |
-| `video2text/profile_cli.py` | 93% | 97% | +4 |
-| `video2text/transcribers/chunked.py` | 89% | 89% | flat |
-| `video2text/web/app.py` | 71% | 82% | +11 |
+| `mediascribe/progress.py` | — | 100% | new |
+| `mediascribe/cache.py` | 92% | 94% | +2 |
+| `mediascribe/profile_cli.py` | 93% | 97% | +4 |
+| `mediascribe/transcribers/chunked.py` | 89% | 89% | flat |
+| `mediascribe/web/app.py` | 71% | 82% | +11 |
 
 ---
 
@@ -205,7 +205,7 @@ code review.  Net result:
 ```text
 612 passed, 9 skipped in 213.52s
 ruff check .                            # 0 errors
-coverage report -m (video2text scope)   # 75% overall, all v3.2.0a modules ≥ 89%
+coverage report -m (mediascribe scope)   # 75% overall, all v3.2.0a modules ≥ 89%
 ```
 
 ---
@@ -218,7 +218,7 @@ git checkout v3.2.0a
 pip install -e ".[dev]"
 pip install webrtcvad          # optional, for VAD chunking
 pytest -q                      # 612 passed
-python -m video2text --help    # transcribe / batch / profile sub-commands
+python -m mediascribe --help    # transcribe / batch / profile sub-commands
 ```
 
 ---

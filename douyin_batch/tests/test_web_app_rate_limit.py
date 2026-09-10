@@ -4,9 +4,9 @@ Tests for the Web UI's in-process rate limiter.
 Covers:
 
 * The ``_RateLimiter`` sliding-window primitive (unit tests, no FastAPI).
-* ``VIDEO2TEXT_RATE_LIMIT`` env var controls ``max_requests``.
-* ``VIDEO2TEXT_RATE_LIMIT_WINDOW`` env var controls ``window_seconds``.
-* ``VIDEO2TEXT_RATE_LIMIT=0`` disables limiting entirely.
+* ``MEDIASCRIBE_RATE_LIMIT`` env var controls ``max_requests``.
+* ``MEDIASCRIBE_RATE_LIMIT_WINDOW`` env var controls ``window_seconds``.
+* ``MEDIASCRIBE_RATE_LIMIT=0`` disables limiting entirely.
 * ``/api/health`` reports the active rate-limit configuration.
 * Repeated ``/api/transcribe`` calls within the window return ``429``
   with proper ``Retry-After`` and ``X-RateLimit-*`` headers.
@@ -24,7 +24,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "video2text" / "web"))
+sys.path.insert(0, str(ROOT / "mediascribe" / "web"))
 
 # These tests need the optional fastapi dep.  Skip cleanly otherwise.
 try:
@@ -159,18 +159,18 @@ class TestBuildRateLimiterFromEnv(unittest.TestCase):
     """``_build_rate_limiter`` must honour the env vars."""
 
     def setUp(self):
-        self._saved_limit = os.environ.pop("VIDEO2TEXT_RATE_LIMIT", None)
-        self._saved_window = os.environ.pop("VIDEO2TEXT_RATE_LIMIT_WINDOW", None)
+        self._saved_limit = os.environ.pop("MEDIASCRIBE_RATE_LIMIT", None)
+        self._saved_window = os.environ.pop("MEDIASCRIBE_RATE_LIMIT_WINDOW", None)
 
     def tearDown(self):
         if self._saved_limit is not None:
-            os.environ["VIDEO2TEXT_RATE_LIMIT"] = self._saved_limit
+            os.environ["MEDIASCRIBE_RATE_LIMIT"] = self._saved_limit
         else:
-            os.environ.pop("VIDEO2TEXT_RATE_LIMIT", None)
+            os.environ.pop("MEDIASCRIBE_RATE_LIMIT", None)
         if self._saved_window is not None:
-            os.environ["VIDEO2TEXT_RATE_LIMIT_WINDOW"] = self._saved_window
+            os.environ["MEDIASCRIBE_RATE_LIMIT_WINDOW"] = self._saved_window
         else:
-            os.environ.pop("VIDEO2TEXT_RATE_LIMIT_WINDOW", None)
+            os.environ.pop("MEDIASCRIBE_RATE_LIMIT_WINDOW", None)
 
     def test_default(self):
         lim = _build_rate_limiter()
@@ -179,31 +179,31 @@ class TestBuildRateLimiterFromEnv(unittest.TestCase):
         self.assertEqual(lim.window_seconds, 60.0)
 
     def test_zero_disables(self):
-        os.environ["VIDEO2TEXT_RATE_LIMIT"] = "0"
+        os.environ["MEDIASCRIBE_RATE_LIMIT"] = "0"
         lim = _build_rate_limiter()
         self.assertFalse(lim.enabled)
         self.assertEqual(lim.max_requests, 0)
 
     def test_custom_max(self):
-        os.environ["VIDEO2TEXT_RATE_LIMIT"] = "3"
+        os.environ["MEDIASCRIBE_RATE_LIMIT"] = "3"
         lim = _build_rate_limiter()
         self.assertEqual(lim.max_requests, 3)
         self.assertTrue(lim.enabled)
 
     def test_custom_window(self):
-        os.environ["VIDEO2TEXT_RATE_LIMIT"] = "5"
-        os.environ["VIDEO2TEXT_RATE_LIMIT_WINDOW"] = "10"
+        os.environ["MEDIASCRIBE_RATE_LIMIT"] = "5"
+        os.environ["MEDIASCRIBE_RATE_LIMIT_WINDOW"] = "10"
         lim = _build_rate_limiter()
         self.assertEqual(lim.max_requests, 5)
         self.assertEqual(lim.window_seconds, 10.0)
 
     def test_invalid_max_falls_back_to_default(self):
-        os.environ["VIDEO2TEXT_RATE_LIMIT"] = "not-a-number"
+        os.environ["MEDIASCRIBE_RATE_LIMIT"] = "not-a-number"
         lim = _build_rate_limiter()
         self.assertEqual(lim.max_requests, 10)
 
     def test_invalid_window_falls_back_to_default(self):
-        os.environ["VIDEO2TEXT_RATE_LIMIT_WINDOW"] = "not-a-float"
+        os.environ["MEDIASCRIBE_RATE_LIMIT_WINDOW"] = "not-a-float"
         lim = _build_rate_limiter()
         self.assertEqual(lim.window_seconds, 60.0)
 
@@ -213,16 +213,16 @@ class TestWebAppRateLimit(unittest.TestCase):
     """End-to-end: hitting ``/api/transcribe`` triggers the limiter."""
 
     def setUp(self):
-        os.environ.pop("VIDEO2TEXT_API_TOKEN", None)
+        os.environ.pop("MEDIASCRIBE_API_TOKEN", None)
         # Tight quota so the test runs fast.
-        os.environ["VIDEO2TEXT_RATE_LIMIT"] = "2"
-        os.environ["VIDEO2TEXT_RATE_LIMIT_WINDOW"] = "60"
+        os.environ["MEDIASCRIBE_RATE_LIMIT"] = "2"
+        os.environ["MEDIASCRIBE_RATE_LIMIT_WINDOW"] = "60"
         self.app = create_app(workspace=Path.cwd() / "test-ws-rl")
         self.client = TestClient(self.app)
 
     def tearDown(self):
-        os.environ.pop("VIDEO2TEXT_RATE_LIMIT", None)
-        os.environ.pop("VIDEO2TEXT_RATE_LIMIT_WINDOW", None)
+        os.environ.pop("MEDIASCRIBE_RATE_LIMIT", None)
+        os.environ.pop("MEDIASCRIBE_RATE_LIMIT_WINDOW", None)
 
     def test_health_reports_rate_limit_config(self):
         r = self.client.get("/api/health")
@@ -281,15 +281,15 @@ class TestWebAppRateLimit(unittest.TestCase):
 
 @unittest.skipUnless(_HAS_FASTAPI, "fastapi not installed")
 class TestRateLimitDisabled(unittest.TestCase):
-    """``VIDEO2TEXT_RATE_LIMIT=0`` must leave the API fully open."""
+    """``MEDIASCRIBE_RATE_LIMIT=0`` must leave the API fully open."""
 
     def setUp(self):
-        os.environ["VIDEO2TEXT_RATE_LIMIT"] = "0"
+        os.environ["MEDIASCRIBE_RATE_LIMIT"] = "0"
         self.app = create_app(workspace=Path.cwd() / "test-ws-rl-off")
         self.client = TestClient(self.app)
 
     def tearDown(self):
-        os.environ.pop("VIDEO2TEXT_RATE_LIMIT", None)
+        os.environ.pop("MEDIASCRIBE_RATE_LIMIT", None)
 
     def test_health_reports_disabled(self):
         r = self.client.get("/api/health")

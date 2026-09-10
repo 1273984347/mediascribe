@@ -1,8 +1,8 @@
-site_name: Video2Text
+site_name: MediaScribe
 site_description: Transcribe videos from 6 platforms to Markdown using Whisper
-site_url: https://example.github.io/video2text/
-repo_url: https://github.com/example/video2text
-repo_name: example/video2text
+site_url: https://example.github.io/mediascribe/
+repo_url: https://github.com/example/mediascribe
+repo_name: example/mediascribe
 edit_uri: edit/main/docs_site/
 
 docs_dir: docs_site
@@ -96,11 +96,11 @@ extra:
     default: stable
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/example/video2text
+      link: https://github.com/example/mediascribe
     - icon: fontawesome/brands/python
-      link: https://pypi.org/project/video2text/
+      link: https://pypi.org/project/mediascribe/
 
-copyright: Copyright &copy; 2024–2026 Video2Text contributors. Licensed under MIT.
+copyright: Copyright &copy; 2024–2026 MediaScribe contributors. Licensed under MIT.
 
 # Strict mode: build fails on warnings.  Disable for now because
 # some auto-generated sections may include stale cross-refs.

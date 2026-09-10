@@ -1,28 +1,28 @@
 # Plugins
 
-Third-party packages can extend Video2Text via the standard
+Third-party packages can extend MediaScribe via the standard
 `entry_points` mechanism.  Three groups are recognised:
 
 | Group | What to register | Used by |
 |-------|------------------|---------|
-| `video2text.downloaders` | a class subclassing `Downloader` | `parse_source` |
-| `video2text.transcribers` | a class subclassing `Transcriber` | `transcriber_factory` |
-| `video2text.url_transformers` | a callable `(url) -> Optional[str]` | URL canonicalisation |
+| `mediascribe.downloaders` | a class subclassing `Downloader` | `parse_source` |
+| `mediascribe.transcribers` | a class subclassing `Transcriber` | `transcriber_factory` |
+| `mediascribe.url_transformers` | a callable `(url) -> Optional[str]` | URL canonicalisation |
 
 ## Registering a downloader
 
 In your package's `pyproject.toml`:
 
 ```toml
-[project.entry-points."video2text.downloaders"]
+[project.entry-points."mediascribe.downloaders"]
 mysite = "my_pkg:MysiteDownloader"
 ```
 
 Implement the hookspec:
 
 ```python
-from video2text.downloaders.base import Downloader
-from video2text.models import SourceRef, DownloadResult
+from mediascribe.downloaders.base import Downloader
+from mediascribe.models import SourceRef, DownloadResult
 
 class MysiteDownloader(Downloader):
     name = "mysite"
@@ -36,19 +36,19 @@ class MysiteDownloader(Downloader):
 ```
 
 After `pip install my-pkg`, the new downloader is auto-registered.
-No change to Video2Text is required.
+No change to MediaScribe is required.
 
 ## Registering a transcriber
 
-Same pattern, under the `video2text.transcribers` group:
+Same pattern, under the `mediascribe.transcribers` group:
 
 ```toml
-[project.entry-points."video2text.transcribers"]
+[project.entry-points."mediascribe.transcribers"]
 my_asr = "my_pkg:MyAsrTranscriber"
 ```
 
 ```python
-from video2text.transcribers.base import Transcriber
+from mediascribe.transcribers.base import Transcriber
 
 class MyAsrTranscriber(Transcriber):
     name = "my_asr"
@@ -73,16 +73,16 @@ def transform(url: str) -> Optional[str]:
 Register it:
 
 ```toml
-[project.entry-points."video2text.url_transformers"]
+[project.entry-points."mediascribe.url_transformers"]
 myshort = "my_pkg:transform"
 ```
 
 ## Discovery
 
-Use `video2text.plugins` to inspect what's installed:
+Use `mediascribe.plugins` to inspect what's installed:
 
 ```python
-from video2text import plugins
+from mediascribe import plugins
 print(plugins.list_downloaders())   # ['mysite', 'vimeo', ...]
 print(plugins.list_transcribers())  # ['my_asr', 'whisper', ...]
 print(plugins.list_url_transformers())

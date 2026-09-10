@@ -1,14 +1,14 @@
 # Publishing v3.1.0 to GitHub
 
 The local git repository and the `v3.1.0` annotated tag are already in
-place at `d:\1\video2text`. To publish, follow the three steps below.
+place at `d:\1\mediascribe`. To publish, follow the three steps below.
 
 ## 1. Create the remote repository
 
 On GitHub:
 
 1. Go to https://github.com/new
-2. **Repository name**: `video2text`
+2. **Repository name**: `mediascribe`
 3. **Description**: `Offline video transcription. Download from Bilibili,
    Douyin, YouTube, Xiaohongshu, WeChat MP and transcribe locally with
    Whisper / WhisperX / faster-whisper.`
@@ -19,8 +19,8 @@ On GitHub:
 ## 2. Add the remote and push
 
 ```bash
-cd d:\1\video2text
-git remote add origin https://github.com/<your-org>/video2text.git
+cd d:\1\mediascribe
+git remote add origin https://github.com/<your-org>/mediascribe.git
 git push -u origin main
 git push origin v3.1.0
 ```
@@ -33,7 +33,7 @@ You have two options. Pick whichever is more convenient.
 
 ### Option A — via the web UI
 
-1. Go to https://github.com/<your-org>/video2text/releases/new
+1. Go to https://github.com/<your-org>/mediascribe/releases/new
 2. **Choose the tag**: `v3.1.0`
 3. **Release title**: `v3.1.0`
 4. **Description**: paste the full contents of
@@ -57,7 +57,7 @@ The extension ZIP can be built by the Web UI and uploaded as a release
 asset. To build it headlessly, you can also use the CLI:
 
 ```bash
-python -m video2text.web.extension_builder --output extension.zip
+python -m mediascribe.web.extension_builder --output extension.zip
 gh release upload v3.1.0 extension.zip
 ```
 

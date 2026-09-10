@@ -16,11 +16,11 @@ sys.path.insert(0, str(ROOT))
 class TestSpanAndContext(unittest.TestCase):
 
     def setUp(self):
-        from video2text.observability import clear_observability
+        from mediascribe.observability import clear_observability
         clear_observability()
 
     def test_basic_span_lifecycle(self):
-        from video2text.observability import OBSERVABILITY, get_tracer
+        from mediascribe.observability import OBSERVABILITY, get_tracer
         tracer = get_tracer()
         with tracer.start_as_current_span("test") as span:
             span.set_attribute("k", "v")
@@ -31,7 +31,7 @@ class TestSpanAndContext(unittest.TestCase):
         self.assertIsNotNone(rec["duration_ms"])
 
     def test_nested_spans_share_trace_id(self):
-        from video2text.observability import OBSERVABILITY, get_tracer
+        from mediascribe.observability import OBSERVABILITY, get_tracer
         tracer = get_tracer()
         with tracer.start_as_current_span("parent") as p:
             with tracer.start_as_current_span("child") as c:
@@ -47,7 +47,7 @@ class TestSpanAndContext(unittest.TestCase):
         self.assertIsNotNone(child["parent_id"])
 
     def test_exception_marked_as_error(self):
-        from video2text.observability import OBSERVABILITY, get_tracer
+        from mediascribe.observability import OBSERVABILITY, get_tracer
         tracer = get_tracer()
         with self.assertRaises(RuntimeError):
             with tracer.start_as_current_span("boom") as span:
@@ -57,7 +57,7 @@ class TestSpanAndContext(unittest.TestCase):
         self.assertTrue(any(e["type"] == "exception" for e in rec["events"]))
 
     def test_add_event(self):
-        from video2text.observability import OBSERVABILITY, get_tracer
+        from mediascribe.observability import OBSERVABILITY, get_tracer
         tracer = get_tracer()
         with tracer.start_as_current_span("evt") as span:
             span.add_event("checkpoint", {"step": 1})
@@ -68,11 +68,11 @@ class TestSpanAndContext(unittest.TestCase):
 class TestMeter(unittest.TestCase):
 
     def setUp(self):
-        from video2text.observability import clear_observability
+        from mediascribe.observability import clear_observability
         clear_observability()
 
     def test_counter_records(self):
-        from video2text.observability import OBSERVABILITY, get_meter
+        from mediascribe.observability import OBSERVABILITY, get_meter
         meter = get_meter()
         c = meter.create_counter("v2t.requests")
         c.add(1, {"platform": "youtube"})
@@ -81,7 +81,7 @@ class TestMeter(unittest.TestCase):
         self.assertEqual(OBSERVABILITY["metrics"]["v2t.requests"][0]["value"], 1)
 
     def test_histogram_records(self):
-        from video2text.observability import OBSERVABILITY, get_meter
+        from mediascribe.observability import OBSERVABILITY, get_meter
         meter = get_meter()
         h = meter.create_histogram("v2t.duration_ms")
         h.record(123.4, {"engine": "whisper"})
@@ -92,7 +92,7 @@ class TestMeter(unittest.TestCase):
 class TestClearObservability(unittest.TestCase):
 
     def test_clear_resets_state(self):
-        from video2text.observability import (
+        from mediascribe.observability import (
             OBSERVABILITY,
             clear_observability,
             get_meter,
@@ -112,13 +112,13 @@ class TestConcurrentSpanContexts(unittest.TestCase):
     child 的 parent/trace 不得串到别的 task 上。"""
 
     def setUp(self):
-        from video2text.observability import clear_observability
+        from mediascribe.observability import clear_observability
         clear_observability()
 
     def test_concurrent_tasks_do_not_cross_contaminate(self):
         import asyncio
 
-        from video2text.observability import OBSERVABILITY, get_tracer
+        from mediascribe.observability import OBSERVABILITY, get_tracer
 
         tracer = get_tracer()
 
@@ -145,7 +145,7 @@ class TestConcurrentSpanContexts(unittest.TestCase):
 
     def test_root_span_after_nested_context_is_clean(self):
         """嵌套 span 退出后,栈被正确恢复 — 后续根 span 的 parent 为空。"""
-        from video2text.observability import OBSERVABILITY, get_tracer
+        from mediascribe.observability import OBSERVABILITY, get_tracer
 
         tracer = get_tracer()
         with tracer.start_as_current_span("outer"):
@@ -160,7 +160,7 @@ class TestConcurrentSpanContexts(unittest.TestCase):
 class TestOptionalOtelUpgrade(unittest.TestCase):
 
     def test_install_returns_bool(self):
-        from video2text.observability import install_opentelemetry_exporter
+        from mediascribe.observability import install_opentelemetry_exporter
         # No assertion on return value: depends on whether
         # opentelemetry-sdk is installed in the test env.
         result = install_opentelemetry_exporter()

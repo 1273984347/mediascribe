@@ -9,7 +9,7 @@ bilingual UI support.
 汇总报告等开箱即用能力，支持中英文双语界面。
 """
 __version__ = "3.3.0"
-__author__ = "Video2Text Contributors"
+__author__ = "MediaScribe Contributors"
 __license__ = "MIT"
 
 __all__ = [

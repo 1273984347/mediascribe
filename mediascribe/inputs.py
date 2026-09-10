@@ -106,7 +106,7 @@ def safe_stem(name: str) -> str:
     tool.
     """
     # Local import to avoid pulling douyin_batch at module import time
-    # (some embedders install ``video2text`` without the full batch tool).
+    # (some embedders install ``mediascribe`` without the full batch tool).
     from douyin_batch.platform_compat import safe_filename
 
     return safe_filename(str(name))

@@ -33,7 +33,7 @@ class TranscriberPool:
             return
 
         sys.path.insert(0, str(Path(__file__).parent.parent))
-        from video2text import Pipeline, Settings
+        from mediascribe import Pipeline, Settings
 
         # BatchConfig → Settings 映射（缺省保持原行为：small + zh）
         whisper_model = getattr(config, "whisper_model", None) or "small"

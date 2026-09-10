@@ -1,7 +1,7 @@
 """
 Persistent on-disk cache for downloaded media and processed chunks.
 
-The ``DownloadCache`` in :mod:`video2text.performance` is a *single-run*
+The ``DownloadCache`` in :mod:`mediascribe.performance` is a *single-run*
 cache: each pipeline run gets a fresh ``tempfile.mkdtemp()`` directory
 and the cache is gone when the process exits.  The classes in this
 module are their *persistent* counterparts:
@@ -38,7 +38,7 @@ from typing import Optional
 _DEFAULT_TTL_SECONDS = 30 * 24 * 3600  # 30 days
 _DEFAULT_MAX_BYTES = 5 * 1024 * 1024 * 1024  # 5 GB
 _DEFAULT_MAX_CHUNK_ENTRIES = 1024
-_DEFAULT_APP_NAME = "video2text"
+_DEFAULT_APP_NAME = "mediascribe"
 
 
 def _atomic_copy(src: Path, dst: Path) -> None:
@@ -86,7 +86,7 @@ def persistent_cache_dir(
 
     Honours, in order of precedence:
     1. ``override`` (typically from ``Settings.cache_dir``)
-    2. ``$VIDEO2TEXT_CACHE_DIR``
+    2. ``$MEDIASCRIBE_CACHE_DIR``
     3. ``$XDG_CACHE_HOME/<app_name>`` on Linux/macOS
     4. ``%LOCALAPPDATA%\\<app_name>\\Cache`` on Windows
     5. ``~/.cache/<app_name>`` as a last resort
@@ -96,7 +96,7 @@ def persistent_cache_dir(
     """
     if override is not None:
         return Path(override)
-    env = os.environ.get("VIDEO2TEXT_CACHE_DIR")
+    env = os.environ.get("MEDIASCRIBE_CACHE_DIR")
     if env:
         return Path(env)
     xdg = os.environ.get("XDG_CACHE_HOME")

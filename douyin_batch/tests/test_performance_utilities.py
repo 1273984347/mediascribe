@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT))
 class TestProfileStep(unittest.TestCase):
 
     def test_records_duration(self):
-        from video2text.performance import STEP_TIMES, clear_step_times, profile_step
+        from mediascribe.performance import STEP_TIMES, clear_step_times, profile_step
         clear_step_times()
 
         @profile_step("test_sleep")
@@ -27,7 +27,7 @@ class TestProfileStep(unittest.TestCase):
         self.assertGreater(STEP_TIMES["test_sleep"][-1], 0.005)
 
     def test_records_on_exception(self):
-        from video2text.performance import STEP_TIMES, clear_step_times, profile_step
+        from mediascribe.performance import STEP_TIMES, clear_step_times, profile_step
         clear_step_times()
 
         @profile_step("test_boom")
@@ -42,7 +42,7 @@ class TestProfileStep(unittest.TestCase):
 class TestPerformanceReport(unittest.TestCase):
 
     def test_from_registry(self):
-        from video2text.performance import (
+        from mediascribe.performance import (
             STEP_TIMES,
             PerformanceReport,
             clear_step_times,
@@ -67,7 +67,7 @@ class TestPerformanceReport(unittest.TestCase):
                            report.steps["alpha"]["mean_sec"])
 
     def test_markdown_output(self):
-        from video2text.performance import PerformanceReport, clear_step_times, profile_step
+        from mediascribe.performance import PerformanceReport, clear_step_times, profile_step
         clear_step_times()
 
         @profile_step("x")
@@ -83,7 +83,7 @@ class TestPerformanceReport(unittest.TestCase):
         import json
         import tempfile
 
-        from video2text.performance import PerformanceReport, clear_step_times, profile_step
+        from mediascribe.performance import PerformanceReport, clear_step_times, profile_step
         clear_step_times()
         @profile_step("y")
         def y():
@@ -99,16 +99,16 @@ class TestPerformanceReport(unittest.TestCase):
 class TestParallelMap(unittest.TestCase):
 
     def test_empty_input(self):
-        from video2text.performance import parallel_map
+        from mediascribe.performance import parallel_map
         self.assertEqual(parallel_map(lambda x: x * 2, []), [])
 
     def test_preserves_order(self):
-        from video2text.performance import parallel_map
+        from mediascribe.performance import parallel_map
         out = parallel_map(lambda x: x * 2, [1, 2, 3, 4])
         self.assertEqual(out, [2, 4, 6, 8])
 
     def test_thread_pool_used(self):
-        from video2text.performance import parallel_map
+        from mediascribe.performance import parallel_map
         # Multiple workers should make 4 sleeps of 0.05s finish
         # faster than the serial 0.20s would.
         t0 = time.perf_counter()
@@ -123,15 +123,15 @@ class TestRunScopedTimings(unittest.TestCase):
     全局 ``STEP_TIMES`` 与无 run 上下文的调用方行为保持不变。"""
 
     def setUp(self):
-        from video2text.performance import clear_step_times
+        from mediascribe.performance import clear_step_times
         clear_step_times()
 
     def tearDown(self):
-        from video2text.performance import clear_step_times
+        from mediascribe.performance import clear_step_times
         clear_step_times()
 
     def test_run_registry_isolated_from_global(self):
-        from video2text.performance import (
+        from mediascribe.performance import (
             STEP_TIMES,
             begin_run_registry,
             end_run_registry,
@@ -156,7 +156,7 @@ class TestRunScopedTimings(unittest.TestCase):
 
     def test_second_run_gets_fresh_registry(self):
         """连续两次 profile run,第二次的计数不叠加第一次。"""
-        from video2text.performance import (
+        from mediascribe.performance import (
             begin_run_registry,
             end_run_registry,
             get_step_times,
@@ -179,7 +179,7 @@ class TestRunScopedTimings(unittest.TestCase):
         end_run_registry()
 
     def test_clear_step_times_detaches_run_registry(self):
-        from video2text.performance import (
+        from mediascribe.performance import (
             STEP_TIMES,
             begin_run_registry,
             clear_step_times,
@@ -201,7 +201,7 @@ class TestRunScopedTimings(unittest.TestCase):
 class TestDownloadCache(unittest.TestCase):
 
     def test_put_and_get(self):
-        from video2text.performance import DownloadCache
+        from mediascribe.performance import DownloadCache
         with __import__("tempfile").TemporaryDirectory() as td:
             src = Path(td) / "source.txt"
             src.write_text("hi", encoding="utf-8")

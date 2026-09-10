@@ -1,5 +1,5 @@
 """
-Plugin registry for Video2Text.
+Plugin registry for MediaScribe.
 
 Third-party packages can extend the project by registering
 ``Downloader``, ``Transcriber``, or ``URLTransformer`` plugins via
@@ -7,17 +7,17 @@ the standard ``entry_points`` mechanism.
 
 In your ``pyproject.toml``::
 
-    [project.entry-points."video2text.downloaders"]
+    [project.entry-points."mediascribe.downloaders"]
     mysite = "my_pkg:MysiteDownloader"
 
-    [project.entry-points."video2text.transcribers"]
+    [project.entry-points."mediascribe.transcribers"]
     my_asr = "my_pkg:MyAsrTranscriber"
 
-    [project.entry-points."video2text.url_transformers"]
+    [project.entry-points."mediascribe.url_transformers"]
     shortlink = "my_pkg:MyShortLinkResolver"
 
 After ``pip install my-pkg`` the registry picks them up
-automatically — no code change in video2text is required.
+automatically — no code change in mediascribe is required.
 
 The discovery mechanism uses ``importlib.metadata`` (Python 3.8+),
 which is the modern, recommended replacement for
@@ -34,9 +34,9 @@ from ..downloaders.base import Downloader
 from ..transcribers.base import Transcriber
 
 ENTRY_POINT_GROUPS = {
-    "downloaders": "video2text.downloaders",
-    "transcribers": "video2text.transcribers",
-    "url_transformers": "video2text.url_transformers",
+    "downloaders": "mediascribe.downloaders",
+    "transcribers": "mediascribe.transcribers",
+    "url_transformers": "mediascribe.url_transformers",
 }
 
 
@@ -122,7 +122,7 @@ def list_url_transformers() -> List[str]:
 class DownloaderHookSpec:
     """Mixin documenting the methods a downloader plugin may implement.
 
-    Video2Text does NOT enforce an abstract base class on plugin
+    MediaScribe does NOT enforce an abstract base class on plugin
     downloaders — any class with a ``supports(source)`` and
     ``download(source, settings, **kwargs)`` method works.  This
     class is just a typed hint for IDE auto-completion.

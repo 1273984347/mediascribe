@@ -7,13 +7,13 @@ a Whisper model at once:
 * produces inferior alignment (Whisper's attention is local),
 * makes failures unrecoverable — one bad chunk kills the run.
 
-Video2Text solves all three with a **chunk + overlap + merge**
-strategy implemented in `video2text.transcribers.chunked.ChunkedTranscriber`.
+MediaScribe solves all three with a **chunk + overlap + merge**
+strategy implemented in `mediascribe.transcribers.chunked.ChunkedTranscriber`.
 
 ## Quick start
 
 ```python
-from video2text.transcribers import (
+from mediascribe.transcribers import (
     get_transcriber, ChunkedTranscriber,
 )
 

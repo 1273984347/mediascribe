@@ -76,19 +76,19 @@ print("OK: Format arguments work")
 # Test 4: CLI help works
 print("\n=== Test 4: CLI --help output (en) ===")
 result = subprocess.run(
-    [sys.executable, "-m", "video2text", "--help"],
+    [sys.executable, "-m", "mediascribe", "--help"],
     capture_output=True, text=True, cwd=str(PROJECT_ROOT)
 )
-assert "transcribe" in result.stdout.lower() or "video2text" in result.stdout.lower(), "Help output missing"
+assert "transcribe" in result.stdout.lower() or "mediascribe" in result.stdout.lower(), "Help output missing"
 print("OK: CLI help renders correctly")
 
 print("\n=== Test 5: CLI --help output (zh) ===")
-# v3.2.0+ uses python -m video2text; zh help follows system locale
+# v3.2.0+ uses python -m mediascribe; zh help follows system locale
 result = subprocess.run(
-    [sys.executable, "-m", "video2text", "--help"],
+    [sys.executable, "-m", "mediascribe", "--help"],
     capture_output=True, text=True, cwd=str(PROJECT_ROOT)
 )
-assert "transcribe" in result.stdout.lower() or "video2text" in result.stdout.lower(), "Help output missing"
+assert "transcribe" in result.stdout.lower() or "mediascribe" in result.stdout.lower(), "Help output missing"
 print("OK: CLI help renders correctly")
 
 print("\n=== All i18n integration tests passed! ===")

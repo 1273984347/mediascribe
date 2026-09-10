@@ -1,15 +1,15 @@
-# GitHub Copilot workspace instructions for Video2Text
+# GitHub Copilot workspace instructions for MediaScribe
 # Read alongside AGENTS.md (the universal AI-agent guide).
 
 ## Project summary
-Video2Text is an offline video transcription tool. It downloads videos from
+MediaScribe is an offline video transcription tool. It downloads videos from
 Bilibili, Douyin, and local files, then transcribes audio with local AI models
 (Whisper, WhisperX, faster-whisper). No cloud services, no API keys, no
 cookies for Douyin.
 
 ## Tech stack
 - Python 3.8+ (3.12 recommended)
-- Core library: `video2text/`
+- Core library: `mediascribe/`
 - Batch library: `douyin_batch/`
 - CLI entry: `douyin_batch_v3.py`
 

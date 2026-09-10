@@ -12,7 +12,7 @@ class TestEasyOcrReaderCache(unittest.TestCase):
     pay the ~3s load cost."""
 
     def setUp(self):
-        from video2text.downloaders import wechat_mp
+        from mediascribe.downloaders import wechat_mp
         wechat_mp.clear_ocr_cache()
         self.mod = wechat_mp
 
@@ -50,7 +50,7 @@ class TestParallelOcr(unittest.TestCase):
     images in parallel."""
 
     def test_concurrent_invocation(self):
-        from video2text.downloaders.wechat_mp import WechatMpDownloader
+        from mediascribe.downloaders.wechat_mp import WechatMpDownloader
         d = WechatMpDownloader()
         d._ocr_engine = "auto"
         d._ocr_lang = "chi_sim+eng"
@@ -75,7 +75,7 @@ class TestParallelOcr(unittest.TestCase):
         })
 
     def test_empty_list_returns_zero(self):
-        from video2text.downloaders.wechat_mp import WechatMpDownloader
+        from mediascribe.downloaders.wechat_mp import WechatMpDownloader
         d = WechatMpDownloader()
         texts, success, total = d._ocr_images([], Path("/tmp"))
         self.assertEqual(total, 0)
@@ -85,7 +85,7 @@ class TestParallelOcr(unittest.TestCase):
     def test_partial_failures_counted_correctly(self):
         from unittest.mock import patch
 
-        from video2text.downloaders.wechat_mp import WechatMpDownloader
+        from mediascribe.downloaders.wechat_mp import WechatMpDownloader
         d = WechatMpDownloader()
 
         def stub_ocr(url, save_dir):

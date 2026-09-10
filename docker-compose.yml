@@ -1,4 +1,4 @@
-# Video2Text one-click Docker Compose.
+# MediaScribe one-click Docker Compose.
 #
 # Usage:
 #   docker compose up -d --build
@@ -10,18 +10,18 @@
 
 services:
   web:
-    container_name: video2text-web
+    container_name: mediascribe-web
     build:
       context: .
       dockerfile: Dockerfile
-    # Local build (Dockerfile ENV already pins VIDEO2TEXT_WORKSPACE=/workspace);
+    # Local build (Dockerfile ENV already pins MEDIASCRIBE_WORKSPACE=/workspace);
     # pin a stable local tag instead of a version tag that drifts from pyproject.
-    image: video2text:local
+    image: mediascribe:local
     ports:
       - "8000:8000"
     volumes:
       # Persist transcripts / downloads on the host.  Pairs with
-      # VIDEO2TEXT_WORKSPACE=/workspace baked into the image, so everything
+      # MEDIASCRIBE_WORKSPACE=/workspace baked into the image, so everything
       # the app writes under the workspace lands in ./web-workspace.
       - ./web-workspace:/workspace
       # Sync container clock with the host's timezone.  Only works on
@@ -31,7 +31,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       # Wired into the web layer's logging setup
-      - VIDEO2TEXT_LOG_LEVEL=info
+      - MEDIASCRIBE_LOG_LEVEL=info
     restart: unless-stopped
     # Add GPU passthrough by uncommenting on a host with nvidia-container-toolkit:
     # deploy:

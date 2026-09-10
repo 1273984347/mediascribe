@@ -6,8 +6,8 @@ This is the canonical way to refresh the files in
     python scripts/capture_cli_help.py
 
 It writes:
-    docs/cli-screenshots/video2text-help.txt
-    docs/cli-screenshots/video2text-mcp-help.txt
+    docs/cli-screenshots/mediascribe-help.txt
+    docs/cli-screenshots/mediascribe-mcp-help.txt
     docs/cli-screenshots/douyin-batch-v3-help.txt
     docs/cli-screenshots/douyin-batch-v3-help-zh.txt
     docs/cli-screenshots/douyin-batch-v3-help-en.txt
@@ -22,13 +22,13 @@ OUT = ROOT / "docs" / "cli-screenshots"
 
 COMMANDS = [
     (
-        "video2text-help.txt",
-        [sys.executable, "-m", "video2text", "--help"],
-        "Main video2text CLI help (English)",
+        "mediascribe-help.txt",
+        [sys.executable, "-m", "mediascribe", "--help"],
+        "Main mediascribe CLI help (English)",
     ),
     (
-        "video2text-mcp-help.txt",
-        [sys.executable, "-m", "video2text.mcp_server", "--help"],
+        "mediascribe-mcp-help.txt",
+        [sys.executable, "-m", "mediascribe.mcp_server", "--help"],
         "MCP server CLI options",
     ),
     (

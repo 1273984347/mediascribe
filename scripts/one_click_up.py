@@ -1,5 +1,5 @@
 """
-Video2Text 一键启动 — Web UI + 浏览器扩展 host。
+MediaScribe 一键启动 — Web UI + 浏览器扩展 host。
 
 Cross-platform one-click launcher: starts the FastAPI Web UI in
 the background, optionally opens the user's browser, prints the
@@ -129,7 +129,7 @@ def check_prereqs(mode: str) -> List[str]:
         except ImportError:
             msgs.append(
                 "ERROR: fastapi not installed. Run: "
-                "pip install \"video2text[web]\""
+                "pip install \"mediascribe[web]\""
             )
     elif mode == "docker":
         if _which("docker") is None:
@@ -158,11 +158,11 @@ def launch_local(host: str, port: int, *, reload: bool) -> LaunchResult:
         return LaunchResult(
             ok=False, mode="local",
             messages=["fastapi/uvicorn not installed; "
-                      "run pip install \"video2text[web]\""],
+                      "run pip install \"mediascribe[web]\""],
         )
     cmd = [
         sys.executable, "-m", "uvicorn",
-        "video2text.web.app:app",
+        "mediascribe.web.app:app",
         "--host", host, "--port", str(port),
     ]
     if reload:
@@ -203,10 +203,10 @@ def launch_docker(host: str, port: int) -> LaunchResult:
     if rc != 0:
         return LaunchResult(ok=False, mode="docker",
                             messages=[f"docker compose up failed (rc={rc})"])
-    # The container is named ``video2text-web`` per docker-compose.yml
+    # The container is named ``mediascribe-web`` per docker-compose.yml
     # and exposes the same port.  PID file is a stand-in.
     compose_pid = subprocess.check_output(
-        ["docker", "inspect", "-f", "{{.State.Pid}}", "video2text-web"],
+        ["docker", "inspect", "-f", "{{.State.Pid}}", "mediascribe-web"],
         text=True,
     ).strip()
     _write_pid(int(compose_pid))

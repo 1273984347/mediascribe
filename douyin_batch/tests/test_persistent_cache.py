@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT))
 class TestPersistentCacheDir(unittest.TestCase):
     def setUp(self) -> None:
         self._saved = {}
-        for k in ("VIDEO2TEXT_CACHE_DIR", "XDG_CACHE_HOME"):
+        for k in ("MEDIASCRIBE_CACHE_DIR", "XDG_CACHE_HOME"):
             self._saved[k] = os.environ.get(k)
         for k in self._saved:
             os.environ.pop(k, None)
@@ -33,34 +33,34 @@ class TestPersistentCacheDir(unittest.TestCase):
                 os.environ[k] = v
 
     def test_explicit_override(self):
-        from video2text.cache import persistent_cache_dir
+        from mediascribe.cache import persistent_cache_dir
 
         p = persistent_cache_dir(override=Path("/custom/cache"))
         self.assertEqual(p, Path("/custom/cache"))
 
     def test_env_var_wins(self):
-        from video2text.cache import persistent_cache_dir
+        from mediascribe.cache import persistent_cache_dir
 
-        os.environ["VIDEO2TEXT_CACHE_DIR"] = "/env/cache"
+        os.environ["MEDIASCRIBE_CACHE_DIR"] = "/env/cache"
         p = persistent_cache_dir()
         self.assertEqual(p, Path("/env/cache"))
 
     def test_xdg_cache_home(self):
-        from video2text.cache import persistent_cache_dir
+        from mediascribe.cache import persistent_cache_dir
 
         os.environ["XDG_CACHE_HOME"] = "/xdg"
         p = persistent_cache_dir()
-        self.assertEqual(p, Path("/xdg/video2text"))
+        self.assertEqual(p, Path("/xdg/mediascribe"))
 
     def test_app_name(self):
-        from video2text.cache import persistent_cache_dir
+        from mediascribe.cache import persistent_cache_dir
 
         os.environ["XDG_CACHE_HOME"] = "/xdg"
         p = persistent_cache_dir("myapp")
         self.assertEqual(p, Path("/xdg/myapp"))
 
     def test_fallback_to_home(self):
-        from video2text.cache import persistent_cache_dir
+        from mediascribe.cache import persistent_cache_dir
 
         # On Windows, %LOCALAPPDATA% takes precedence.  On Linux/macOS
         # the .cache fallback is used.  Either way it should point
@@ -68,8 +68,8 @@ class TestPersistentCacheDir(unittest.TestCase):
         with mock.patch.object(Path, "home", return_value=Path("/home/x")):
             p = persistent_cache_dir()
         self.assertIn(str(p), [
-            str(Path("/home/x/.cache/video2text")),
-            str(Path("C:/Users/12739/AppData/Local/video2text/Cache")),
+            str(Path("/home/x/.cache/mediascribe")),
+            str(Path("C:/Users/12739/AppData/Local/mediascribe/Cache")),
         ])
 
 
@@ -91,7 +91,7 @@ class TestPersistentDownloadCache(unittest.TestCase):
         return tempfile.mkdtemp(prefix="v2t_pcache_")
 
     def _make_cache(self, **kw) -> tuple:
-        from video2text.cache import PersistentDownloadCache
+        from mediascribe.cache import PersistentDownloadCache
 
         c = PersistentDownloadCache(base=self.tmp / "cache", **kw)
         return c
@@ -207,7 +207,7 @@ class TestPersistentDownloadCache(unittest.TestCase):
 
 def _save_index_local(cache_dir: Path, name: str, index: dict) -> None:
     """Test helper: write the index file the same way cache.py does."""
-    from video2text.cache import _save_index
+    from mediascribe.cache import _save_index
     _save_index(cache_dir, name, index)
 
 
@@ -233,7 +233,7 @@ class TestPersistentChunkCache(unittest.TestCase):
         return tempfile.mkdtemp(prefix="v2t_pchunk_")
 
     def _make_cache(self):
-        from video2text.cache import PersistentChunkCache
+        from mediascribe.cache import PersistentChunkCache
 
         return PersistentChunkCache(base=self.tmp / "chunk_cache")
 
@@ -296,7 +296,7 @@ class TestCacheAtomicityAndWriteAmplification(unittest.TestCase):
         self.src.write_bytes(b"payload" * 10)
 
     def _cache(self, **kw):
-        from video2text.cache import PersistentDownloadCache
+        from mediascribe.cache import PersistentDownloadCache
 
         return PersistentDownloadCache(base=self.tmp / "cache", **kw)
 
@@ -335,7 +335,7 @@ class TestCacheAtomicityAndWriteAmplification(unittest.TestCase):
         from unittest import mock as _mock
 
         c = self._cache()
-        import video2text.cache as cache_mod
+        import mediascribe.cache as cache_mod
 
         with _mock.patch.object(
             cache_mod.shutil, "copy2", side_effect=OSError("disk full")
@@ -364,7 +364,7 @@ class TestPersistentChunkCacheTtlAndCap(unittest.TestCase):
         return d
 
     def _cache(self, **kw):
-        from video2text.cache import PersistentChunkCache
+        from mediascribe.cache import PersistentChunkCache
 
         return PersistentChunkCache(base=self.tmp / "chunk_cache", **kw)
 
@@ -408,7 +408,7 @@ class TestPersistentChunkCacheTtlAndCap(unittest.TestCase):
         self.assertFalse(c.has(src2, p1))
 
     def _save_index(self, c) -> None:
-        from video2text.cache import _save_index
+        from mediascribe.cache import _save_index
 
         _save_index(c._base, c._name, c._index)
 
@@ -420,13 +420,13 @@ class TestPersistentChunkCacheTtlAndCap(unittest.TestCase):
 
 class TestSettingsCacheDir(unittest.TestCase):
     def test_default_is_none(self):
-        from video2text.config import Settings
+        from mediascribe.config import Settings
 
         s = Settings(workspace_root=self.tmp_path())
         self.assertIsNone(s.cache_dir)
 
     def test_explicit_path(self):
-        from video2text.config import Settings
+        from mediascribe.config import Settings
 
         custom = Path("/custom/cache")
         s = Settings(workspace_root=self.tmp_path(), cache_dir=custom)

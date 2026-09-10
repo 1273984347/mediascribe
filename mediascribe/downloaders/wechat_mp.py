@@ -60,7 +60,7 @@ class WechatMpDownloader(Downloader):
     def __init__(self) -> None:
         # 公众号 cookies 注入（login-wall 文章）
         # 优先使用 settings.wechat_cookies
-        # 解析顺序：dict → file → env (VIDEO2TEXT_WECHAT_COOKIE)
+        # 解析顺序：dict → file → env (MEDIASCRIBE_WECHAT_COOKIE)
         self._active_cookies: dict = {}
         self._cookies_source: str = "none"
 

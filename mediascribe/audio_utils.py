@@ -18,7 +18,7 @@ _logger = logging.getLogger(__name__)
 # FFmpeg subprocess 默认超时（秒）。
 # 30 分钟视频通常 < 1 分钟即可提取完毕，10 分钟超时对绝大多数用例留足余量。
 # 损坏视频/无限流可能导致 ffmpeg 死循环 → subprocess 阻塞 → pipeline 卡死。
-# 显式 timeout 参数 > VIDEO2TEXT_FFMPEG_TIMEOUT 环境变量 > 此默认值。
+# 显式 timeout 参数 > MEDIASCRIBE_FFMPEG_TIMEOUT 环境变量 > 此默认值。
 _FFMPEG_DEFAULT_TIMEOUT_SECONDS = 600.0
 
 
@@ -51,7 +51,7 @@ def extract_audio(
     """从视频提取音频 - 参考 bili2text
 
     v3.2.0e+ 增加超时控制:
-      * 优先级: 显式 ``timeout`` 参数 > ``VIDEO2TEXT_FFMPEG_TIMEOUT`` 环境变量
+      * 优先级: 显式 ``timeout`` 参数 > ``MEDIASCRIBE_FFMPEG_TIMEOUT`` 环境变量
         > 默认 ``_FFMPEG_DEFAULT_TIMEOUT_SECONDS`` (600s)。
       * 超时抛 ``RuntimeError`` (包裹 ``subprocess.TimeoutExpired``)，
         避免损坏视频/无限流导致 pipeline 永久阻塞。
@@ -83,14 +83,14 @@ def extract_audio(
     # 超时解析: 参数 > env > 默认。env="0" 表示禁用超时（极端调试场景）。
     resolved_timeout = timeout
     if resolved_timeout is None:
-        env_val = os.environ.get("VIDEO2TEXT_FFMPEG_TIMEOUT", "").strip()
+        env_val = os.environ.get("MEDIASCRIBE_FFMPEG_TIMEOUT", "").strip()
         if env_val:
             try:
                 resolved_timeout = float(env_val)
             except ValueError:
                 # DRL R2 F-7: 静默回退会让用户误以为 env 生效。改 log warning 提示。
                 _logger.warning(
-                    "VIDEO2TEXT_FFMPEG_TIMEOUT=%r 不是合法浮点数, "
+                    "MEDIASCRIBE_FFMPEG_TIMEOUT=%r 不是合法浮点数, "
                     "回退到默认 %.0fs", env_val, _FFMPEG_DEFAULT_TIMEOUT_SECONDS
                 )
                 resolved_timeout = _FFMPEG_DEFAULT_TIMEOUT_SECONDS
@@ -223,7 +223,7 @@ def detect_speech_segments(
     if not _is_webrtcvad_available():
         raise ImportError(
             "webrtcvad is not installed. "
-            "Install with `pip install video2text[vad]`."
+            "Install with `pip install mediascribe[vad]`."
         )
     import webrtcvad  # local import so the module loads even if missing
 

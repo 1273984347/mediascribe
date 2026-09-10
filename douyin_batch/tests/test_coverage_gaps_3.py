@@ -1,9 +1,9 @@
 """Coverage gap-fillers for v3.2.0a Tier 2 features.
 
 Targets uncovered branches in:
-- ``video2text.cache``           (corrupted index, ttl=0, max_bytes=0, OSError)
-- ``video2text.profile_cli``     (parse_iso, top=0, empty groups, filter_records)
-- ``video2text.web.app``         (3 new v3.2.0a endpoints)
+- ``mediascribe.cache``           (corrupted index, ttl=0, max_bytes=0, OSError)
+- ``mediascribe.profile_cli``     (parse_iso, top=0, empty groups, filter_records)
+- ``mediascribe.web.app``         (3 new v3.2.0a endpoints)
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ import pytest
 class TestCacheCoverageGaps:
     def test_corrupted_index_returns_empty(self, tmp_path: Path) -> None:
         """A JSONDecodeError on the index file must not raise — return {}."""
-        from video2text import cache
+        from mediascribe import cache
 
         # Pre-populate an unparseable index file
         index_file = tmp_path / "downloads.json"
@@ -34,17 +34,17 @@ class TestCacheCoverageGaps:
 
     def test_fallback_to_home_on_no_env(self, monkeypatch) -> None:
         """When XDG / LOCALAPPDATA are unset, fall back to ~/.cache/<app>."""
-        from video2text import cache
+        from mediascribe import cache
 
         monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
         monkeypatch.delenv("LOCALAPPDATA", raising=False)
-        monkeypatch.delenv("VIDEO2TEXT_CACHE_DIR", raising=False)
+        monkeypatch.delenv("MEDIASCRIBE_CACHE_DIR", raising=False)
         result = cache.persistent_cache_dir("test_fallback_app")
         # Path is non-empty and includes the app name
         assert result.name == "test_fallback_app" or "test_fallback_app" in str(result)
 
     def test_purge_with_zero_ttl_returns_zero(self, tmp_path: Path) -> None:
-        from video2text.cache import PersistentDownloadCache
+        from mediascribe.cache import PersistentDownloadCache
 
         c = PersistentDownloadCache(tmp_path, ttl_seconds=0)
         # Create a real source file before put
@@ -56,7 +56,7 @@ class TestCacheCoverageGaps:
         assert c.prune() == 0
 
     def test_lru_evict_with_zero_max_bytes_noop(self, tmp_path: Path) -> None:
-        from video2text.cache import PersistentDownloadCache
+        from mediascribe.cache import PersistentDownloadCache
 
         c = PersistentDownloadCache(tmp_path, max_bytes=0)
         src = tmp_path / "src.bin"
@@ -71,7 +71,7 @@ class TestCacheCoverageGaps:
         On non-Windows we lock the dir; on Windows we use a no-op to keep
         the test deterministic.
         """
-        from video2text import cache
+        from mediascribe import cache
 
         cache._save_index(tmp_path, "downloads", {"x": {"path": "a"}})
         if os.name != "nt":
@@ -91,14 +91,14 @@ class TestCacheCoverageGaps:
 
 class TestProfileCliCoverageGaps:
     def test_parse_iso_invalid_returns_none(self) -> None:
-        from video2text.profile_cli import _parse_iso
+        from mediascribe.profile_cli import _parse_iso
 
         assert _parse_iso("not a date") is None
         assert _parse_iso("") is None
 
     def test_filter_records_keeps_records_with_unparseable_ts(self) -> None:
         """Records whose ``ts`` cannot be parsed are kept (line 88-91)."""
-        from video2text.profile_cli import filter_records
+        from mediascribe.profile_cli import filter_records
 
         records = [
             {"ts": "garbage", "label": "a", "duration_sec": 0.1},
@@ -109,7 +109,7 @@ class TestProfileCliCoverageGaps:
         assert len(out) == 2
 
     def test_render_json_top_zero_renders_all(self) -> None:
-        from video2text.profile_cli import aggregate, render_json
+        from mediascribe.profile_cli import aggregate, render_json
 
         records = [
             {"ts": "2026-01-01T00:00:00Z", "label": "a", "duration_sec": 0.1},
@@ -123,7 +123,7 @@ class TestProfileCliCoverageGaps:
 
     def test_filter_records_tz_aware_vs_naive(self) -> None:
         """tz-aware record >= naive cutoff — line 93-95 normalisation."""
-        from video2text.profile_cli import filter_records
+        from mediascribe.profile_cli import filter_records
 
         records = [
             {"ts": "2026-01-02T00:00:00+00:00", "label": "a", "duration_sec": 0.1},
@@ -141,7 +141,7 @@ class TestProfileCliCoverageGaps:
 try:
     from starlette.testclient import TestClient
 
-    from video2text.web.app import create_app
+    from mediascribe.web.app import create_app
 
     _HAS_WEB = True
 except Exception:  # pragma: no cover
@@ -152,7 +152,7 @@ except Exception:  # pragma: no cover
 class TestWebAppJobEndpoints:
     def _build_app(self, workspace: Path):
         # Clean any old env leakage
-        os.environ.pop("VIDEO2TEXT_API_TOKEN", None)
+        os.environ.pop("MEDIASCRIBE_API_TOKEN", None)
         return create_app(workspace=workspace)
 
     def test_ws_progress_unknown_job_sends_error_and_closes(self, tmp_path: Path) -> None:
@@ -167,7 +167,7 @@ class TestWebAppJobEndpoints:
 
     def test_ws_progress_sends_snapshot_for_existing_job(self, tmp_path: Path) -> None:
         """Connecting to a real job should yield a snapshot event first."""
-        from video2text.progress import ProgressRegistry
+        from mediascribe.progress import ProgressRegistry
 
         app = self._build_app(tmp_path / "ws-snapshot")
         # Replace the default registry with one holding a fresh job
@@ -195,7 +195,7 @@ class TestWebAppJobEndpoints:
         """GET /api/jobs/{id} with an unknown id → 404."""
         app = self._build_app(tmp_path / "api-status-unknown")
         # Set a token so the auth dependency passes
-        os.environ["VIDEO2TEXT_API_TOKEN"] = "test-token-xyz"
+        os.environ["MEDIASCRIBE_API_TOKEN"] = "test-token-xyz"
         try:
             app2 = self._build_app(tmp_path / "api-status-unknown-2")
             with TestClient(app2) as client:
@@ -205,12 +205,12 @@ class TestWebAppJobEndpoints:
                 )
                 assert r.status_code == 404
         finally:
-            os.environ.pop("VIDEO2TEXT_API_TOKEN", None)
+            os.environ.pop("MEDIASCRIBE_API_TOKEN", None)
 
     def test_api_jobs_cancel_unknown_returns_404(self, tmp_path: Path) -> None:
         """POST /api/jobs/{id}/cancel on an unknown id → 404 (v3.2.0a design)."""
         app = self._build_app(tmp_path / "api-cancel-unknown")
-        os.environ["VIDEO2TEXT_API_TOKEN"] = "test-token-xyz"
+        os.environ["MEDIASCRIBE_API_TOKEN"] = "test-token-xyz"
         try:
             with TestClient(app) as client:
                 r = client.post(
@@ -219,17 +219,17 @@ class TestWebAppJobEndpoints:
                 )
                 assert r.status_code == 404
         finally:
-            os.environ.pop("VIDEO2TEXT_API_TOKEN", None)
+            os.environ.pop("MEDIASCRIBE_API_TOKEN", None)
 
     def test_api_jobs_cancel_known_returns_200(self, tmp_path: Path) -> None:
         """POST /api/jobs/{id}/cancel on a real job → 200 + cancelled=True."""
-        from video2text.progress import ProgressRegistry
+        from mediascribe.progress import ProgressRegistry
 
         app = self._build_app(tmp_path / "api-cancel-known")
         reg = ProgressRegistry()
         job = reg.create("https://example.com/v")
         app.state.jobs = reg
-        os.environ["VIDEO2TEXT_API_TOKEN"] = "test-token-xyz"
+        os.environ["MEDIASCRIBE_API_TOKEN"] = "test-token-xyz"
         try:
             with TestClient(app) as client:
                 r = client.post(
@@ -240,7 +240,7 @@ class TestWebAppJobEndpoints:
                 data = r.json()
                 assert data["cancelled"] is True
         finally:
-            os.environ.pop("VIDEO2TEXT_API_TOKEN", None)
+            os.environ.pop("MEDIASCRIBE_API_TOKEN", None)
 
 
 # ---------------------------------------------------------------------------
@@ -250,7 +250,7 @@ class TestWebAppJobEndpoints:
 
 class TestProgressRegistryHelpers:
     def test_purge_does_not_remove_finished_recently(self) -> None:
-        from video2text.progress import ProgressRegistry
+        from mediascribe.progress import ProgressRegistry
 
         reg = ProgressRegistry()
         job = reg.create("https://example.com/v")
@@ -260,7 +260,7 @@ class TestProgressRegistryHelpers:
         assert reg.get(job.job_id) is not None
 
     def test_purge_removes_old_finished(self) -> None:
-        from video2text.progress import ProgressRegistry
+        from mediascribe.progress import ProgressRegistry
 
         reg = ProgressRegistry()
         job = reg.create("https://example.com/v")

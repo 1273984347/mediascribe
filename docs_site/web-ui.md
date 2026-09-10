@@ -1,6 +1,6 @@
 # Web UI
 
-A minimal browser interface to the Video2Text pipeline.  The
+A minimal browser interface to the MediaScribe pipeline.  The
 page submits URLs via `POST /api/jobs`, which spawns one background
 job per URL.  Stage-level progress streams back over a WebSocket
 (`GET /ws/progress/{job_id}`) and the final Markdown is fetched via
@@ -9,8 +9,8 @@ job per URL.  Stage-level progress streams back over a WebSocket
 ## Quick start
 
 ```bash
-pip install "video2text[web]"
-python -m video2text.web.app --port 8000
+pip install "mediascribe[web]"
+python -m mediascribe.web.app --port 8000
 ```
 
 Open `http://127.0.0.1:8000`.
@@ -158,7 +158,7 @@ Response:
 ## CLI flags
 
 ```bash
-python -m video2text.web.app --host 0.0.0.0 --port 8000 --reload
+python -m mediascribe.web.app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ## Production notes
@@ -167,7 +167,7 @@ python -m video2text.web.app --host 0.0.0.0 --port 8000 --reload
   `http(s)://(localhost|127.0.0.1|host.docker.internal)(:port)?`,
   `chrome-extension://<id>`, `moz-extension://<id>`, and `file://`.
   Wildcard (`*`) is intentionally *not* the default — set
-  `VIDEO2TEXT_CORS_ORIGINS=*` (or a comma-separated explicit list)
+  `MEDIASCRIBE_CORS_ORIGINS=*` (or a comma-separated explicit list)
   to override.
 * **SSRF protection (v3.2.0f).**  `POST /api/transcribe` and
   `POST /api/jobs` reject URLs whose scheme is in a denylist that

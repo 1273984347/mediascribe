@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Video2Text Sender",
+  "name": "MediaScribe Sender",
   "short_name": "V2T Sender",
   "version": "3.1.0",
-  "description": "Send the current page URL to a self-hosted Video2Text Web UI and copy the resulting Markdown transcript. Supports toolbar popup and browser Side Panel.",
+  "description": "Send the current page URL to a self-hosted MediaScribe Web UI and copy the resulting Markdown transcript. Supports toolbar popup and browser Side Panel.",
   "minimum_chrome_version": "114",
   "permissions": [
     "activeTab",
@@ -17,7 +17,7 @@
     "http://host.docker.internal/*"
   ],
   "action": {
-    "default_title": "Send to Video2Text",
+    "default_title": "Send to MediaScribe",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",

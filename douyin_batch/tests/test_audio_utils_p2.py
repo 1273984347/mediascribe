@@ -17,7 +17,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from video2text.audio_utils import _source_tag, extract_audio
+from mediascribe.audio_utils import _source_tag, extract_audio
 
 
 def _ffmpeg_available() -> bool:
@@ -96,7 +96,7 @@ class TestExtractAudioNamingAndCleanup(unittest.TestCase):
         video.write_bytes(b"garbage")
         fake_result = mock.MagicMock(returncode=1, stderr="boom")
         with mock.patch(
-            "video2text.audio_utils.subprocess.run",
+            "mediascribe.audio_utils.subprocess.run",
             return_value=fake_result,
         ):
             with self.assertRaises(RuntimeError):
@@ -109,7 +109,7 @@ class TestExtractAudioNamingAndCleanup(unittest.TestCase):
 class TestExtractAudioMissingFfmpeg(unittest.TestCase):
     def test_raises_when_ffmpeg_missing(self):
         with mock.patch(
-            "video2text.audio_utils.shutil.which", return_value=None
+            "mediascribe.audio_utils.shutil.which", return_value=None
         ):
             with self.assertRaises(RuntimeError) as ctx:
                 extract_audio(Path("x.mp4"), Path(os.devnull), "x")

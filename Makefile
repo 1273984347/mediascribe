@@ -1,4 +1,4 @@
-# Video2Text — Agent-friendly Makefile
+# MediaScribe — Agent-friendly Makefile
 #
 # Works on Linux, macOS, and Windows (with GNU Make from MinGW / Chocolatey /
 # Scoop, or via WSL). Every target is also a no-op `python -m` command so
@@ -32,7 +32,7 @@ REQUIREMENTS_DEV  := requirements-dev.txt
 .PHONY: help install dev test test-verbose test-i18n test-cross test-imports test-syntax lint format demo clean verify all install-browser up up-daemon down status logs docker-up
 
 help:
-	@echo "Video2Text — available targets:"
+	@echo "MediaScribe — available targets:"
 	@echo "  install         pip install -r $(REQUIREMENTS)"
 	@echo "  dev             pip install -r $(REQUIREMENTS) -r $(REQUIREMENTS_DEV)"
 	@echo "  install-browser playwright install chromium (for Douyin/Bilibili scraping)"

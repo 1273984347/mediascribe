@@ -57,7 +57,7 @@ class SourceRef:
         """True iff ``self.kind`` is one of the supported platforms.
 
         Useful for downloader dispatch tables: ``unknown`` is the
-        catch-all bucket from :mod:`video2text.inputs` and typically
+        catch-all bucket from :mod:`mediascribe.inputs` and typically
         means we should fall back to the generic ``yt-dlp`` path.
         """
         return self.kind in KNOWN_SOURCE_KINDS

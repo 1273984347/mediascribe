@@ -1,5 +1,5 @@
 """
-Unit tests for the Video2Text Web UI.
+Unit tests for the MediaScribe Web UI.
 
 These tests do NOT require the ``fastapi`` package.  They cover
 the import-time and runtime fallback paths: ``create_app`` must
@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "video2text" / "web"))
+sys.path.insert(0, str(ROOT / "mediascribe" / "web"))
 
 
 class TestOptionalFastAPIImport(unittest.TestCase):
@@ -43,7 +43,7 @@ class TestStaticIndexHtml(unittest.TestCase):
     """The bundled HTML must contain the form, the API path, and JS hooks."""
 
     def test_index_html_present(self):
-        index = ROOT / "video2text" / "web" / "static" / "index.html"
+        index = ROOT / "mediascribe" / "web" / "static" / "index.html"
         self.assertTrue(index.exists())
         text = index.read_text(encoding="utf-8")
         # v3.2.0c: form now POSTs to /api/jobs (async + cancel + WS).

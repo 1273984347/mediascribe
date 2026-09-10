@@ -3,7 +3,7 @@
 
 P1-14 收敛说明：
 - ``get_user_url_from_video`` / ``get_user_videos``（作者主页解析）是
-  douyin_batch 专属逻辑，核心包 ``video2text.downloaders.douyin`` 不覆盖，保留。
+  douyin_batch 专属逻辑，核心包 ``mediascribe.downloaders.douyin`` 不覆盖，保留。
 - ``get_media_url_fast`` 也**保留不委托核心**：它依赖本模块的 ``BrowserManager``
   单例复用浏览器，并带 ``--disable-blink-features=AutomationControlled`` 等反爬参数；
   核心 ``DouyinDownloader._extract_media_url_with_browser`` 每次新建浏览器且不含这些

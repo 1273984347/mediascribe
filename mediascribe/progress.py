@@ -1,11 +1,11 @@
 """
 Job progress tracking — WebSocket-friendly stage progress for the
-video2text pipeline.
+mediascribe pipeline.
 
 This module is deliberately decoupled from any framework: it just
 provides a :class:`JobProgress` dataclass, a :class:`ProgressRegistry`
 to look jobs up by id, and a few helpers used by the FastAPI layer
-in :mod:`video2text.web.app`.
+in :mod:`mediascribe.web.app`.
 
 A job has four stages, run in order::
 
@@ -162,7 +162,7 @@ class ProgressRegistry:
     """A thread-safe registry of :class:`JobProgress` instances.
 
     Single-process only — restart wipes the in-memory state.  The
-    WebSocket layer in ``video2text.web.app`` wires this onto
+    WebSocket layer in ``mediascribe.web.app`` wires this onto
     ``app.state.jobs``.
     """
 

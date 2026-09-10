@@ -1,6 +1,6 @@
 # Publishing v3.1.0 to GitHub Releases
 
-This document walks through releasing `video2text` v3.1.0.
+This document walks through releasing `mediascribe` v3.1.0.
 The release artefact is **GitHub Releases** (not PyPI) because
 the project's primary distribution channel is `git clone +
 pip install -e .` for the open-source audience.
@@ -12,7 +12,7 @@ pip install -e .` for the open-source audience.
 python -m pytest douyin_batch/tests/ -q
 
 # Lint
-python -m ruff check video2text/ douyin_batch/ scripts/ extension/ docs_site/
+python -m ruff check mediascribe/ douyin_batch/ scripts/ extension/ docs_site/
 
 # Verify build metadata
 python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project'])"
@@ -30,29 +30,29 @@ All four must be green before proceeding.
 
 ```bash
 pip install build twine
-rm -rf build/ dist/ video2text.egg-info/
+rm -rf build/ dist/ mediascribe.egg-info/
 python -m build --sdist --wheel --outdir dist/
 ls -la dist/
-# dist/video2text-3.1.0.tar.gz
-# dist/video2text-3.1.0-py3-none-any.whl
+# dist/mediascribe-3.1.0.tar.gz
+# dist/mediascribe-3.1.0-py3-none-any.whl
 ```
 
 ## 3. Validate with twine
 
 ```bash
 python -m twine check dist/*
-# Checking dist/video2text-3.1.0-py3-none-any.whl: PASSED
-# Checking dist/video2text-3.1.0.tar.gz: PASSED
+# Checking dist/mediascribe-3.1.0-py3-none-any.whl: PASSED
+# Checking dist/mediascribe-3.1.0.tar.gz: PASSED
 ```
 
 ## 4. (Optional) Upload to TestPyPI for a smoke install
 
 ```bash
 python -m twine upload --repository testpypi dist/*
-python -m venv /tmp/video2text-verify
-source /tmp/video2text-verify/bin/activate
-pip install --index-url https://test.pypi.org/simple/ video2text==3.1.0
-video2text --help
+python -m venv /tmp/mediascribe-verify
+source /tmp/mediascribe-verify/bin/activate
+pip install --index-url https://test.pypi.org/simple/ mediascribe==3.1.0
+mediascribe --help
 ```
 
 ## 5. Commit + tag
@@ -73,17 +73,17 @@ git push origin v3.1.0
 gh release create v3.1.0 \
   --title "v3.1.0 — Plugin system, long-video chunking, OTel, Web UI, browser extension, mkdocs, CI matrix" \
   --notes-file RELEASE_NOTES_v3.1.0.md \
-  dist/video2text-3.1.0.tar.gz \
-  dist/video2text-3.1.0-py3-none-any.whl
+  dist/mediascribe-3.1.0.tar.gz \
+  dist/mediascribe-3.1.0-py3-none-any.whl
 ```
 
 ### Option B — via the GitHub web UI
 
-1. Visit `https://github.com/<owner>/video2text/releases/new`
+1. Visit `https://github.com/<owner>/mediascribe/releases/new`
 2. Choose tag `v3.1.0`
 3. Title: `v3.1.0 — Plugin system, long-video chunking, OTel, Web UI, browser extension, mkdocs, CI matrix`
 4. Body: paste the contents of `RELEASE_NOTES_v3.1.0.md`
-5. Attach `dist/video2text-3.1.0.tar.gz` and `dist/video2text-3.1.0-py3-none-any.whl`
+5. Attach `dist/mediascribe-3.1.0.tar.gz` and `dist/mediascribe-3.1.0-py3-none-any.whl`
 6. Click "Publish release"
 
 ## 7. Generate the E2E recording asset (recommended)
@@ -105,13 +105,13 @@ python scripts/capture_e2e_recording.py --output-dir ./e2e-recording
 
 ### `twine: 403 Forbidden`
 
-You're not the maintainer of the `video2text` package on PyPI.
+You're not the maintainer of the `mediascribe` package on PyPI.
 Skip the PyPI step and use GitHub Releases only.
 
-### `Module not found: video2text.egg-info`
+### `Module not found: mediascribe.egg-info`
 
 ```bash
-rm -rf build/ dist/ video2text.egg-info/ && python -m build
+rm -rf build/ dist/ mediascribe.egg-info/ && python -m build
 ```
 
 ### `mkdocs.yml: !!python/name not understood`

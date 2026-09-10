@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Video2Text Sender — Settings</title>
+  <title>MediaScribe Sender — Settings</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 560px; margin: 32px auto; padding: 0 16px; color: #0f172a; }
     label { display: block; font-weight: 600; margin: 12px 0 4px; }
@@ -13,8 +13,8 @@
   </style>
 </head>
 <body>
-  <h1>Video2Text Sender</h1>
-  <p class="hint">Set the URL of the Video2Text Web UI you want to send videos to. The default points to a local uvicorn instance on port 8000.</p>
+  <h1>MediaScribe Sender</h1>
+  <p class="hint">Set the URL of the MediaScribe Web UI you want to send videos to. The default points to a local uvicorn instance on port 8000.</p>
 
   <label>API endpoint</label>
   <input id="endpoint" type="text" placeholder="http://127.0.0.1:8000">
@@ -35,7 +35,7 @@
   </select>
 
   <label>API token <span style="font-weight:400;color:#64748b">(optional; leave blank if the server has no auth)</span></label>
-  <input id="apiToken" type="password" placeholder="Bearer token — matches VIDEO2TEXT_API_TOKEN on the server" autocomplete="off">
+  <input id="apiToken" type="password" placeholder="Bearer token — matches MEDIASCRIBE_API_TOKEN on the server" autocomplete="off">
 
   <button id="save">Save</button>
   <p id="status"></p>

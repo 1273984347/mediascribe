@@ -8,21 +8,21 @@ articles (公众号) — both text-with-images and video messages.
 ### Public article (no cookies)
 
 ```bash
-python -m video2text --url "https://mp.weixin.qq.com/s/abc?__biz=..." \
+python -m mediascribe --url "https://mp.weixin.qq.com/s/abc?__biz=..." \
   --ocr-engine auto
 ```
 
 ### Login-wall article (cookies inline)
 
 ```bash
-python -m video2text --url "..." \
+python -m mediascribe --url "..." \
   --wechat-cookies "wxuin=abc; pass_ticket=xyz; ticket=..."
 ```
 
 ### Cookies from a file
 
 ```bash
-python -m video2text --url "..." --wechat-cookie-file cookies.json
+python -m mediascribe --url "..." --wechat-cookie-file cookies.json
 ```
 
 Accepted cookie file formats:
@@ -34,8 +34,8 @@ Accepted cookie file formats:
 ### Environment variable
 
 ```bash
-export VIDEO2TEXT_WECHAT_COOKIE='{"wxuin": "abc", "pass_ticket": "xyz"}'
-python -m video2text --url "..."
+export MEDIASCRIBE_WECHAT_COOKIE='{"wxuin": "abc", "pass_ticket": "xyz"}'
+python -m mediascribe --url "..."
 ```
 
 ## OCR engines
@@ -64,7 +64,7 @@ When the article is a video with embedded subtitles, add
 side-by-side:
 
 ```bash
-python -m video2text --url "..." --bilingual --lang en
+python -m mediascribe --url "..." --bilingual --lang en
 ```
 
 ## Real-URL smoke test

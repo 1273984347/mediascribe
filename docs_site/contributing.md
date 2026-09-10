@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for your interest in Video2Text!  All contributions are
+Thanks for your interest in MediaScribe!  All contributions are
 welcome — bug reports, feature requests, documentation, code.
 
 ## Ground rules
@@ -20,8 +20,8 @@ welcome — bug reports, feature requests, documentation, code.
 ## Local development setup
 
 ```bash
-git clone https://github.com/example/video2text
-cd video2text
+git clone https://github.com/example/mediascribe
+cd mediascribe
 python -m pip install -e ".[dev,ocr,web,mcp]"
 pre-commit install       # optional but recommended
 pytest douyin_batch/tests/ -q

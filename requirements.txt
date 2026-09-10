@@ -3,8 +3,8 @@
 # thin install shim used by `make install` / `make dev`; CI and the
 # Dockerfile install extras directly via `pip install -e ".[...]"`.
 #
-# NOTE: the `llm` extra (openai>=1.0.0, used by video2text.llm_post_process)
+# NOTE: the `llm` extra (openai>=1.0.0, used by mediascribe.llm_post_process)
 # is intentionally NOT pulled in here — opt in with
 #   pip install -e ".[llm]"      (repo checkout)
-#   pip install "video2text[llm]"  (installed package)
+#   pip install "mediascribe[llm]"  (installed package)
 -e .[web,ocr,faster-whisper,mcp]

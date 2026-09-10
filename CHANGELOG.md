@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Project renamed: Video2Text → MediaScribe** (breaking). The Python
+  package, distribution name, CLI commands, and environment-variable prefix
+  all change:
+  - package `video2text` → `mediascribe` (all imports)
+  - PyPI/distribution `video2text` → `mediascribe`
+  - CLI `video2text` → `mediascribe`; `python -m video2text` →
+    `python -m mediascribe`
+  - CLI `video2text-batch` → `mediascribe-batch`
+  - env prefix `VIDEO2TEXT_*` → `MEDIASCRIBE_*` (e.g.
+    `MEDIASCRIBE_API_TOKEN`, `MEDIASCRIBE_LLM_ENABLED`,
+    `MEDIASCRIBE_DOWNLOAD_CACHE`)
+  - web UI, extension, docs, and MCP server copy updated accordingly
+  - `douyin_batch` package and `douyin_batch_v3` module keep their names;
+    only their `video2text` imports were updated
+  - the `archive/` legacy folder and historical CHANGELOG entries are
+    intentionally left untouched
+
 ## [3.3.0] - 2026-09-10
 
 ### Fixed (engineering / packaging)

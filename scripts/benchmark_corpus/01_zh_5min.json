@@ -1,5 +1,5 @@
 {
-  "schema_version": "video2text-benchmark-corpus/v1",
+  "schema_version": "mediascribe-benchmark-corpus/v1",
   "file": "01_zh_5min.wav",
   "language": "zh",
   "duration_s": 300,

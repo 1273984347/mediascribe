@@ -9,7 +9,7 @@ sys.path.insert(0, str(ROOT))
 
 class TestTranscriberFactory(unittest.TestCase):
     def test_get_transcriber_whisper(self):
-        from video2text.transcribers import (
+        from mediascribe.transcribers import (
             WhisperTranscriber,
             get_transcriber,
         )
@@ -18,12 +18,12 @@ class TestTranscriberFactory(unittest.TestCase):
         self.assertEqual(t.model_name, "tiny")
 
     def test_get_transcriber_unknown_raises(self):
-        from video2text.transcribers import get_transcriber
+        from mediascribe.transcribers import get_transcriber
         with self.assertRaises(ValueError):
             get_transcriber("does-not-exist")
 
     def test_fallback_chain_order(self):
-        from video2text.transcribers import DEFAULT_FALLBACK_CHAIN
+        from mediascribe.transcribers import DEFAULT_FALLBACK_CHAIN
         # whisperx first (most accurate), whisper last (always available)
         self.assertEqual(
             list(DEFAULT_FALLBACK_CHAIN),
@@ -32,7 +32,7 @@ class TestTranscriberFactory(unittest.TestCase):
 
     def test_fallback_picks_available(self):
         """When the preferred engine is missing, fallback to next."""
-        from video2text.transcribers import (
+        from mediascribe.transcribers import (
             WhisperTranscriber,
             get_transcriber_with_fallback,
         )
@@ -44,19 +44,19 @@ class TestTranscriberFactory(unittest.TestCase):
         self.assertTrue(hasattr(t, "transcribe"))
         # On dev hosts without whisperx, we expect to fall through to
         # faster-whisper or whisper. Verify the chain resolves.
-        from video2text.transcribers import list_available_engines
+        from mediascribe.transcribers import list_available_engines
         avail = list_available_engines()
         self.assertIn("whisper", avail)  # hard dep
 
     def test_fallback_preferred_added_to_chain(self):
-        from video2text.transcribers import get_transcriber_with_fallback
+        from mediascribe.transcribers import get_transcriber_with_fallback
         # Even if "faster-whisper" isn't in the default chain, passing
         # it as preferred should put it first.
         t = get_transcriber_with_fallback("faster-whisper", model="tiny")
         self.assertTrue(hasattr(t, "transcribe"))
 
     def test_engine_available_optional(self):
-        from video2text.transcribers.factory import _engine_available
+        from mediascribe.transcribers.factory import _engine_available
         # whisper is hard dep → always available
         self.assertTrue(_engine_available("whisper"))
         # whisperx may or may not be installed
@@ -66,7 +66,7 @@ class TestTranscriberFactory(unittest.TestCase):
 
 class TestEngineAvailability(unittest.TestCase):
     def test_list_available_includes_whisper(self):
-        from video2text.transcribers import list_available_engines
+        from mediascribe.transcribers import list_available_engines
         engines = list_available_engines()
         self.assertIsInstance(engines, list)
         self.assertIn("whisper", engines)
@@ -74,7 +74,7 @@ class TestEngineAvailability(unittest.TestCase):
     def test_chain_resolves_even_on_minimal_install(self):
         """Even on a host with only `whisper`, the factory should
         return *some* transcriber (because whisper is a hard dep)."""
-        from video2text.transcribers import get_transcriber_with_fallback
+        from mediascribe.transcribers import get_transcriber_with_fallback
         t = get_transcriber_with_fallback()
         self.assertIsNotNone(t)
 

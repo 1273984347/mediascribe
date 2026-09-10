@@ -62,18 +62,18 @@ class TestDocsContent(unittest.TestCase):
 
     def test_index_has_intro(self):
         text = (DOCS / "index.md").read_text(encoding="utf-8")
-        for needle in ("Video2Text", "Quick start", "Why Video2Text?"):
+        for needle in ("MediaScribe", "Quick start", "Why MediaScribe?"):
             self.assertIn(needle, text)
 
     def test_getting_started_has_install(self):
         text = (DOCS / "getting-started.md").read_text(encoding="utf-8")
         self.assertIn("pip install", text)
-        self.assertIn("python -m video2text", text)
+        self.assertIn("python -m mediascribe", text)
 
     def test_plugins_doc_has_hookspecs(self):
         text = (DOCS / "plugins.md").read_text(encoding="utf-8")
-        for needle in ("entry_points", "video2text.downloaders",
-                       "video2text.transcribers", "video2text.url_transformers"):
+        for needle in ("entry_points", "mediascribe.downloaders",
+                       "mediascribe.transcribers", "mediascribe.url_transformers"):
             self.assertIn(needle, text)
 
     def test_chunking_doc_explains_strategy(self):

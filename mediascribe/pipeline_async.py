@@ -2,7 +2,7 @@
 v3.2.0b Tier 1 — fully asynchronous pipeline.
 
 :class:`AsyncPipeline` 是 :class:`Pipeline` 的可选 async 包装,把
-:vmod:`video2text.pipeline_stages` 的同步 stage 推到默认 executor
+:vmod:`mediascribe.pipeline_stages` 的同步 stage 推到默认 executor
 (``asyncio.to_thread``),并允许在 batch 场景下并发跑多个视频
 的 ``download → transcribe → assemble``。
 
@@ -13,14 +13,14 @@ v3.2.0b Tier 1 — fully asynchronous pipeline.
    :class:`AsyncPipeline` 是 opt-in,用 ``await pipeline.run(url)``
    替代 ``pipeline.transcribe(url)``。
 2. **共享 stage 子类** — :class:`AsyncPipeline` 不重新发明 stage,
-   而是从 :func:`video2text.pipeline_stages.default_chain` 拿同一批
+   而是从 :func:`mediascribe.pipeline_stages.default_chain` 拿同一批
    stage,只把 ``stage.run(ctx)`` 包成 ``asyncio.to_thread``。
 3. **并发粒度** — 进程级并发(``asyncio.gather`` 多个 video),
    不是 stage 内并发;stage 内并发会让 5 个 stage 都争抢 GPU,
    反而拖慢。
 4. **背压** — :attr:`AsyncPipeline.max_concurrent` 控制并发上限,
    默认 ``min(4, os.cpu_count() or 2)``,可被
-   ``VIDEO2TEXT_MAX_WORKERS`` 环境变量覆盖。
+   ``MEDIASCRIBE_MAX_WORKERS`` 环境变量覆盖。
 5. **取消 (v3.2.0x P1-8 修订契约)** — ``pipeline.cancel()`` 对
    in-flight 任务 ``task.cancel()`` 并置位 ``cancel_event``。
    :class:`CancelledError` 在 ``_one`` 内被捕获并转成
@@ -29,7 +29,7 @@ v3.2.0b Tier 1 — fully asynchronous pipeline.
    ``isinstance(r, _FailedResult)`` 判定。底层 executor 线程无法被
    中断,但 ``cancel_event`` 会透传到 stage 层做协作式退出。
 6. **GPU 显存感知 (v3.2.0e)** — :func:`_gpu_aware_concurrency` 在
-   batch 启动时快照 :func:`video2text.pipeline.gpu_health`,按
+   batch 启动时快照 :func:`mediascribe.pipeline.gpu_health`,按
    ``free_vram // vram_per_task`` 收紧并发,避免 CUDA OOM。
    非 CUDA 设备(CPU / metal)不受影响,直接用 ``max_concurrent``。
 7. **进程级 GPU 信号量 (v3.2.0x P1-7)** — GPU 并发信号量按 device
@@ -57,8 +57,8 @@ from .pipeline_stages import PipelineCancelled
 
 
 def _default_max_concurrent() -> int:
-    """默认并发上限,优先级 ``VIDEO2TEXT_MAX_WORKERS`` > CPU 数。"""
-    env = os.environ.get("VIDEO2TEXT_MAX_WORKERS")
+    """默认并发上限,优先级 ``MEDIASCRIBE_MAX_WORKERS`` > CPU 数。"""
+    env = os.environ.get("MEDIASCRIBE_MAX_WORKERS")
     if env and env.isdigit() and int(env) > 0:
         return int(env)
     cpu = os.cpu_count() or 2
@@ -116,7 +116,7 @@ def _reset_gpu_semaphores() -> None:
 # ---------------------------------------------------------------------------
 # 每个 ASR 任务预估显存占用(MB)。large-v3 ~5GB、medium ~5GB、small ~2GB,
 # 取 3000MB 作保守默认(覆盖 medium/large-v3 + 框架开销),可被
-# ``VIDEO2TEXT_VRAM_PER_TASK_MB`` 环境变量覆盖。
+# ``MEDIASCRIBE_VRAM_PER_TASK_MB`` 环境变量覆盖。
 _DEFAULT_VRAM_PER_TASK_MB = 3000
 
 # ``gpu_health()`` 调用 torch CUDA API,有点贵(亚毫秒级但非零)。
@@ -160,8 +160,8 @@ _GPU_HEALTH_CACHE = _GpuHealthCache()
 
 
 def _vram_per_task_mb() -> int:
-    """读 ``VIDEO2TEXT_VRAM_PER_TASK_MB`` 环境变量,失败回退默认。"""
-    raw = os.environ.get("VIDEO2TEXT_VRAM_PER_TASK_MB")
+    """读 ``MEDIASCRIBE_VRAM_PER_TASK_MB`` 环境变量,失败回退默认。"""
+    raw = os.environ.get("MEDIASCRIBE_VRAM_PER_TASK_MB")
     if not raw:
         return _DEFAULT_VRAM_PER_TASK_MB
     try:
@@ -241,7 +241,7 @@ class AsyncPipeline:
         :func:`_gpu_aware_concurrency` 按 GPU 空闲显存进一步收紧。
     vram_per_task_mb
         每个任务预估显存(MB),用于 GPU 感知并发计算;
-        ``None`` 时读 ``VIDEO2TEXT_VRAM_PER_TASK_MB`` 环境变量,
+        ``None`` 时读 ``MEDIASCRIBE_VRAM_PER_TASK_MB`` 环境变量,
         默认 3000。仅对 CUDA 设备生效。
     """
 
@@ -282,7 +282,7 @@ class AsyncPipeline:
 
         若提供 ``runner``(可调用 ``() -> TranscriptResult``),则改为执行
         ``runner()`` 而非底层 ``Pipeline.transcribe`` —— 这是 Web 层接线
-        的关键:传入 :func:`video2text.progress.with_progress` 包装的 thunk,
+        的关键:传入 :func:`mediascribe.progress.with_progress` 包装的 thunk,
         即可在并发批处理中保留进度事件与结果落盘。
 
         v3.2.0x P1-8: 默认路径把 ``self._cancel_event`` 透传给

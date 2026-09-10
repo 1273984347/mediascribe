@@ -1,7 +1,7 @@
 """
 Unit tests for the plugin system.
 
-The ``video2text.downloaders`` entry point is registered with the
+The ``mediascribe.downloaders`` entry point is registered with the
 in-tree example plugin in ``pyproject.toml``.  When pyproject is
 present, the plugin should be discoverable via
 ``plugins.list_downloaders()`` and instantiable via
@@ -21,49 +21,49 @@ sys.path.insert(0, str(ROOT))
 
 
 def _package_is_installed() -> bool:
-    """Return True if the video2text package is installed (editable or otherwise)."""
+    """Return True if the mediascribe package is installed (editable or otherwise)."""
     try:
-        importlib.metadata.distribution("video2text")
+        importlib.metadata.distribution("mediascribe")
         return True
     except importlib.metadata.PackageNotFoundError:
         return False
 
 
-@unittest.skipUnless(_package_is_installed(), "video2text not installed; entry_points not visible")
+@unittest.skipUnless(_package_is_installed(), "mediascribe not installed; entry_points not visible")
 class TestPluginDiscovery(unittest.TestCase):
     """The example vimeo plugin must show up in the registry."""
 
     @classmethod
     def setUpClass(cls):
         # Force a fresh discovery in case other tests cached it.
-        from video2text.plugins import clear_cache
+        from mediascribe.plugins import clear_cache
         clear_cache()
 
     def test_list_downloaders_includes_vimeo(self):
-        from video2text.plugins import list_downloaders
+        from mediascribe.plugins import list_downloaders
         names = list_downloaders()
         self.assertIn("vimeo", names,
                       f"vimeo plugin missing; got: {names}")
 
     def test_get_downloader_returns_class(self):
-        from video2text.plugins import get_downloader
+        from mediascribe.plugins import get_downloader
         cls = get_downloader("vimeo")
         self.assertIsNotNone(cls)
         self.assertEqual(cls.name, "vimeo")
 
     def test_get_downloader_unknown_returns_none(self):
-        from video2text.plugins import get_downloader
+        from mediascribe.plugins import get_downloader
         self.assertIsNone(get_downloader("__no_such_plugin__"))
 
     def test_vimeo_supports(self):
-        from video2text.models import SourceRef
-        from video2text.plugins import get_downloader
+        from mediascribe.models import SourceRef
+        from mediascribe.plugins import get_downloader
         cls = get_downloader("vimeo")
         ref = SourceRef(raw_input="https://vimeo.com/123", kind="vimeo", url="https://vimeo.com/123")
         self.assertTrue(cls().supports(ref))
 
     def test_clear_cache_forces_rediscovery(self):
-        from video2text import plugins
+        from mediascribe import plugins
         plugins.clear_cache()
         # First call populates the cache; second is a no-op.
         plugins.list_downloaders()
@@ -76,16 +76,16 @@ class TestPluginHookspecs(unittest.TestCase):
     """Hookspecs are abstract hints, not enforced base classes."""
 
     def test_downloader_hookspec_is_class(self):
-        from video2text.plugins import DownloaderHookSpec
+        from mediascribe.plugins import DownloaderHookSpec
         self.assertTrue(hasattr(DownloaderHookSpec, "supports"))
         self.assertTrue(hasattr(DownloaderHookSpec, "download"))
 
     def test_transcriber_hookspec_is_class(self):
-        from video2text.plugins import TranscriberHookSpec
+        from mediascribe.plugins import TranscriberHookSpec
         self.assertTrue(hasattr(TranscriberHookSpec, "transcribe"))
 
     def test_url_transformer_hookspec_is_class(self):
-        from video2text.plugins import URLTransformerHookSpec
+        from mediascribe.plugins import URLTransformerHookSpec
         self.assertTrue(hasattr(URLTransformerHookSpec, "transform"))
 
 
@@ -93,7 +93,7 @@ class TestUrlTransformerIteration(unittest.TestCase):
     """The pipeline uses iter_url_transformers() at runtime."""
 
     def test_iter_returns_iterable(self):
-        from video2text.plugins import iter_url_transformers
+        from mediascribe.plugins import iter_url_transformers
         # In a clean test env the iterator may be empty; that's fine.
         result = list(iter_url_transformers())
         self.assertIsInstance(result, list)

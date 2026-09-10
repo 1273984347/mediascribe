@@ -1,4 +1,4 @@
-# Video2Text v3.2.0 — Planning Draft
+# MediaScribe v3.2.0 — Planning Draft
 
 > Status: **draft for community review**.  Last updated 2026-06-06.
 >
@@ -35,7 +35,7 @@ None.  v3.1.0 already meets all declared v3.1.0 goals.  v3.2.0 is a
 **Effort** M · **Impact** High
 
 * Reuse the existing `DownloadCache` and `ProcessCache` but route
-  storage to a workspace-pinned directory (e.g. `~/.cache/video2text/`)
+  storage to a workspace-pinned directory (e.g. `~/.cache/mediascribe/`)
 * SHA-256 keyed content addressing for downloads; mtime + size keyed
   for chunks
 * `--cache-clear` / `--cache-info` CLI flags
@@ -46,11 +46,11 @@ None.  v3.1.0 already meets all declared v3.1.0 goals.  v3.2.0 is a
 ### 3. Profile CLI 透出
 **Effort** S · **Impact** Medium
 
-* New `python -m video2text.profile_cli <run.jsonl>` command
+* New `python -m mediascribe.profile_cli <run.jsonl>` command
 * Reads `@profile_step` JSONL output and renders a Markdown / JSON report
 * Aggregates by stage (`download`, `transcribe`, `merge`, `export`)
 * Supports `--top N`, `--by-stage`, `--since YYYY-MM-DD` filters
-* Optionally `python -m video2text.profile_cli --watch` for live tailing
+* Optionally `python -m mediascribe.profile_cli --watch` for live tailing
 * Adds docs section in [docs_site/performance.md](performance.md)
 
 ### 4. CI matrix split (lint / unit / integration)
@@ -81,11 +81,11 @@ None.  v3.1.0 already meets all declared v3.1.0 goals.  v3.2.0 is a
 ### 6. Plugin registry CLI
 **Effort** S · **Impact** Low / Medium
 
-* `python -m video2text.plugins list` — enumerate installed
+* `python -m mediascribe.plugins list` — enumerate installed
   Downloader / Transcriber / URLTransformer plugins
-* `python -m video2text.plugins info <name>` — show source, class,
+* `python -m mediascribe.plugins info <name>` — show source, class,
   supported platforms / engine
-* `python -m video2text.plugins verify` — sanity-check each plugin's
+* `python -m mediascribe.plugins verify` — sanity-check each plugin's
   `supports()` method
 * Doc-only, no behaviour change
 
@@ -113,7 +113,7 @@ None.  v3.1.0 already meets all declared v3.1.0 goals.  v3.2.0 is a
 ### 9. Lightweight transcript diff (CLI)
 **Effort** S · **Impact** Low
 
-* `python -m video2text.diff OLD.md NEW.md` highlights added / removed /
+* `python -m mediascribe.diff OLD.md NEW.md` highlights added / removed /
   changed lines
 * Useful for: re-running the same video after engine upgrades
 * Pure stdlib (no extra deps)
@@ -150,7 +150,7 @@ None.  v3.1.0 already meets all declared v3.1.0 goals.  v3.2.0 is a
 
 1. Should `whisperx` become the default?  Adds an install cost
    (`pip install torch torchaudio`) that may surprise new users.
-2. Where should the persistent cache live?  `~/.cache/video2text/`
+2. Where should the persistent cache live?  `~/.cache/mediascribe/`
    (XDG), or workspace-relative (easier to clean up)?
 3. Should the marketplace be a static docs page (Tier 3 item 7) or
    a proper registry (deferred to v3.3+)?

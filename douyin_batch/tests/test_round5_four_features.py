@@ -111,7 +111,7 @@ class TestPlatformFilter(unittest.TestCase):
     """process_single_video_safe 接受 platform_filter 并跳过不匹配的视频。"""
 
     def setUp(self):
-        from video2text.inputs import parse_source
+        from mediascribe.inputs import parse_source
         self.parse_source = parse_source
 
     def _log_sink(self):
@@ -202,7 +202,7 @@ class TestMcpWechatMpSchema(unittest.TestCase):
     """MCP transcribe_wechat_mp 工具 schema 包含 ocr_engine / ocr_lang / save_images。"""
 
     def setUp(self):
-        from video2text.mcp_server import TOOL_LIST
+        from mediascribe.mcp_server import TOOL_LIST
         self.defs = {d["name"]: d for d in TOOL_LIST}
 
     def test_tool_registered(self):
@@ -238,8 +238,8 @@ class TestVideoArticleBilingual(unittest.TestCase):
     """_build_video_article_markdown 必须输出双语标签。"""
 
     def setUp(self):
-        from video2text.models import DownloadResult, SourceRef
-        from video2text.pipeline import Pipeline
+        from mediascribe.models import DownloadResult, SourceRef
+        from mediascribe.pipeline import Pipeline
         self.Pipeline = Pipeline
         self.DownloadResult = DownloadResult
         self.SourceRef = SourceRef
@@ -334,14 +334,14 @@ class TestWechatMpDownloadOptions(unittest.TestCase):
     def test_signature(self):
         import inspect
 
-        from video2text.downloaders.wechat_mp import WechatMpDownloader
+        from mediascribe.downloaders.wechat_mp import WechatMpDownloader
         sig = inspect.signature(WechatMpDownloader.download)
         for name in ("ocr_engine", "ocr_lang", "save_images"):
             self.assertIn(name, sig.parameters)
 
     def test_ocr_image_returns_none_for_unknown_engine(self):
         """显式指定 unknown engine 时直接返回 None（不抛异常）。"""
-        from video2text.downloaders.wechat_mp import WechatMpDownloader
+        from mediascribe.downloaders.wechat_mp import WechatMpDownloader
         d = WechatMpDownloader()
         d._ocr_engine = "non_existing_engine"
         d._ocr_lang = "chi_sim+eng"
@@ -353,7 +353,7 @@ class TestWechatMpDownloadOptions(unittest.TestCase):
 
     def test_ocr_image_explicit_paddleocr_returns_none_when_missing(self):
         """显式 paddleocr 但未安装时返回 None（不静默降级到其他引擎）。"""
-        from video2text.downloaders.wechat_mp import WechatMpDownloader
+        from mediascribe.downloaders.wechat_mp import WechatMpDownloader
         d = WechatMpDownloader()
         d._ocr_engine = "paddleocr"
         d._ocr_lang = "chi_sim+eng"

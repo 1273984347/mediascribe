@@ -133,11 +133,11 @@ def build_extension_zip(
     -------
     (zip_bytes, filename):
         ``zip_bytes`` is the in-memory ZIP; ``filename`` is the
-        suggested download filename, e.g. ``video2text-extension-v3.1.0.zip``.
+        suggested download filename, e.g. ``mediascribe-extension-v3.1.0.zip``.
     """
     manifest_version = _load_manifest_version(extension_root)
     filename = (
-        f"video2text-extension-v{_sanitize_for_filename(manifest_version)}.zip"
+        f"mediascribe-extension-v{_sanitize_for_filename(manifest_version)}.zip"
     )
 
     buf = io.BytesIO()
@@ -182,7 +182,7 @@ def build_install_markdown(
         Whether to show install steps for that browser.
     """
     parts: list[str] = [
-        "# Video2Text Browser Extension — Install Guide",
+        "# MediaScribe Browser Extension — Install Guide",
         "",
         f"_This ZIP was generated on {time.strftime('%Y-%m-%d %H:%M:%S')} "
         f"for Web UI origin **{web_ui_origin}**._",
@@ -190,7 +190,7 @@ def build_install_markdown(
         "## 1. Extract this archive",
         "",
         "Extract the downloaded `.zip` into a permanent folder, e.g.",
-        "``~/video2text-extension/``. The folder must contain "
+        "``~/mediascribe-extension/``. The folder must contain "
         "``manifest.json`` at the top level.",
         "",
         "## 2. Load the extension in your browser",
@@ -205,7 +205,7 @@ def build_install_markdown(
                 "2. Enable **Developer mode** (top right).",
                 "3. Click **Load unpacked** and select the extracted folder.",
                 "4. (Optional) Pin the extension: click the puzzle icon "
-                "→ pin **Video2Text Sender**.",
+                "→ pin **MediaScribe Sender**.",
                 "",
             ]
         )
@@ -217,7 +217,7 @@ def build_install_markdown(
                 "1. Open `edge://extensions/`.",
                 "2. Enable **Developer mode** (bottom-left).",
                 "3. Click **Load unpacked** and select the extracted folder.",
-                "4. (Optional) Right-click the toolbar → **Show Video2Text "
+                "4. (Optional) Right-click the toolbar → **Show MediaScribe "
                 "Sender in side panel** for a docked experience.",
                 "",
             ]
@@ -228,12 +228,12 @@ def build_install_markdown(
             "",
             f"On first install, the options page opens. Enter the Web UI "
             f"URL (default: `{web_ui_origin}`) and your Bearer token if the "
-            f"server has `VIDEO2TEXT_API_TOKEN` set.",
+            f"server has `MEDIASCRIBE_API_TOKEN` set.",
             "",
             "## 4. Use the extension",
             "",
             "* Click the toolbar icon → the popup opens → **Send to "
-            "Video2Text**.",
+            "MediaScribe**.",
             "* Or click **Open in side panel** to keep the transcript reader "
             "docked to the right edge of the browser.",
             "",
@@ -242,9 +242,9 @@ def build_install_markdown(
             "* `Side panel requires Chrome / Edge 114+` — update the browser.",
             "* `CORS blocked` — the Web UI allows `chrome-extension://*` and "
             "`moz-extension://*` by default; check that you have not "
-            "overridden `VIDEO2TEXT_CORS_ORIGINS` to a stricter list.",
+            "overridden `MEDIASCRIBE_CORS_ORIGINS` to a stricter list.",
             "* `401 Unauthorized` — the Bearer token in the popup / options "
-            "page must match `VIDEO2TEXT_API_TOKEN` on the server.",
+            "page must match `MEDIASCRIBE_API_TOKEN` on the server.",
             "",
         ]
     )

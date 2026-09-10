@@ -4,7 +4,7 @@ v3.2.0b — post_process.py 测试。
 覆盖:
 1. post_process_transcript 默认术语替换
 2. custom_terms 合并
-3. VIDEO2TEXT_CUSTOM_TERMS 环境变量
+3. MEDIASCRIBE_CUSTOM_TERMS 环境变量
 4. auto_select_model 时长分档
 5. get_prompt_template domain + custom 拼接
 6. setup_hf_mirror 默认值 + 环境变量覆盖
@@ -15,7 +15,7 @@ import os
 import unittest
 from unittest import mock
 
-from video2text.post_process import (
+from mediascribe.post_process import (
     DEFAULT_TERMS,
     auto_select_model,
     get_prompt_template,
@@ -51,16 +51,16 @@ class TestPostProcessTranscript(unittest.TestCase):
 
     def test_env_custom_terms_parsed(self):
         text = "注价老师很厉害"
-        env = {k: v for k, v in os.environ.items() if k != "VIDEO2TEXT_CUSTOM_TERMS"}
-        env["VIDEO2TEXT_CUSTOM_TERMS"] = '{"注价老师": "助教(环境变量)"}'
+        env = {k: v for k, v in os.environ.items() if k != "MEDIASCRIBE_CUSTOM_TERMS"}
+        env["MEDIASCRIBE_CUSTOM_TERMS"] = '{"注价老师": "助教(环境变量)"}'
         with mock.patch.dict(os.environ, env, clear=True):
             result = post_process_transcript(text, merge_env=True)
         self.assertEqual(result, "助教(环境变量)很厉害")
 
     def test_env_invalid_json_ignored(self):
         text = "获取病"
-        env = {k: v for k, v in os.environ.items() if k != "VIDEO2TEXT_CUSTOM_TERMS"}
-        env["VIDEO2TEXT_CUSTOM_TERMS"] = "{bad json"
+        env = {k: v for k, v in os.environ.items() if k != "MEDIASCRIBE_CUSTOM_TERMS"}
+        env["MEDIASCRIBE_CUSTOM_TERMS"] = "{bad json"
         with mock.patch.dict(os.environ, env, clear=True):
             result = post_process_transcript(text, merge_env=True)
         # 应该用默认术语替换
@@ -68,8 +68,8 @@ class TestPostProcessTranscript(unittest.TestCase):
 
     def test_merge_env_false_ignores_env(self):
         text = "获取病"
-        env = {k: v for k, v in os.environ.items() if k != "VIDEO2TEXT_CUSTOM_TERMS"}
-        env["VIDEO2TEXT_CUSTOM_TERMS"] = '{"获取病": "不替换"}'
+        env = {k: v for k, v in os.environ.items() if k != "MEDIASCRIBE_CUSTOM_TERMS"}
+        env["MEDIASCRIBE_CUSTOM_TERMS"] = '{"获取病": "不替换"}'
         with mock.patch.dict(os.environ, env, clear=True):
             result = post_process_transcript(text, merge_env=False)
         self.assertEqual(result, "霍去病")

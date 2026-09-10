@@ -3,17 +3,17 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "video2text"
+name = "mediascribe"
 version = "3.3.0"
 description = "Offline video transcription for Bilibili / Douyin / YouTube / Xiaohongshu / WeChat MP"
 readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "MIT"}
 authors = [
-    {name = "Video2Text Contributors"},
+    {name = "MediaScribe Contributors"},
 ]
 maintainers = [
-    {name = "Video2Text Maintainers", email = "maintainers@example.com"},
+    {name = "MediaScribe Maintainers", email = "maintainers@example.com"},
 ]
 keywords = [
     "video",
@@ -71,12 +71,12 @@ dependencies = [
 
 # Third-party plugins can be discovered via entry_points; see
 # docs/plugins.md.  Built-in extensions are listed in [project.entry-points].
-[project.entry-points."video2text.downloaders"]
+[project.entry-points."mediascribe.downloaders"]
 vimeo = "examples.plugins.vimeo_downloader:VimeoDownloader"
 
-[project.entry-points."video2text.transcribers"]
+[project.entry-points."mediascribe.transcribers"]
 
-[project.entry-points."video2text.url_transformers"]
+[project.entry-points."mediascribe.url_transformers"]
 tcn = "examples.plugins.tcn_transformer:transform"
 
 [project.optional-dependencies]
@@ -102,15 +102,15 @@ ocr = [
 mcp = [
     "mcp>=0.5.0",
 ]
-# LLM post-process (video2text.llm_post_process, OpenAI-compatible API)
+# LLM post-process (mediascribe.llm_post_process, OpenAI-compatible API)
 llm = [
     "openai>=1.0.0",
 ]
-# OpenTelemetry export backend for video2text.observability
+# OpenTelemetry export backend for mediascribe.observability
 otel = [
     "opentelemetry-sdk>=1.20",
 ]
-# Web UI (FastAPI + uvicorn, served via ``uvicorn video2text.web.app:app``)
+# Web UI (FastAPI + uvicorn, served via ``uvicorn mediascribe.web.app:app``)
 web = [
     "fastapi>=0.110.0",
     "uvicorn>=0.27.0",
@@ -118,7 +118,7 @@ web = [
 ]
 # Convenience meta-packages
 all = [
-    "video2text[whisperx,faster-whisper,ocr,mcp,web,llm]",
+    "mediascribe[whisperx,faster-whisper,ocr,mcp,web,llm]",
 ]
 # Dev / CI tooling
 dev = [
@@ -133,25 +133,25 @@ test = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/video2text"
-Repository = "https://github.com/yourusername/video2text.git"
-Issues = "https://github.com/yourusername/video2text/issues"
-Changelog = "https://github.com/yourusername/video2text/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/yourusername/mediascribe"
+Repository = "https://github.com/yourusername/mediascribe.git"
+Issues = "https://github.com/yourusername/mediascribe/issues"
+Changelog = "https://github.com/yourusername/mediascribe/blob/main/CHANGELOG.md"
 
 [project.scripts]
-video2text = "video2text.__main__:main"
-video2text-batch = "douyin_batch_v3:main"
+mediascribe = "mediascribe.__main__:main"
+mediascribe-batch = "douyin_batch_v3:main"
 
 [tool.setuptools]
 # py-modules: top-level script modules shipped with the wheel
-# (``douyin_batch_v3`` backs the ``video2text-batch`` entry point).
+# (``douyin_batch_v3`` backs the ``mediascribe-batch`` entry point).
 py-modules = ["douyin_batch_v3"]
 packages = [
-    "video2text",
-    "video2text.downloaders",
-    "video2text.transcribers",
-    "video2text.web",
-    "video2text.plugins",
+    "mediascribe",
+    "mediascribe.downloaders",
+    "mediascribe.transcribers",
+    "mediascribe.web",
+    "mediascribe.plugins",
     "douyin_batch",
     "douyin_batch.tests",
     "examples",
@@ -159,7 +159,7 @@ packages = [
 ]
 
 [tool.setuptools.package-data]
-video2text = ["py.typed"]
+mediascribe = ["py.typed"]
 
 [tool.mypy]
 python_version = "3.8"
@@ -182,14 +182,14 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["video2text", "douyin_batch"]
+source = ["mediascribe", "douyin_batch"]
 omit = [
     "*/tests/*",
     "*/test_*.py",
     # 可选 extra 模块：CI 现已安装 faster-whisper/mcp 使其可导入，
     # 但尚无专属测试覆盖，暂不计入覆盖率门禁（待补测试后移出）。
-    "video2text/transcribers/faster_whisper.py",
-    "video2text/mcp_server.py",
+    "mediascribe/transcribers/faster_whisper.py",
+    "mediascribe/mcp_server.py",
 ]
 
 [tool.coverage.report]

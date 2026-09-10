@@ -1,7 +1,7 @@
 # Observability
 
-Video2Text ships a tiny **OpenTelemetry-compatible** SDK at
-`video2text.observability` that:
+MediaScribe ships a tiny **OpenTelemetry-compatible** SDK at
+`mediascribe.observability` that:
 
 * imports cleanly on any Python 3.8+ install with zero extra deps,
 * exposes `tracer.start_as_current_span(name)` and
@@ -17,7 +17,7 @@ Video2Text ships a tiny **OpenTelemetry-compatible** SDK at
 ## Quick start
 
 ```python
-from video2text.observability import (
+from mediascribe.observability import (
     get_tracer, get_meter, OBSERVABILITY,
 )
 
@@ -45,7 +45,7 @@ for span in OBSERVABILITY["spans"]:
 ## Upgrading to real OpenTelemetry
 
 ```python
-from video2text.observability import install_opentelemetry_exporter
+from mediascribe.observability import install_opentelemetry_exporter
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 
 ok = install_opentelemetry_exporter(OTLPSpanExporter(endpoint="localhost:4317"))

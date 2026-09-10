@@ -20,10 +20,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from video2text.config import Settings
-from video2text.models import TranscriptResult
-from video2text.pipeline import Pipeline
-from video2text.pipeline_async import (
+from mediascribe.config import Settings
+from mediascribe.models import TranscriptResult
+from mediascribe.pipeline import Pipeline
+from mediascribe.pipeline_async import (
     AsyncPipeline,
     _default_max_concurrent,
     _FailedResult,
@@ -34,7 +34,7 @@ from video2text.pipeline_async import (
     _vram_per_task_mb,
     from_sync,
 )
-from video2text.pipeline_stages import PipelineCancelled
+from mediascribe.pipeline_stages import PipelineCancelled
 
 
 def _run_coro(coro):
@@ -79,21 +79,21 @@ def _fake_transcriber() -> mock.MagicMock:
 # ---------------------------------------------------------------------------
 class TestDefaultMaxConcurrent(unittest.TestCase):
     def test_env_override_takes_precedence(self):
-        with mock.patch.dict(os.environ, {"VIDEO2TEXT_MAX_WORKERS": "7"}):
+        with mock.patch.dict(os.environ, {"MEDIASCRIBE_MAX_WORKERS": "7"}):
             self.assertEqual(_default_max_concurrent(), 7)
 
     def test_env_zero_falls_through_to_cpu(self):
         # 0 / 负数 / 非数字都视作未设
-        with mock.patch.dict(os.environ, {"VIDEO2TEXT_MAX_WORKERS": "0"}):
+        with mock.patch.dict(os.environ, {"MEDIASCRIBE_MAX_WORKERS": "0"}):
             n = _default_max_concurrent()
             self.assertGreaterEqual(n, 1)
-        with mock.patch.dict(os.environ, {"VIDEO2TEXT_MAX_WORKERS": "-1"}):
+        with mock.patch.dict(os.environ, {"MEDIASCRIBE_MAX_WORKERS": "-1"}):
             n = _default_max_concurrent()
             self.assertGreaterEqual(n, 1)
 
     def test_caps_at_4(self):
-        env = {k: v for k, v in os.environ.items() if k != "VIDEO2TEXT_MAX_WORKERS"}
-        env.pop("VIDEO2TEXT_MAX_WORKERS", None)
+        env = {k: v for k, v in os.environ.items() if k != "MEDIASCRIBE_MAX_WORKERS"}
+        env.pop("MEDIASCRIBE_MAX_WORKERS", None)
         with mock.patch.dict(os.environ, env, clear=True):
             # 8+ CPU 机器上仍 cap 在 4
             with mock.patch("os.cpu_count", return_value=16):
@@ -263,7 +263,7 @@ class TestSharedGpuSemaphore(unittest.TestCase):
 
             async def driver():
                 with mock.patch(
-                    "video2text.pipeline_async._GPU_HEALTH_CACHE"
+                    "mediascribe.pipeline_async._GPU_HEALTH_CACHE"
                 ) as cache:
                     cache.get.return_value = cpu_health
                     aps = [AsyncPipeline(sync, max_concurrent=4) for _ in range(2)]
@@ -482,14 +482,14 @@ class TestGpuAwareConcurrency(unittest.TestCase):
 
 class TestVramPerTaskEnv(unittest.TestCase):
     def test_env_override(self):
-        with mock.patch.dict(os.environ, {"VIDEO2TEXT_VRAM_PER_TASK_MB": "2500"}):
+        with mock.patch.dict(os.environ, {"MEDIASCRIBE_VRAM_PER_TASK_MB": "2500"}):
             self.assertEqual(_vram_per_task_mb(), 2500)
 
     def test_invalid_env_falls_back(self):
         for bad in ("0", "-1", "abc", ""):
             env = {k: v for k, v in os.environ.items()
-                   if k != "VIDEO2TEXT_VRAM_PER_TASK_MB"}
-            env["VIDEO2TEXT_VRAM_PER_TASK_MB"] = bad
+                   if k != "MEDIASCRIBE_VRAM_PER_TASK_MB"}
+            env["MEDIASCRIBE_VRAM_PER_TASK_MB"] = bad
             with mock.patch.dict(os.environ, env, clear=True):
                 self.assertGreater(_vram_per_task_mb(), 0)
 
@@ -499,7 +499,7 @@ class TestGpuHealthCache(unittest.TestCase):
         cache = _GpuHealthCache(ttl=10.0)
         # 第一次探测
         with mock.patch(
-            "video2text.pipeline_async.gpu_health",
+            "mediascribe.pipeline_async.gpu_health",
             return_value={"available": True, "device": "cuda"},
         ) as m:
             v1 = cache.get()
@@ -511,13 +511,13 @@ class TestGpuHealthCache(unittest.TestCase):
     def test_invalidate_forces_refresh(self):
         cache = _GpuHealthCache(ttl=10.0)
         with mock.patch(
-            "video2text.pipeline_async.gpu_health",
+            "mediascribe.pipeline_async.gpu_health",
             return_value={"available": False, "device": "cpu"},
         ):
             cache.get()
         cache.invalidate()
         with mock.patch(
-            "video2text.pipeline_async.gpu_health",
+            "mediascribe.pipeline_async.gpu_health",
             return_value={"available": True, "device": "cuda"},
         ) as m:
             v = cache.get()

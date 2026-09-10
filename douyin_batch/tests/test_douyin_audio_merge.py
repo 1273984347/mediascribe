@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 from unittest import mock
 
-from video2text.downloaders.douyin import DouyinDownloader
+from mediascribe.downloaders.douyin import DouyinDownloader
 
 
 def test_separate_streams_splits_video_and_audio():

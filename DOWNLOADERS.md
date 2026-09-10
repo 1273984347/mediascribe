@@ -3,8 +3,8 @@
 > **Per-platform downloader reference** — what each downloader supports,
 > what it cannot do, and the fallback chain when it fails.
 
-Video2Text routes a `SourceRef` to exactly one downloader at runtime. The
-selection happens in [`video2text/pipeline.py::Pipeline._get_downloader`](../video2text/pipeline.py)
+MediaScribe routes a `SourceRef` to exactly one downloader at runtime. The
+selection happens in [`mediascribe/pipeline.py::Pipeline._get_downloader`](../mediascribe/pipeline.py)
 using the following priority order:
 
 | Priority | `SourceRef.kind` | Downloader           | Notes                                  |
@@ -15,7 +15,7 @@ using the following priority order:
 | 4        | `youtube`        | `YouTubeDownloader`    | Tuned player_clients; fallback → yt-dlp|
 | 5        | everything else  | `YtDlpDownloader`      | Generic fallback                       |
 
-Source detection happens in [`video2text/inputs.py::parse_source`](../video2text/inputs.py).
+Source detection happens in [`mediascribe/inputs.py::parse_source`](../mediascribe/inputs.py).
 
 ---
 
@@ -78,7 +78,7 @@ Source detection happens in [`video2text/inputs.py::parse_source`](../video2text
   HTML. CDN domain: `sns-video-*.xhscdn.com` (video) and
   `sns-img-*.xhscdn.com` (image posts).
 - **Image posts** (图文笔记): saves the first image as `.jpg`. Useful as a
-  transcript source only for OCR — by default Video2Text only handles
+  transcript source only for OCR — by default MediaScribe only handles
   audio/video.
 - **Failures**:
   - Login-wall notes → user must paste a logged-in cookie in the
@@ -100,7 +100,7 @@ Source detection happens in [`video2text/inputs.py::parse_source`](../video2text
 ## Fallback chain (in code)
 
 ```python
-# video2text/pipeline.py
+# mediascribe/pipeline.py
 if source.kind == "xiaohongshu":
     try: return XiaohongshuDownloader()
     except Exception: pass   # → YtDlpDownloader
@@ -146,11 +146,11 @@ full traceback and a minimal repro URL.
 
 ## Adding a new downloader
 
-1. Subclass `Downloader` in `video2text/downloaders/<name>.py`.
+1. Subclass `Downloader` in `mediascribe/downloaders/<name>.py`.
 2. Implement `name` (str), `download(source, settings, *, progress=None)`,
    and optionally `supports(source)`.
-3. Register the class in `video2text/downloaders/__init__.py` `__all__`.
-4. Add a URL-detect branch in `video2text/inputs.py::parse_source`.
+3. Register the class in `mediascribe/downloaders/__init__.py` `__all__`.
+4. Add a URL-detect branch in `mediascribe/inputs.py::parse_source`.
 5. Add a branch in `Pipeline._get_downloader`.
 6. Add a branch in `mcp_server._tool_detect_platform`.
 7. Add tests in `douyin_batch/tests/test_new_downloaders.py`.
