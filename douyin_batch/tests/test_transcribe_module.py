@@ -112,15 +112,15 @@ class TestTranscriberPoolTranscribe(unittest.TestCase):
         pipe = mock.MagicMock()
         pipe.transcribe.side_effect = RuntimeError("model crashed")
         pool = self._make_pool(pipe)
-        # capture the print that happens on failure
-        with mock.patch("builtins.print") as mock_print:
+        # capture the log output on failure
+        with mock.patch("douyin_batch.transcribe.logger") as mock_log:
             result = pool.transcribe(Path("/tmp/bad.wav"))
         self.assertIsNone(result)
-        # print should have been called with an error message
-        mock_print.assert_called()
-        msg = mock_print.call_args.args[0]
+        # logger should have been called with an error message
+        mock_log.error.assert_called()
+        msg = mock_log.error.call_args.args[0]
         self.assertIn("转录失败", msg)
-        self.assertIn("model crashed", msg)
+        self.assertIn("model crashed", str(mock_log.error.call_args.args[1]))
 
 
 class TestTranscribeAudio(unittest.TestCase):

@@ -25,12 +25,28 @@ def detect_language() -> str:
             return "en"
 
     # 2. Check system locale
+    #    locale.getdefaultlocale() 自 3.12 起弃用；优先 getlocale()。
+    #    Windows 上 getlocale() 未 setlocale 时可能返回 (None, None)，
+    #    此时回落 LC_ALL / LC_CTYPE，再回落旧 getdefaultlocale()（抑制
+    #    弃用警告）以保持 Windows 中文系统的检测行为。
+    sys_locale: Optional[str] = None
     try:
-        sys_locale = locale.getdefaultlocale()[0]
-        if sys_locale and sys_locale.lower().startswith("zh"):
-            return "zh"
+        sys_locale = locale.getlocale()[0]
     except Exception:
-        pass
+        sys_locale = None
+    if not sys_locale:
+        sys_locale = os.environ.get("LC_ALL") or os.environ.get("LC_CTYPE")
+    if not sys_locale:
+        try:
+            import warnings
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                sys_locale = locale.getdefaultlocale()[0]
+        except Exception:
+            sys_locale = None
+    if sys_locale and sys_locale.lower().startswith("zh"):
+        return "zh"
 
     # 3. Default to English
     return "en"
@@ -447,6 +463,22 @@ Environment variables:
     INFO_ALL_PROCESSED = {
         "en": "All videos have been processed already!",
         "zh": "所有视频都已处理过！",
+    }
+
+    # ==================== Progress / Cleanup (v3.2.0g) ====================
+    INFO_PROGRESS_DESC = {
+        "en": "Batch transcribing",
+        "zh": "批量转录",
+    }
+
+    INFO_CLEANUP_KEEP_FAILED = {
+        "en": "Keeping {count} file(s) from failed videos for retry",
+        "zh": "保留 {count} 个失败视频的文件以供重试",
+    }
+
+    WARN_URL_UNSAFE = {
+        "en": "Video {video_id}: media URL failed safety check ({reason}), url={url}, skipping",
+        "zh": "视频 {video_id}: 媒体 URL 未通过安全检查（{reason}），url={url}，已跳过",
     }
 
     # ==================== Per-video / 单个视频 ====================

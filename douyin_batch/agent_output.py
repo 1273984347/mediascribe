@@ -12,7 +12,7 @@ Output schema (v1, stable):
       "schema": "video2text.agent-output/v1",
       "ok": true | false,
       "command": "douyin_batch_v3",
-      "version": "2.1.0",
+      "version": "<douyin_batch.__version__>",
       "started_at": "2026-06-04T00:00:00Z",
       "finished_at": "2026-06-04T00:00:42Z",
       "elapsed_seconds": 42.3,
@@ -80,7 +80,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 SCHEMA_VERSION = "video2text.agent-output/v1"
-APP_VERSION = "2.1.0"
+
+try:  # P2-9: 版本号统一来自包元数据，避免多处漂移
+    from douyin_batch import __version__ as APP_VERSION
+except ImportError:  # pragma: no cover - 以单文件方式导入时的兜底
+    APP_VERSION = "3.1.0"
 
 # Status string constants — never localised, must remain stable for agents.
 STATUS_SUCCESS = "success"

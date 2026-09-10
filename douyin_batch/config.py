@@ -1,30 +1,55 @@
 """
 配置管理 - 支持配置文件、环境变量、默认值
+
+v3.2.0g:
+- 新增 ``user_url`` 字段：``--config`` 纯配置文件启动终于可用
+  （旧版 from_dict 会把这个未知键丢弃，导致 100% 找不到用户主页）
+- 环境变量主前缀修正为 ``DOUYIN_BATCH_*``（与文档一致），
+  同时兼容读取旧 ``DOYIN_BATCH_*`` 并给出弃用警告
+- 删除全仓无消费者的死字段；``scroll_pause`` / ``max_scroll_rounds``
+  保留并真正接线到 BrowserManager（get_user_videos 的滚动节奏）
+- ``merge_cli_args`` 被 douyin_batch_v3 真正调用（不再是死代码）
 """
 import json
+import logging
 import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Optional
+
+logger = logging.getLogger("douyin_batch.config")
+
+# 环境变量后缀 → (字段名, 类型)。主前缀 DOUYIN_BATCH_*，兼容旧 DOYIN_BATCH_*。
+_ENV_FIELDS = {
+    "HEADLESS": ("headless", bool),
+    "MAX_VIDEOS": ("max_videos", int),
+    "WORKERS": ("workers", int),
+    "LANGUAGE": ("language", str),
+    "MODEL": ("whisper_model", str),
+    "OUTPUT_DIR": ("output_dir", str),
+    "KEEP_AUDIO": ("keep_audio", bool),
+    "LOG_LEVEL": ("log_level", str),
+    "MAX_RETRIES": ("max_retries", int),
+}
 
 
 @dataclass
 class BatchConfig:
     """批量转录配置"""
 
+    # 输入配置
+    user_url: Optional[str] = None  # 作者主页 URL（--config 纯配置文件启动用）
+
     # 浏览器配置
     headless: bool = True
-    browser_timeout: int = 30
 
     # 下载配置
     max_retries: int = 3
-    retry_delay: float = 1.0
-    retry_backoff: float = 2.0
-    download_timeout: int = 30
 
     # 抓取配置
     max_videos: int = 10
-    max_scroll_rounds: int = 10
-    scroll_pause: float = 2.0
+    max_scroll_rounds: int = 10  # 主页滚动轮数（接线到 browser.get_user_videos）
+    scroll_pause: float = 2.0  # 滚动停顿秒数（接线到 browser.get_user_videos）
 
     # 转录配置
     language: str = "zh"
@@ -42,8 +67,6 @@ class BatchConfig:
     log_to_file: bool = True
 
     # 高级配置
-    skip_existing: bool = True  # 断点续传
-    min_video_size_mb: float = 0.01  # 最小有效视频大小
     max_wait_for_media: int = 15  # 等待媒体URL超时（秒）
 
     def to_dict(self) -> dict:
@@ -73,23 +96,23 @@ class BatchConfig:
 
     @classmethod
     def from_env(cls) -> "BatchConfig":
-        """从环境变量加载配置（覆盖默认）"""
+        """从环境变量加载配置（覆盖默认）
+
+        主前缀 ``DOUYIN_BATCH_*``（与 --help 文档一致）；
+        旧前缀 ``DOYIN_BATCH_*`` 仍可读取，但会输出弃用警告。
+        """
         config = cls()
 
-        env_mapping = {
-            "DOYIN_BATCH_HEADLESS": ("headless", bool),
-            "DOYIN_BATCH_MAX_VIDEOS": ("max_videos", int),
-            "DOYIN_BATCH_WORKERS": ("workers", int),
-            "DOYIN_BATCH_LANGUAGE": ("language", str),
-            "DOYIN_BATCH_MODEL": ("whisper_model", str),
-            "DOYIN_BATCH_OUTPUT_DIR": ("output_dir", str),
-            "DOYIN_BATCH_KEEP_AUDIO": ("keep_audio", bool),
-            "DOYIN_BATCH_LOG_LEVEL": ("log_level", str),
-            "DOYIN_BATCH_MAX_RETRIES": ("max_retries", int),
-        }
-
-        for env_key, (attr, type_) in env_mapping.items():
-            env_value = os.environ.get(env_key)
+        for suffix, (attr, type_) in _ENV_FIELDS.items():
+            env_value = os.environ.get(f"DOUYIN_BATCH_{suffix}")
+            if env_value is None:
+                legacy_value = os.environ.get(f"DOYIN_BATCH_{suffix}")
+                if legacy_value is not None:
+                    logger.warning(
+                        "环境变量 DOYIN_BATCH_%s 已弃用，请改用 DOUYIN_BATCH_%s",
+                        suffix, suffix,
+                    )
+                    env_value = legacy_value
             if env_value is not None:
                 if type_ is bool:
                     setattr(config, attr, env_value.lower() in ("true", "1", "yes"))
@@ -99,20 +122,22 @@ class BatchConfig:
         return config
 
     def merge_cli_args(self, args) -> "BatchConfig":
-        """合并 CLI 参数（CLI 参数优先级最高）"""
+        """合并 CLI 参数（CLI 参数优先级最高；未显式提供的参数不覆盖）"""
         # 只在 CLI 显式提供时覆盖
-        if hasattr(args, "num") and args.num is not None:
+        if getattr(args, "num", None) is not None:
             self.max_videos = args.num
-        if hasattr(args, "workers") and args.workers is not None:
+        if getattr(args, "workers", None) is not None:
             self.workers = args.workers
-        if hasattr(args, "no_headless"):
-            self.headless = not args.no_headless
-        if hasattr(args, "retries") and args.retries is not None:
+        if getattr(args, "no_headless", False):
+            self.headless = False
+        if getattr(args, "retries", None) is not None:
             self.max_retries = args.retries
-        if hasattr(args, "output_dir"):
+        if getattr(args, "output_dir", None):
             self.output_dir = args.output_dir
-        if hasattr(args, "keep_audio"):
-            self.keep_audio = args.keep_audio
+        if getattr(args, "keep_audio", False):
+            self.keep_audio = True
+        if getattr(args, "log_level", None):
+            self.log_level = args.log_level
         return self
 
     def __str__(self) -> str:

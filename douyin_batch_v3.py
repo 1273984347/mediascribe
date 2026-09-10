@@ -1,18 +1,27 @@
 #!/usr/bin/env python3
 """
-抖音作者主页批量转录 v3.0 - 完全强化版
+抖音作者主页批量转录 v3 - 完全强化版
+（版本号与 douyin_batch.__version__ 同步，当前 3.1.0）
 
 v3 相比 v2 的改进：
 ✅ 完整日志系统（彩色 + 文件）
 ✅ 配置管理（文件/环境变量/CLI）
 ✅ 进度条 + ETA 估计
-✅ 断点续传（缓存已处理）
-✅ 18 个单元测试通过
+✅ 断点续传（缓存已处理；失败项下一轮自动重试）
+✅ 单元测试覆盖
 ✅ 优雅的异常处理
 ✅ 中英文双语 UI (i18n)
+
+v3.2.0g:
+- --config 纯配置文件启动可用（BatchConfig.user_url）
+- workers>1 时用 ThreadPoolExecutor 逐视频并发（默认 1 保持原行为）
+- 下载前对媒体 URL 做 check_url_safety 安全检查（security 工具接线）
+- 收尾清理跳过失败视频的文件（可重试）
+- 收尾只在浏览器已在运行时关闭（不再凭空启动一次 Playwright）
 """
 import argparse
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -110,21 +119,8 @@ def main():
             setattr(config, k, v)
         log.info(f"📂 {t('INFO_LOAD_CONFIG', path=config_path)}")
 
-    # 1.3 CLI 参数（最高优先级）
-    if args.num is not None:
-        config.max_videos = args.num
-    if args.workers is not None:
-        config.workers = args.workers
-    if args.no_headless:
-        config.headless = False
-    if args.retries is not None:
-        config.max_retries = args.retries
-    if args.output_dir:
-        config.output_dir = args.output_dir
-    if args.keep_audio:
-        config.keep_audio = True
-    if args.log_level:
-        config.log_level = args.log_level
+    # 1.3 CLI 参数（最高优先级；未显式提供的参数不覆盖文件/环境变量值）
+    config.merge_cli_args(args)
 
     # 1.4 日志配置
     log.set_level(config.log_level)
@@ -191,7 +187,6 @@ def main():
 
     # 3. 启动浏览器
     from douyin_batch.browser import (
-        BrowserManager,
         get_media_url_fast,
         get_user_url_from_video,
         get_user_videos,
@@ -218,9 +213,9 @@ def main():
             user_url = args.user
             log.info(f"🔍 {t('INFO_STEP1_USE_USER', url=user_url)}")
         else:
-            # 从配置文件加载
+            # 从配置文件加载（P0-3: BatchConfig.user_url 字段正式生效）
             log.info(f"🔍 {t('INFO_STEP1_LOAD_CONFIG')}")
-            user_url = config.user_url if hasattr(config, 'user_url') else None
+            user_url = config.user_url
             if not user_url:
                 log.error(f"❌ {t('INFO_USER_URL_MISSING')}")
                 if agent_out is not None:
@@ -239,7 +234,15 @@ def main():
             log.info(f"   📦 {t('INFO_STEP2_CACHED', count=len(cached_videos))}")
             videos = cached_videos[:config.max_videos]
         else:
-            videos = get_user_videos(user_url, max_videos=config.max_videos, headless=config.headless)
+            # P2-13: 滚动节奏由 BatchConfig 注入（scroll_pause / max_scroll_rounds）
+            videos = get_user_videos(
+                user_url,
+                max_videos=config.max_videos,
+                headless=config.headless,
+                initial_wait=config.scroll_pause,
+                scroll_pause=config.scroll_pause,
+                max_scroll_rounds=config.max_scroll_rounds,
+            )
             if videos:
                 cache.save_user_videos(user_url, videos)
 
@@ -267,59 +270,91 @@ def main():
         download_dir = output_dir / "downloads" / "user_videos"
         download_dir.mkdir(parents=True, exist_ok=True)
 
-        # 进度跟踪
-        tracker = ProgressTracker(total=len(videos), desc="批量转录")
+        # 进度跟踪（desc 经 i18n 注入，P2-15）
+        tracker = ProgressTracker(total=len(videos), desc=t("INFO_PROGRESS_DESC"))
 
         results = []
-        for i, video in enumerate(videos, 1):
-            task_start = time.time()
-            print(tracker.render(f"{video['video_id']}"), end="", flush=True)
+        results_lock = threading.Lock()
 
+        # P1-7: 转录池透传 BatchConfig（whisper_model / language 生效）
+        def _transcribe_with_config(audio_path):
+            return transcribe_audio(audio_path, config=config)
+
+        def _run_one(index: int, video: Dict):
+            started = time.time()
             result = process_single_video_safe(
                 video=video,
-                index=i,
+                index=index,
                 total=len(videos),
                 download_dir=download_dir,
                 config=config,
                 get_media_url_fn=get_media_url_fast,
                 download_media_fn=download_media_with_retry,
-                transcribe_fn=transcribe_audio,
+                transcribe_fn=_transcribe_with_config,
                 log=log,
                 i18n_t=t,
                 platform_filter=platform_filter,
             )
+            return result, time.time() - started, threading.current_thread().name
 
-            results.append(result)
-            task_time = time.time() - task_start
-            tracker.update(success=result["status"] == "success", task_time=task_time)
+        def _record_result(result: Dict, task_time: float, worker_name: str) -> None:
+            """登记单条结果（加锁：workers>1 时缓存写/进度更新线程安全）。"""
+            with results_lock:
+                results.append(result)
+                tracker.update(success=result["status"] == "success", task_time=task_time)
 
-            # JSON 模式：记录每条结果
-            if agent_out is not None:
-                agent_out.add_video(
-                    {
-                        "video_id": result.get("video_id"),
-                        "url": result.get("url"),
-                        "platform": result.get("platform", "unknown"),
-                        "status": result.get("status"),
-                        "stage": result.get("stage"),
-                        "transcript": result.get("transcript"),
-                        "audio": result.get("audio"),
-                        "error": result.get("error"),
-                    }
+                # JSON 模式：记录每条结果
+                if agent_out is not None:
+                    agent_out.add_video(
+                        {
+                            "video_id": result.get("video_id"),
+                            "url": result.get("url"),
+                            "platform": result.get("platform", "unknown"),
+                            "status": result.get("status"),
+                            "stage": result.get("stage"),
+                            "transcript": result.get("transcript"),
+                            "audio": result.get("audio"),
+                            "error": result.get("error"),
+                        }
+                    )
+
+                # 保存到缓存（ProcessCache 内部亦有线程锁）
+                cache.mark_processed(
+                    video_id=result["video_id"],
+                    video_url=result.get("url", ""),
+                    transcript_path=result.get("transcript"),
+                    audio_path=result.get("audio"),
+                    success=result["status"] == "success",
                 )
 
-            # 保存到缓存
-            cache.mark_processed(
-                video_id=result["video_id"],
-                video_url=result.get("url", ""),
-                transcript_path=result.get("transcript"),
-                audio_path=result.get("audio"),
-                success=result["status"] == "success",
-            )
+                print(tracker.render(f"{result.get('video_id', '')}"), end="", flush=True)
+                print()  # 换行
+                elapsed = format_duration(tracker.get_elapsed())
+                worker_prefix = f"[worker:{worker_name}] " if workers > 1 else ""
+                log.info(
+                    f"   {worker_prefix}"
+                    f"{t('INFO_RUNNING_TOTAL', done=tracker.completed, total=tracker.total, time=elapsed)}"
+                )
 
-            print()  # 换行
-            elapsed = format_duration(tracker.get_elapsed())
-            log.info(f"   {t('INFO_RUNNING_TOTAL', done=tracker.completed, total=tracker.total, time=elapsed)}")
+        workers = max(1, int(getattr(config, "workers", 1) or 1))
+        if workers > 1:
+            # P2-6: workers>1 时逐视频并发（默认 1 保持原串行行为）
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            log.info(f"🚵 并发 workers={workers}")
+            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="worker") as pool:
+                futures = {
+                    pool.submit(_run_one, i, video): video
+                    for i, video in enumerate(videos, 1)
+                }
+                for fut in as_completed(futures):
+                    result, task_time, worker_name = fut.result()
+                    _record_result(result, task_time, worker_name)
+        else:
+            for i, video in enumerate(videos, 1):
+                print(tracker.render(f"{video['video_id']}"), end="", flush=True)
+                result, task_time, worker_name = _run_one(i, video)
+                _record_result(result, task_time, worker_name)
 
         # 3.5 生成汇总报告
         log.info("\n" + "=" * 60)
@@ -346,14 +381,27 @@ def main():
         log.info(f"   {t('INFO_DONE_ELAPSED', time=format_duration(elapsed))}")
         log.info(f"   {t('INFO_DONE_REPORT', path=summary_file)}")
 
-        # 3.6 清理
+        # 3.6 清理（P1-2: 失败视频的文件保留，下一轮可重试）
         if not config.keep_audio:
             log.info(f"\n🧹 {t('INFO_CLEANUP')}")
+            from douyin_batch.security import sanitize_filename
+
+            protected = {
+                sanitize_filename(f"{r['video_id']}.mp4")
+                for r in results
+                if r.get("status") != "success"
+            }
+            kept = 0
             for f in download_dir.glob("*.mp4"):
+                if f.name in protected:
+                    kept += 1
+                    continue
                 try:
                     f.unlink()
                 except Exception:
                     pass
+            if kept:
+                log.info(t("INFO_CLEANUP_KEEP_FAILED", count=kept))
 
         if agent_out is not None:
             agent_out.finish(ok=(success_count == len(videos)))
@@ -377,9 +425,11 @@ def main():
             agent_out.emit()
         return 1
     finally:
-        # 清理浏览器
+        # 清理浏览器（P1-4: 仅在已有实例时关闭，绝不凭空启动一次浏览器）
         try:
-            BrowserManager().close()
+            from douyin_batch.browser import BrowserManager
+
+            BrowserManager.close_if_running()
         except Exception:
             pass
 
@@ -443,8 +493,25 @@ def process_single_video_safe(
                 "stage": "media_url",
             }
 
-        # 2. 下载
-        audio_path = download_dir / f"{video_id}.mp4"
+        # 1.5 下载前安全检查（P2-7: security 工具接线）
+        from douyin_batch.security import check_url_safety, sanitize_filename
+
+        url_ok, url_reason = check_url_safety(media_url)
+        if not url_ok:
+            log.warning(
+                i18n_t("WARN_URL_UNSAFE", video_id=video_id, url=media_url, reason=url_reason)
+            )
+            return {
+                "video_id": video_id,
+                "url": video_url,
+                "platform": platform,
+                "status": "failed",
+                "stage": "media_url",
+                "error": f"unsafe media url: {url_reason}",
+            }
+
+        # 2. 下载（落地文件名过安全清洗，防路径穿越/非法字符）
+        audio_path = download_dir / sanitize_filename(f"{video_id}.mp4")
         if not download_media_fn(media_url, audio_path, max_retries=config.max_retries):
             log.error(i18n_t("ERROR_VIDEO_DOWNLOAD", index=index, total=total, id=video_id))
             return {

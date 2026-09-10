@@ -8,10 +8,22 @@ P1-14 收敛说明：
   单例复用浏览器，并带 ``--disable-blink-features=AutomationControlled`` 等反爬参数；
   核心 ``DouyinDownloader._extract_media_url_with_browser`` 每次新建浏览器且不含这些
   反爬参数，硬改会破坏反爬行为。因此这里保持独立实现，仅复核逻辑即可。
+
+v3.2.0g:
+- ``print`` → ``logging.getLogger(__name__)``，--json 模式下不污染 stdout
+- 单例已存在但 ``headless`` 参数不一致时：logger.warning 并沿用现有实例
+  （不再静默忽略参数差异，也绝不重复启动浏览器）
+- ``get_user_videos`` 的初始等待 / 滚动停顿 / 滚动轮数改为参数注入
+  （v3 从 ``BatchConfig.scroll_pause`` / ``max_scroll_rounds`` 传入）
+- 新增 ``BrowserManager.close_if_running()``：只在已有实例时关闭，
+  不会凭空启动一次浏览器（收尾清理用）
 """
+import logging
 import re
 import time
 from typing import Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class BrowserManager:
@@ -26,6 +38,12 @@ class BrowserManager:
 
     def __init__(self, headless: bool = True):
         if hasattr(self, "_initialized") and self._initialized:
+            if getattr(self, "_headless", headless) != headless:
+                logger.warning(
+                    "BrowserManager 已存在（headless=%s），忽略新的 headless=%s 参数，"
+                    "沿用现有浏览器实例",
+                    self._headless, headless,
+                )
             return
 
         from playwright.sync_api import sync_playwright
@@ -46,6 +64,12 @@ class BrowserManager:
             locale="zh-CN",
         )
         self._initialized = True
+
+    @classmethod
+    def close_if_running(cls) -> None:
+        """仅在已有实例时关闭浏览器（不会触发新的 Playwright 启动）。"""
+        if cls._instance is not None:
+            cls._instance.close()
 
     def new_page(self):
         """创建新页面"""
@@ -90,7 +114,7 @@ def get_user_url_from_video(video_url: str, headless: bool = True) -> Optional[s
                 break
             time.sleep(0.5)
     except Exception as e:
-        print(f"   ⚠️ 提取错误: {e}")
+        logger.warning("提取作者主页失败: %s (%s)", video_url, e)
     finally:
         try:
             page.close()
@@ -100,8 +124,21 @@ def get_user_url_from_video(video_url: str, headless: bool = True) -> Optional[s
     return user_url
 
 
-def get_user_videos(user_url: str, max_videos: int = 20, headless: bool = True) -> List[Dict]:
-    """获取作者主页所有往期视频"""
+def get_user_videos(
+    user_url: str,
+    max_videos: int = 20,
+    headless: bool = True,
+    initial_wait: float = 3.0,
+    scroll_pause: float = 2.0,
+    max_scroll_rounds: Optional[int] = None,
+) -> List[Dict]:
+    """获取作者主页所有往期视频
+
+    v3.2.0g: ``initial_wait``（首页渲染等待秒数）、``scroll_pause``
+    （每次滚动后的停顿秒数）、``max_scroll_rounds``（最大滚动轮数）
+    由调用方注入（v3 传 ``BatchConfig.scroll_pause`` / ``max_scroll_rounds``），
+    不再硬编码 sleep(3)/sleep(2) 与经验公式。
+    """
     browser_mgr = BrowserManager(headless=headless)
     page = browser_mgr.new_page()
 
@@ -110,9 +147,13 @@ def get_user_videos(user_url: str, max_videos: int = 20, headless: bool = True) 
 
     try:
         page.goto(user_url, wait_until="domcontentloaded", timeout=30000)
-        time.sleep(3)  # 给页面一些时间渲染
+        time.sleep(initial_wait)  # 给页面一些时间渲染
 
-        scroll_rounds = (max_videos // 12) + 3
+        if max_scroll_rounds is None:
+            # 兼容旧行为：按 max_videos 估算滚动轮数
+            scroll_rounds = (max_videos // 12) + 3
+        else:
+            scroll_rounds = max(1, int(max_scroll_rounds))
         no_change_count = 0
 
         for round_idx in range(scroll_rounds):
@@ -131,7 +172,7 @@ def get_user_videos(user_url: str, max_videos: int = 20, headless: bool = True) 
                     })
                     new_count += 1
 
-            print(f"   第 {round_idx+1} 轮: +{new_count} 个 (累计 {len(videos)})")
+            logger.info("第 %d 轮: +%d 个 (累计 %d)", round_idx + 1, new_count, len(videos))
 
             if len(videos) >= max_videos:
                 break
@@ -140,7 +181,7 @@ def get_user_videos(user_url: str, max_videos: int = 20, headless: bool = True) 
             if new_count == 0:
                 no_change_count += 1
                 if no_change_count >= 2:
-                    print("   ⚠️ 无更多新视频，停止滚动")
+                    logger.info("无更多新视频，停止滚动")
                     break
             else:
                 no_change_count = 0
@@ -148,10 +189,10 @@ def get_user_videos(user_url: str, max_videos: int = 20, headless: bool = True) 
             # 滚动到底部
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             # 等待新内容加载
-            time.sleep(2)
+            time.sleep(scroll_pause)
 
     except Exception as e:
-        print(f"   ❌ 抓取错误: {e}")
+        logger.warning("抓取作者视频失败: %s (%s)", user_url, e)
     finally:
         try:
             page.close()
@@ -184,8 +225,8 @@ def get_media_url_fast(video_url: str, headless: bool = True, timeout: int = 15)
         while elapsed < timeout and not captured_urls:
             time.sleep(0.5)
             elapsed += 0.5
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("媒体 URL 捕获中断: %s (%s)", video_url, e)
     finally:
         try:
             page.close()
