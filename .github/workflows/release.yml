@@ -153,6 +153,11 @@ jobs:
   publish-docker:
     name: publish · Docker (${{ matrix.platform }})
     needs: build
+    # Disabled by default — requires DOCKERHUB_USERNAME / DOCKERHUB_TOKEN
+    # secrets and a Docker Hub repo. To enable: add repository *variable*
+    # ENABLE_DOCKER_PUBLISH=true (Settings → Secrets and variables →
+    # Actions → Variables) and configure the secrets.
+    if: vars.ENABLE_DOCKER_PUBLISH == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -247,5 +252,9 @@ jobs:
           else
             echo "- PyPI: skipped (set repo variable ENABLE_PYPI_PUBLISH=true to enable)" >> $GITHUB_STEP_SUMMARY
           fi
-          echo "- Docker: docker pull 1273984347/mediascribe:${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.publish-docker.result }}" = "success" ]; then
+            echo "- Docker: docker pull 1273984347/mediascribe:${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- Docker: skipped (set repo variable ENABLE_DOCKER_PUBLISH=true to enable)" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "- GitHub: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
