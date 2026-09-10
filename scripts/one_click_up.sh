@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Video2Text 一键启动 — POSIX shell 包装。
+# MediaScribe 一键启动 — POSIX shell 包装。
 #
 # This is a thin wrapper around the cross-platform Python launcher.
 # It exists so that users on Linux/macOS (or Git Bash on Windows) can

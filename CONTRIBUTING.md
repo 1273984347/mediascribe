@@ -1,4 +1,4 @@
-# Contributing to Video2Text / 贡献指南
+# Contributing to MediaScribe / 贡献指南
 
 [English](#english) | [中文](#中文)
 
@@ -6,7 +6,7 @@
 
 ## English
 
-First off, thank you for considering contributing to Video2Text! 🎉
+First off, thank you for considering contributing to MediaScribe! 🎉
 
 ### 🐛 Reporting Bugs
 
@@ -86,7 +86,7 @@ coverage report
 
 When adding new files:
 
-- **Core library** → `video2text/`
+- **Core library** → `mediascribe/`
 - **Batch processing** → `douyin_batch/`
 - **Tests** → `douyin_batch/tests/`
 - **Scripts** → project root
@@ -100,7 +100,7 @@ For security vulnerabilities, please email us directly instead of opening a publ
 
 ## 中文
 
-首先，感谢您考虑为 Video2Text 做出贡献！🎉
+首先，感谢您考虑为 MediaScribe 做出贡献！🎉
 
 ### 🐛 报告 Bug
 
@@ -174,7 +174,7 @@ python -m unittest douyin_batch.tests.test_basic.TestConfig
 
 新增文件时请遵循：
 
-- **核心库** → `video2text/`
+- **核心库** → `mediascribe/`
 - **批处理** → `douyin_batch/`
 - **测试** → `douyin_batch/tests/`
 - **脚本** → 项目根目录

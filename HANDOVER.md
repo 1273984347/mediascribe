@@ -1,4 +1,4 @@
-# Video2Text 项目交接文档
+# MediaScribe 项目交接文档
 
 > **版本**: v3.2.0e (开发中, 未提交)
 > **日期**: 2026-07-24
@@ -11,7 +11,7 @@
 
 ### 1.1 项目定位
 
-Video2Text 是一个面向 GitHub 全球开源的**离线视频转录工具**，支持抖音、B站、YouTube、小红书、微信公众号等多平台视频转文字。核心使用 OpenAI Whisper / faster-whisper / WhisperX 引擎，支持 GPU 加速和说话人分离。
+MediaScribe 是一个面向 GitHub 全球开源的**离线视频转录工具**，支持抖音、B站、YouTube、小红书、微信公众号等多平台视频转文字。核心使用 OpenAI Whisper / faster-whisper / WhisperX 引擎，支持 GPU 加速和说话人分离。
 
 ### 1.2 核心特性
 
@@ -45,8 +45,8 @@ Video2Text 是一个面向 GitHub 全球开源的**离线视频转录工具**，
 ### 2.1 目录结构
 
 ```
-video2text/
-├── video2text/                    # 主包
+mediascribe/
+├── mediascribe/                    # 主包
 │   ├── __init__.py                # 公共 API 导出
 │   ├── __main__.py                # CLI 入口 (transcribe/batch/profile/learn)
 │   ├── config.py                  # Settings 配置类
@@ -158,7 +158,7 @@ Pipeline.transcribe()
 2. **PipelineContext 而非 kwargs** — dataclass 累加中间结果,避免 10+ 参数传递。
 3. **同步 + thread-friendly** — `Stage.run()` 是同步方法,`AsyncPipeline` 用 `asyncio.to_thread` 包装。
 4. **本地文件旁路** — 本地视频文件在 `DownloadStage` 直接设 `download_result.path`,音频文件跳过 `ExtractAudioStage`。
-5. **引擎默认 whisper** — 国内 HuggingFace 网络不稳定,`faster-whisper` 首次下载模型可能超时。用户可通过 `VIDEO2TEXT_ENGINE=faster-whisper` 切换。
+5. **引擎默认 whisper** — 国内 HuggingFace 网络不稳定,`faster-whisper` 首次下载模型可能超时。用户可通过 `MEDIASCRIBE_ENGINE=faster-whisper` 切换。
 6. **术语库持久化路径** — 使用 `persistent_cache_dir()`(XDG/LOCALAPPDATA),不写入源码目录(pip install 后不可写)。
 
 ---
@@ -181,20 +181,20 @@ Pipeline.transcribe()
 
 | 功能 | 状态 | 关键文件 |
 |------|------|---------|
-| AsyncPipeline | ⚠️ 已实现·未接线 | [pipeline_async.py](file:///d:/1/video2text/video2text/pipeline_async.py) |
-| Stage 链解耦 | ✅ | [pipeline_stages.py](file:///d:/1/video2text/video2text/pipeline_stages.py) |
-| GPU 设备解析 | ✅ | [pipeline.py](file:///d:/1/video2text/video2text/pipeline.py) `resolve_device()` + `gpu_health()` |
-| /api/health GPU | ✅ | [web/app.py](file:///d:/1/video2text/video2text/web/app.py) |
-| 抖音 Playwright 下载 | ✅ | [downloaders/douyin.py](file:///d:/1/video2text/video2text/downloaders/douyin.py) |
-| HF 国内镜像 | ✅ | [post_process.py](file:///d:/1/video2text/video2text/post_process.py) `setup_hf_mirror()` |
-| 术语校正 + Prompt | ✅ | [post_process.py](file:///d:/1/video2text/video2text/post_process.py) |
-| 智能模型推荐 | ✅ | [post_process.py](file:///d:/1/video2text/video2text/post_process.py) `auto_select_model()` |
-| ASR 自动学习 v2 | ✅ | [learn.py](file:///d:/1/video2text/video2text/learn.py) |
-| Pipeline 自动后处理 | ✅ | [pipeline_stages.py](file:///d:/1/video2text/video2text/pipeline_stages.py) `AssembleStage` |
-| CLI learn 子命令 | ✅ | [__main__.py](file:///d:/1/video2text/video2text/__main__.py) |
-| benchmark CLI | ✅ | [scripts/benchmark_transcribers.py](file:///d:/1/video2text/scripts/benchmark_transcribers.py) |
-| Release CI/CD | ✅ | [.github/workflows/release.yml](file:///d:/1/video2text/.github/workflows/release.yml) |
-| torch 2.6 兼容 | ✅ | [transcribers/whisper.py](file:///d:/1/video2text/video2text/transcribers/whisper.py) |
+| AsyncPipeline | ⚠️ 已实现·未接线 | [pipeline_async.py](file:///d:/1/mediascribe/mediascribe/pipeline_async.py) |
+| Stage 链解耦 | ✅ | [pipeline_stages.py](file:///d:/1/mediascribe/mediascribe/pipeline_stages.py) |
+| GPU 设备解析 | ✅ | [pipeline.py](file:///d:/1/mediascribe/mediascribe/pipeline.py) `resolve_device()` + `gpu_health()` |
+| /api/health GPU | ✅ | [web/app.py](file:///d:/1/mediascribe/mediascribe/web/app.py) |
+| 抖音 Playwright 下载 | ✅ | [downloaders/douyin.py](file:///d:/1/mediascribe/mediascribe/downloaders/douyin.py) |
+| HF 国内镜像 | ✅ | [post_process.py](file:///d:/1/mediascribe/mediascribe/post_process.py) `setup_hf_mirror()` |
+| 术语校正 + Prompt | ✅ | [post_process.py](file:///d:/1/mediascribe/mediascribe/post_process.py) |
+| 智能模型推荐 | ✅ | [post_process.py](file:///d:/1/mediascribe/mediascribe/post_process.py) `auto_select_model()` |
+| ASR 自动学习 v2 | ✅ | [learn.py](file:///d:/1/mediascribe/mediascribe/learn.py) |
+| Pipeline 自动后处理 | ✅ | [pipeline_stages.py](file:///d:/1/mediascribe/mediascribe/pipeline_stages.py) `AssembleStage` |
+| CLI learn 子命令 | ✅ | [__main__.py](file:///d:/1/mediascribe/mediascribe/__main__.py) |
+| benchmark CLI | ✅ | [scripts/benchmark_transcribers.py](file:///d:/1/mediascribe/scripts/benchmark_transcribers.py) |
+| Release CI/CD | ✅ | [.github/workflows/release.yml](file:///d:/1/mediascribe/.github/workflows/release.yml) |
+| torch 2.6 兼容 | ✅ | [transcribers/whisper.py](file:///d:/1/mediascribe/mediascribe/transcribers/whisper.py) |
 
 ### 3.3 v3.2.0c 已完成 (2026-07-21)
 
@@ -212,7 +212,7 @@ Pipeline.transcribe()
 
 | 功能 | 状态 | 关键文件 |
 |------|------|---------|
-| LLM 后处理工程化骨架 | ✅ | [video2text/llm_post_process.py](file:///d:/1/video2text/video2text/llm_post_process.py) |
+| LLM 后处理工程化骨架 | ✅ | [mediascribe/llm_post_process.py](file:///d:/1/mediascribe/mediascribe/llm_post_process.py) |
 | 模型选择扩展 (10 个 Whisper 模型) | ✅ | CLI `argparse.choices` + Web API `Field(pattern)` + Web UI `<option>` 三处同步 |
 | 模型分组 (快速预览/准确率优先/平衡) | ✅ | tiny/base/small · medium/large-v3 · distil-large-v3 |
 | 16 个抖音视频转录实战 | ✅ | `output-test/transcripts/` 下 16 个 md 文件 (large-v3 + LLM 手工后处理) |
@@ -281,28 +281,28 @@ class Correction:
 ### 4.6 术语库位置
 
 ```
-Windows: C:\Users\{user}\AppData\Local\video2text\Cache\learned_terms.json
-Linux:   ~/.cache/video2text/learned_terms.json
-macOS:   ~/Library/Caches/video2text/learned_terms.json
+Windows: C:\Users\{user}\AppData\Local\mediascribe\Cache\learned_terms.json
+Linux:   ~/.cache/mediascribe/learned_terms.json
+macOS:   ~/Library/Caches/mediascribe/learned_terms.json
 ```
 
 ### 4.7 CLI 用法
 
 ```bash
 # 对比学习
-python -m video2text learn compare -r "霍去病是名将" -t "获取病是名将"
+python -m mediascribe learn compare -r "霍去病是名将" -t "获取病是名将"
 
 # 手动保存
-python -m video2text learn save -w "获取病" -r "霍去病"
+python -m mediascribe learn save -w "获取病" -r "霍去病"
 
 # 查看所有术语
-python -m video2text learn list
+python -m mediascribe learn list
 
 # 确认待定术语
-python -m video2text learn confirm -w "祥林扫" -r "祥林嫂"
+python -m mediascribe learn confirm -w "祥林扫" -r "祥林嫂"
 
 # 清空
-python -m video2text learn clear
+python -m mediascribe learn clear
 ```
 
 ### 4.8 Pipeline 集成
@@ -379,19 +379,19 @@ python -m video2text learn clear
 |------|------|---------|
 | openai-whisper | `C:\Users\12739\.cache\whisper\` | base, small, medium, large-v3 |
 | faster-whisper | `C:\Users\12739\.cache\huggingface\hub\` | 首次使用时下载 |
-| 项目缓存 | `C:\Users\12739\AppData\Local\video2text\Cache\` | learned_terms.json |
+| 项目缓存 | `C:\Users\12739\AppData\Local\mediascribe\Cache\` | learned_terms.json |
 
 ### 5.3 使用方式
 
 ```powershell
 # 自动检测 GPU
-python -m video2text transcribe "video.mp4" --model large-v3
+python -m mediascribe transcribe "video.mp4" --model large-v3
 
 # 强制指定设备
-$env:VIDEO2TEXT_DEVICE = "cuda"
+$env:MEDIASCRIBE_DEVICE = "cuda"
 
 # 使用 faster-whisper (需先下载模型)
-$env:VIDEO2TEXT_ENGINE = "faster-whisper"
+$env:MEDIASCRIBE_ENGINE = "faster-whisper"
 $env:HF_ENDPOINT = "https://hf-mirror.com"  # 国内镜像
 ```
 
@@ -439,7 +439,7 @@ python -m pytest douyin_batch/tests/test_learn.py -v
 python -m pytest -m "not slow"
 
 # 带覆盖率
-python -m pytest --cov=video2text --cov-report=term-missing
+python -m pytest --cov=mediascribe --cov-report=term-missing
 ```
 
 ### 6.3 已知 skip 的测试
@@ -511,13 +511,13 @@ git push origin v3.2.0b
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `VIDEO2TEXT_DEVICE` | `auto` | 设备: auto/cpu/cuda/metal |
-| `VIDEO2TEXT_ENGINE` | `whisper` | 引擎: whisper/faster-whisper/whisperx |
-| `VIDEO2TEXT_MAX_WORKERS` | `min(cpu_count, 4)` | 异步并发数 |
-| `VIDEO2TEXT_VRAM_PER_TASK_MB` | `3000` | GPU 显存感知并发: 每任务预估显存 (MB),`_gpu_aware_concurrency` 按 `free // vram_per_task` 收紧并发数 |
-| `VIDEO2TEXT_RATE_LIMIT` | `10` | Web 速率限制 (req/60s), `0` 禁用 |
-| `VIDEO2TEXT_CACHE_DIR` | XDG 默认 | 缓存目录 |
-| `VIDEO2TEXT_WECHAT_COOKIE` | — | 微信公众号 cookies |
+| `MEDIASCRIBE_DEVICE` | `auto` | 设备: auto/cpu/cuda/metal |
+| `MEDIASCRIBE_ENGINE` | `whisper` | 引擎: whisper/faster-whisper/whisperx |
+| `MEDIASCRIBE_MAX_WORKERS` | `min(cpu_count, 4)` | 异步并发数 |
+| `MEDIASCRIBE_VRAM_PER_TASK_MB` | `3000` | GPU 显存感知并发: 每任务预估显存 (MB),`_gpu_aware_concurrency` 按 `free // vram_per_task` 收紧并发数 |
+| `MEDIASCRIBE_RATE_LIMIT` | `10` | Web 速率限制 (req/60s), `0` 禁用 |
+| `MEDIASCRIBE_CACHE_DIR` | XDG 默认 | 缓存目录 |
+| `MEDIASCRIBE_WECHAT_COOKIE` | — | 微信公众号 cookies |
 | `HF_ENDPOINT` | `https://hf-mirror.com` | HuggingFace 国内镜像 |
 | `HF_TOKEN` | — | WhisperX pyannote 令牌 |
 
@@ -525,9 +525,9 @@ git push origin v3.2.0b
 
 ```powershell
 # CLI
-python -m video2text transcribe "video.mp4"
-python -m video2text transcribe "https://www.douyin.com/video/xxx"
-python -m video2text batch v1.mp4 v2.mp4
+python -m mediascribe transcribe "video.mp4"
+python -m mediascribe transcribe "https://www.douyin.com/video/xxx"
+python -m mediascribe batch v1.mp4 v2.mp4
 
 # Web 服务
 python main.py --mode web
@@ -546,7 +546,7 @@ just dev
 - 默认 10 请求/60秒/IP
 - 超限返回 `HTTP 429` + `Retry-After` + `X-RateLimit-*` headers
 - `/api/health` 暴露当前限制配置
-- `VIDEO2TEXT_RATE_LIMIT=0` 完全禁用
+- `MEDIASCRIBE_RATE_LIMIT=0` 完全禁用
 
 ---
 
@@ -639,11 +639,11 @@ python -m playwright install chromium
 - [ ] 1. `git clone` + `pip install -e ".[dev]"`
 - [ ] 2. `python -m playwright install chromium` (抖音下载依赖)
 - [ ] 3. `python -m pytest --no-header -q` 确认 751 测试全绿
-- [ ] 4. `python -m video2text transcribe "test.mp4"` 跑一个本地文件
+- [ ] 4. `python -m mediascribe transcribe "test.mp4"` 跑一个本地文件
 - [ ] 5. `python main.py --mode web` 启动 Web 服务,访问 `localhost:8000`
-- [ ] 6. 阅读 [pipeline_stages.py](file:///d:/1/video2text/video2text/pipeline_stages.py) 理解 Stage 链
-- [ ] 7. 阅读 [learn.py](file:///d:/1/video2text/video2text/learn.py) 理解 ASR 自动学习
-- [ ] 8. 阅读 [llm_post_process.py](file:///d:/1/video2text/video2text/llm_post_process.py) 理解 LLM 后处理骨架 (v3.2.0d)
+- [ ] 6. 阅读 [pipeline_stages.py](file:///d:/1/mediascribe/mediascribe/pipeline_stages.py) 理解 Stage 链
+- [ ] 7. 阅读 [learn.py](file:///d:/1/mediascribe/mediascribe/learn.py) 理解 ASR 自动学习
+- [ ] 8. 阅读 [llm_post_process.py](file:///d:/1/mediascribe/mediascribe/llm_post_process.py) 理解 LLM 后处理骨架 (v3.2.0d)
 - [ ] 9. 检查 `git status` 了解未提交改动 (v3.2.0b/c/d 全量未 commit,用户指示)
 - [ ] 10. 浏览 `output-test/transcripts/` 下 16 个转录 md 文件了解产出格式
 - [ ] 11. 先与用户确认是否 commit,再开始新功能开发
@@ -654,18 +654,18 @@ python -m playwright install chromium
 
 | 文件 | 用途 |
 |------|------|
-| [pipeline_stages.py](file:///d:/1/video2text/video2text/pipeline_stages.py) | Stage 链核心 |
-| [pipeline.py](file:///d:/1/video2text/video2text/pipeline.py) | Pipeline + GPU 解析 |
-| [pipeline_async.py](file:///d:/1/video2text/video2text/pipeline_async.py) | 异步 Pipeline |
-| [learn.py](file:///d:/1/video2text/video2text/learn.py) | ASR 自动学习 |
-| [post_process.py](file:///d:/1/video2text/video2text/post_process.py) | 术语校正 + Prompt |
-| [llm_post_process.py](file:///d:/1/video2text/video2text/llm_post_process.py) | LLM 后处理工程化骨架 (v3.2.0d) |
-| [config.py](file:///d:/1/video2text/video2text/config.py) | 配置 (含 10 模型扩展) |
-| [downloaders/douyin.py](file:///d:/1/video2text/video2text/downloaders/douyin.py) | 抖音 Playwright |
-| [web/app.py](file:///d:/1/video2text/video2text/web/app.py) | Web 服务 |
-| [__main__.py](file:///d:/1/video2text/video2text/__main__.py) | CLI 入口 |
-| [output-test/transcripts/](file:///d:/1/video2text/output-test/transcripts) | 16 个转录 md 产出 |
-| [.github/workflows/release.yml](file:///d:/1/video2text/.github/workflows/release.yml) | 发布 CI/CD |
+| [pipeline_stages.py](file:///d:/1/mediascribe/mediascribe/pipeline_stages.py) | Stage 链核心 |
+| [pipeline.py](file:///d:/1/mediascribe/mediascribe/pipeline.py) | Pipeline + GPU 解析 |
+| [pipeline_async.py](file:///d:/1/mediascribe/mediascribe/pipeline_async.py) | 异步 Pipeline |
+| [learn.py](file:///d:/1/mediascribe/mediascribe/learn.py) | ASR 自动学习 |
+| [post_process.py](file:///d:/1/mediascribe/mediascribe/post_process.py) | 术语校正 + Prompt |
+| [llm_post_process.py](file:///d:/1/mediascribe/mediascribe/llm_post_process.py) | LLM 后处理工程化骨架 (v3.2.0d) |
+| [config.py](file:///d:/1/mediascribe/mediascribe/config.py) | 配置 (含 10 模型扩展) |
+| [downloaders/douyin.py](file:///d:/1/mediascribe/mediascribe/downloaders/douyin.py) | 抖音 Playwright |
+| [web/app.py](file:///d:/1/mediascribe/mediascribe/web/app.py) | Web 服务 |
+| [__main__.py](file:///d:/1/mediascribe/mediascribe/__main__.py) | CLI 入口 |
+| [output-test/transcripts/](file:///d:/1/mediascribe/output-test/transcripts) | 16 个转录 md 产出 |
+| [.github/workflows/release.yml](file:///d:/1/mediascribe/.github/workflows/release.yml) | 发布 CI/CD |
 
 ---
 

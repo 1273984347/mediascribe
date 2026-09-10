@@ -196,7 +196,7 @@ class TestCookieParsing(unittest.TestCase):
     """config._parse_cookie_string / Settings 注入"""
 
     def test_netscape_format(self):
-        from video2text.config import _parse_cookie_string
+        from mediascribe.config import _parse_cookie_string
 
         text = (
             "# Netscape HTTP Cookie File\n"
@@ -210,31 +210,31 @@ class TestCookieParsing(unittest.TestCase):
         self.assertEqual(result["single_line"], "value1")
 
     def test_json_format(self):
-        from video2text.config import _parse_cookie_string
+        from mediascribe.config import _parse_cookie_string
 
         result = _parse_cookie_string('{"a": "1", "b": "2"}')
         self.assertEqual(result, {"a": "1", "b": "2"})
 
     def test_comments_skipped(self):
-        from video2text.config import _parse_cookie_string
+        from mediascribe.config import _parse_cookie_string
 
         text = "// comment\n# another comment\nname=value\n"
         result = _parse_cookie_string(text)
         self.assertEqual(result, {"name": "value"})
 
     def test_empty(self):
-        from video2text.config import _parse_cookie_string
+        from mediascribe.config import _parse_cookie_string
 
         self.assertEqual(_parse_cookie_string(""), {})
 
     def test_settings_dict_injection(self):
-        from video2text.config import Settings
+        from mediascribe.config import Settings
 
         s = Settings(wechat_cookies={"skey": "x", "uin": "1"})
         self.assertEqual(s.wechat_cookies["skey"], "x")
 
     def test_settings_file_injection(self):
-        from video2text.config import Settings
+        from mediascribe.config import Settings
 
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".txt", delete=False, encoding="utf-8"
@@ -250,7 +250,7 @@ class TestCookieParsing(unittest.TestCase):
             os.unlink(tmp_path)
 
     def test_settings_dict_overrides_file(self):
-        from video2text.config import Settings
+        from mediascribe.config import Settings
 
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".txt", delete=False, encoding="utf-8"
@@ -267,9 +267,9 @@ class TestCookieParsing(unittest.TestCase):
             os.unlink(tmp_path)
 
     def test_env_var_injection(self):
-        from video2text.config import Settings
+        from mediascribe.config import Settings
 
-        with patch.dict(os.environ, {"VIDEO2TEXT_WECHAT_COOKIE": "env_k=env_v"}):
+        with patch.dict(os.environ, {"MEDIASCRIBE_WECHAT_COOKIE": "env_k=env_v"}):
             s = Settings()
             self.assertEqual(s.wechat_cookies.get("env_k"), "env_v")
 
@@ -278,7 +278,7 @@ class TestWechatMpDownloaderCookies(unittest.TestCase):
     """WechatMpDownloader 接受 cookies 注入"""
 
     def setUp(self):
-        from video2text.downloaders.wechat_mp import WechatMpDownloader
+        from mediascribe.downloaders.wechat_mp import WechatMpDownloader
 
         self.d = WechatMpDownloader()
 
@@ -291,7 +291,7 @@ class TestWechatMpDownloaderCookies(unittest.TestCase):
         self.assertEqual(self.d._cookies_source, "dict")
 
     def test_attach_file(self):
-        from video2text.downloaders.wechat_mp import WechatMpDownloader
+        from mediascribe.downloaders.wechat_mp import WechatMpDownloader
 
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".txt", delete=False, encoding="utf-8"
@@ -307,7 +307,7 @@ class TestWechatMpDownloaderCookies(unittest.TestCase):
             os.unlink(tmp)
 
     def test_dict_overrides_file(self):
-        from video2text.downloaders.wechat_mp import WechatMpDownloader
+        from mediascribe.downloaders.wechat_mp import WechatMpDownloader
 
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".txt", delete=False, encoding="utf-8"
@@ -325,7 +325,7 @@ class TestWechatMpDownloaderCookies(unittest.TestCase):
 
     def test_settings_cookies_inherited_on_download(self):
         """download() 内部自动注入 settings.wechat_cookies。"""
-        from video2text.config import Settings
+        from mediascribe.config import Settings
 
         with patch.object(self.d, "_fetch_html", return_value="<html></html>") as m:
             with patch.object(self.d, "_extract_text", return_value="hello"), \
@@ -338,7 +338,7 @@ class TestWechatMpDownloaderCookies(unittest.TestCase):
                 with patch.object(
                     self.d, "_write_text_stub", return_value=src_path
                 ):
-                    from video2text.models import SourceRef
+                    from mediascribe.models import SourceRef
 
                     self.d.download(
                         SourceRef(
@@ -358,25 +358,25 @@ class TestMcpWechatMpTool(unittest.TestCase):
     """mcp_server._tool_transcribe_wechat_mp"""
 
     def test_listed_in_tool_list(self):
-        from video2text import mcp_server
+        from mediascribe import mcp_server
 
         names = [t["name"] for t in mcp_server.TOOL_LIST]
         self.assertIn("transcribe_wechat_mp", names)
 
     def test_handler_registered(self):
-        from video2text import mcp_server
+        from mediascribe import mcp_server
 
         self.assertIn("transcribe_wechat_mp", mcp_server.TOOL_HANDLERS)
 
     def test_url_required(self):
-        from video2text.mcp_server import _tool_transcribe_wechat_mp
+        from mediascribe.mcp_server import _tool_transcribe_wechat_mp
 
         result = _tool_transcribe_wechat_mp({})
         self.assertFalse(result["ok"])
         self.assertIn("url is required", result["error"])
 
     def test_non_wechat_url_rejected(self):
-        from video2text.mcp_server import _tool_transcribe_wechat_mp
+        from mediascribe.mcp_server import _tool_transcribe_wechat_mp
 
         result = _tool_transcribe_wechat_mp(
             {"url": "https://www.bilibili.com/video/BV1xx"}
@@ -389,7 +389,7 @@ class TestMcpWechatMpTool(unittest.TestCase):
         import tempfile
         from pathlib import Path
 
-        from video2text.mcp_server import _tool_transcribe_wechat_mp
+        from mediascribe.mcp_server import _tool_transcribe_wechat_mp
 
         with tempfile.TemporaryDirectory() as tmp:
             out_dir = Path(tmp) / "out"
@@ -400,7 +400,7 @@ class TestMcpWechatMpTool(unittest.TestCase):
             mock_result.audio_path = Path(tmp) / "audio" / "x.txt"
             mock_result.language = "zh"
 
-            with patch("video2text.pipeline.Pipeline") as MockPipeline:
+            with patch("mediascribe.pipeline.Pipeline") as MockPipeline:
                 MockPipeline.return_value.transcribe.return_value = mock_result
                 result = _tool_transcribe_wechat_mp(
                     {
@@ -418,7 +418,7 @@ class TestMcpWechatMpTool(unittest.TestCase):
 
     def test_video_article_mode(self):
         """视频消息返回 mode=video。"""
-        from video2text.mcp_server import _tool_transcribe_wechat_mp
+        from mediascribe.mcp_server import _tool_transcribe_wechat_mp
 
         mock_result = MagicMock()
         mock_result.engine = "whisper"
@@ -426,7 +426,7 @@ class TestMcpWechatMpTool(unittest.TestCase):
         mock_result.audio_path = "a.wav"
         mock_result.language = "zh"
 
-        with patch("video2text.pipeline.Pipeline") as MockPipeline:
+        with patch("mediascribe.pipeline.Pipeline") as MockPipeline:
             MockPipeline.return_value.transcribe.return_value = mock_result
             result = _tool_transcribe_wechat_mp(
                 {"url": "https://mp.weixin.qq.com/s?__biz=MzA&mid=1&idx=1"}
@@ -435,7 +435,7 @@ class TestMcpWechatMpTool(unittest.TestCase):
         self.assertEqual(result["mode"], "video")
 
     def test_cookies_passed_to_settings(self):
-        from video2text.mcp_server import _tool_transcribe_wechat_mp
+        from mediascribe.mcp_server import _tool_transcribe_wechat_mp
 
         mock_result = MagicMock()
         mock_result.engine = "wechat_mp_text"
@@ -443,7 +443,7 @@ class TestMcpWechatMpTool(unittest.TestCase):
         mock_result.audio_path = "a.txt"
         mock_result.language = "zh"
 
-        with patch("video2text.pipeline.Pipeline") as MockPipeline:
+        with patch("mediascribe.pipeline.Pipeline") as MockPipeline:
             MockPipeline.return_value.transcribe.return_value = mock_result
             _tool_transcribe_wechat_mp(
                 {

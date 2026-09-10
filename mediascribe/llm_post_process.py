@@ -19,16 +19,16 @@ ASR 转录文本的 LLM 后处理步骤，用于修正 Whisper 系列模型在�
 环境变量
 --------
 
-* ``VIDEO2TEXT_LLM_API_KEY`` — API key
-* ``VIDEO2TEXT_LLM_API_BASE`` — OpenAI 兼容 endpoint（无默认值，启用时必填）
-* ``VIDEO2TEXT_LLM_MODEL`` — 默认 ``deepseek-chat``
-* ``VIDEO2TEXT_LLM_ENABLED`` — ``"1"`` / ``"true"`` 启用（默认关闭）
+* ``MEDIASCRIBE_LLM_API_KEY`` — API key
+* ``MEDIASCRIBE_LLM_API_BASE`` — OpenAI 兼容 endpoint（无默认值，启用时必填）
+* ``MEDIASCRIBE_LLM_MODEL`` — 默认 ``deepseek-chat``
+* ``MEDIASCRIBE_LLM_ENABLED`` — ``"1"`` / ``"true"`` 启用（默认关闭）
 
 用法
 ----
 
 ```python
-from video2text.llm_post_process import LLMPostProcessor
+from mediascribe.llm_post_process import LLMPostProcessor
 
 proc = LLMPostProcessor.from_env()
 text, status = proc.post_process(raw_text, context={
@@ -121,7 +121,7 @@ class LLMPostProcessor:
         模型名。默认 ``deepseek-chat``。
     enabled : bool
         是否启用。默认 ``False``（必须显式开启；Settings / 环境变量
-        ``VIDEO2TEXT_LLM_ENABLED`` 控制总开关）。
+        ``MEDIASCRIBE_LLM_ENABLED`` 控制总开关）。
     timeout : float
         请求超时秒数。默认 120s（长文本需要时间）。
     max_chars : int
@@ -146,26 +146,26 @@ class LLMPostProcessor:
         """从环境变量构造。
 
         环境变量：
-        - ``VIDEO2TEXT_LLM_API_KEY`` (必填)
-        - ``VIDEO2TEXT_LLM_API_BASE`` (如 https://api.deepseek.com)
-        - ``VIDEO2TEXT_LLM_MODEL`` (默认 deepseek-chat)
-        - ``VIDEO2TEXT_LLM_ENABLED`` (默认 0 — 必须显式 "1"/"true" 启用)
-        - ``VIDEO2TEXT_LLM_TIMEOUT`` (默认 120)
-        - ``VIDEO2TEXT_LLM_MAX_CHARS`` (默认 12000)
+        - ``MEDIASCRIBE_LLM_API_KEY`` (必填)
+        - ``MEDIASCRIBE_LLM_API_BASE`` (如 https://api.deepseek.com)
+        - ``MEDIASCRIBE_LLM_MODEL`` (默认 deepseek-chat)
+        - ``MEDIASCRIBE_LLM_ENABLED`` (默认 0 — 必须显式 "1"/"true" 启用)
+        - ``MEDIASCRIBE_LLM_TIMEOUT`` (默认 120)
+        - ``MEDIASCRIBE_LLM_MAX_CHARS`` (默认 12000)
         """
-        api_key = os.environ.get("VIDEO2TEXT_LLM_API_KEY", "").strip()
+        api_key = os.environ.get("MEDIASCRIBE_LLM_API_KEY", "").strip()
         api_base = os.environ.get(
-            "VIDEO2TEXT_LLM_API_BASE", "https://api.deepseek.com"
+            "MEDIASCRIBE_LLM_API_BASE", "https://api.deepseek.com"
         ).strip()
-        model = os.environ.get("VIDEO2TEXT_LLM_MODEL", "deepseek-chat").strip()
-        enabled_env = os.environ.get("VIDEO2TEXT_LLM_ENABLED", "0").strip().lower()
+        model = os.environ.get("MEDIASCRIBE_LLM_MODEL", "deepseek-chat").strip()
+        enabled_env = os.environ.get("MEDIASCRIBE_LLM_ENABLED", "0").strip().lower()
         enabled = enabled_env in ("1", "true", "yes", "on")
         try:
-            timeout = float(os.environ.get("VIDEO2TEXT_LLM_TIMEOUT", "120"))
+            timeout = float(os.environ.get("MEDIASCRIBE_LLM_TIMEOUT", "120"))
         except ValueError:
             timeout = 120.0
         try:
-            max_chars = int(os.environ.get("VIDEO2TEXT_LLM_MAX_CHARS", "12000"))
+            max_chars = int(os.environ.get("MEDIASCRIBE_LLM_MAX_CHARS", "12000"))
         except ValueError:
             max_chars = 12000
 

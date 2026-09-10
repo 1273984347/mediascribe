@@ -58,14 +58,14 @@ class FakeInner:
 class TestMergeHelpers(unittest.TestCase):
 
     def test_merge_texts_skips_empty(self):
-        from video2text.transcribers.chunked import Chunk, ChunkResult, merge_texts
+        from mediascribe.transcribers.chunked import Chunk, ChunkResult, merge_texts
         r1 = ChunkResult(chunk=Chunk(0, 0, 10, Path("a")), text="hello", segments=[])
         r2 = ChunkResult(chunk=Chunk(1, 10, 20, Path("b")), text="", segments=[])
         r3 = ChunkResult(chunk=Chunk(2, 20, 30, Path("c")), text="world", segments=[])
         self.assertEqual(merge_texts([r1, r2, r3]), "hello\n\nworld")
 
     def test_merge_segments_sorts_by_start(self):
-        from video2text.transcribers.chunked import Chunk, ChunkResult, merge_segments
+        from mediascribe.transcribers.chunked import Chunk, ChunkResult, merge_segments
         r1 = ChunkResult(
             chunk=Chunk(0, 0, 10, Path("a")),
             text="", segments=[{"start": 5.0, "end": 6.0, "text": "B"}],
@@ -79,7 +79,7 @@ class TestMergeHelpers(unittest.TestCase):
 
     def test_merge_segments_drops_overlap_duplicates(self):
         """P1-2: 重叠区被转写两次的 segment 必须按全局时间线去重。"""
-        from video2text.transcribers.chunked import (
+        from mediascribe.transcribers.chunked import (
             Chunk,
             ChunkResult,
             merge_segments,
@@ -107,7 +107,7 @@ class TestMergeHelpers(unittest.TestCase):
 
     def test_merge_texts_dedupes_overlap_via_segments(self):
         """P1-2: 有 segments 时基于去重后的时间线拼接，输出无重复句。"""
-        from video2text.transcribers.chunked import (
+        from mediascribe.transcribers.chunked import (
             Chunk,
             ChunkResult,
             merge_texts,
@@ -170,7 +170,7 @@ class TestChunkedTranscriber(unittest.TestCase):
                 pass
 
     def test_chunks_created_and_merged(self):
-        from video2text.transcribers.chunked import (
+        from mediascribe.transcribers.chunked import (
             Chunk,
             ChunkedTranscriber,
             split_audio,
@@ -182,7 +182,7 @@ class TestChunkedTranscriber(unittest.TestCase):
             Chunk(2, 40.0, 60.0, self.src),
         ]
         # Monkey-patch split_audio for the duration of the test
-        import video2text.transcribers.chunked as m
+        import mediascribe.transcribers.chunked as m
         original = m.split_audio
         m.split_audio = lambda *a, **kw: chunks
         try:
@@ -221,8 +221,8 @@ class TestChunkedTranscriber(unittest.TestCase):
         self.assertEqual(starts[2], 40.0)  # chunk 2: 40.0 + 0.0
 
     def test_missing_inner_failure_recorded(self):
-        import video2text.transcribers.chunked as m
-        from video2text.transcribers.chunked import (
+        import mediascribe.transcribers.chunked as m
+        from mediascribe.transcribers.chunked import (
             Chunk,
             ChunkedTranscriber,
             split_audio,
@@ -260,8 +260,8 @@ class TestChunkedTranscriber(unittest.TestCase):
 
     def test_temp_dir_removed_after_transcribe(self):
         """P1-5: 未传 output_dir 时，本次创建的临时 chunk 目录整体清理。"""
-        import video2text.transcribers.chunked as m
-        from video2text.transcribers.chunked import (
+        import mediascribe.transcribers.chunked as m
+        from mediascribe.transcribers.chunked import (
             Chunk,
             ChunkedTranscriber,
         )
@@ -305,7 +305,7 @@ class TestProbeDuration(unittest.TestCase):
                 w.setsampwidth(2)
                 w.setframerate(16000)
                 w.writeframes(struct.pack("<" + "h" * 16000, *([0] * 16000)))
-            from video2text.transcribers.chunked import probe_duration
+            from mediascribe.transcribers.chunked import probe_duration
             # 1 second of silence
             self.assertAlmostEqual(probe_duration(tmp), 1.0, places=1)
         finally:

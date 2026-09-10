@@ -22,7 +22,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "video2text" / "web"))
+sys.path.insert(0, str(ROOT / "mediascribe" / "web"))
 
 try:
     from app import create_app  # type: ignore
@@ -88,12 +88,12 @@ class TestBuildExtensionZip(unittest.TestCase):
     def test_filename_contains_version(self):
         _, filename = build_extension_zip(self.root)
         self.assertTrue(
-            filename.startswith("video2text-extension-v"),
+            filename.startswith("mediascribe-extension-v"),
             f"unexpected filename: {filename}",
         )
         self.assertTrue(filename.endswith(".zip"))
         # The version segment should be sanitised to ASCII alnum only.
-        m = re.match(r"video2text-extension-v(.+)\.zip$", filename)
+        m = re.match(r"mediascribe-extension-v(.+)\.zip$", filename)
         self.assertIsNotNone(m)
         self.assertRegex(m.group(1), r"^[A-Za-z0-9._-]+$")
 
@@ -188,14 +188,14 @@ class TestBuildInstallMarkdown(unittest.TestCase):
 @unittest.skipUnless(_HAS_FASTAPI, "fastapi not installed")
 class TestExtensionDownloadEndpoint(unittest.TestCase):
     def setUp(self):
-        os.environ.pop("VIDEO2TEXT_API_TOKEN", None)
+        os.environ.pop("MEDIASCRIBE_API_TOKEN", None)
         # Generous rate limit so the test does not trip the limiter.
-        os.environ["VIDEO2TEXT_RATE_LIMIT"] = "50"
+        os.environ["MEDIASCRIBE_RATE_LIMIT"] = "50"
         self.app = create_app(workspace=Path.cwd() / "test-ws-ext")
         self.client = TestClient(self.app)
 
     def tearDown(self):
-        os.environ.pop("VIDEO2TEXT_RATE_LIMIT", None)
+        os.environ.pop("MEDIASCRIBE_RATE_LIMIT", None)
 
     def test_install_page_renders(self):
         r = self.client.get("/extension")
@@ -212,7 +212,7 @@ class TestExtensionDownloadEndpoint(unittest.TestCase):
             self.assertIn(needle, body, f"install page missing: {needle}")
 
     def test_install_page_mentions_auth_when_token_set(self):
-        os.environ["VIDEO2TEXT_API_TOKEN"] = "secret"
+        os.environ["MEDIASCRIBE_API_TOKEN"] = "secret"
         try:
             app = create_app(workspace=Path.cwd() / "test-ws-ext-auth")
             client = TestClient(app)
@@ -220,7 +220,7 @@ class TestExtensionDownloadEndpoint(unittest.TestCase):
             self.assertEqual(r.status_code, 200)
             self.assertIn("Bearer token", r.text)
         finally:
-            os.environ.pop("VIDEO2TEXT_API_TOKEN", None)
+            os.environ.pop("MEDIASCRIBE_API_TOKEN", None)
 
     def test_install_page_silent_when_no_auth(self):
         r = self.client.get("/extension")
@@ -234,7 +234,7 @@ class TestExtensionDownloadEndpoint(unittest.TestCase):
         # Filename must come from Content-Disposition.
         cd = r.headers.get("content-disposition", "")
         self.assertIn("attachment", cd)
-        self.assertRegex(cd, r'filename="video2text-extension-v[^"]+\.zip"')
+        self.assertRegex(cd, r'filename="mediascribe-extension-v[^"]+\.zip"')
         # Body must be a valid ZIP with manifest.json at the root.
         with zipfile.ZipFile(io.BytesIO(r.content)) as zf:
             self.assertIn("manifest.json", zf.namelist())
@@ -270,7 +270,7 @@ class TestExtensionDownloadEndpoint(unittest.TestCase):
 
     def test_download_rate_limited(self):
         # Tighten the limit and verify a flood returns 429.
-        os.environ["VIDEO2TEXT_RATE_LIMIT"] = "1"
+        os.environ["MEDIASCRIBE_RATE_LIMIT"] = "1"
         try:
             app = create_app(workspace=Path.cwd() / "test-ws-ext-rl")
             client = TestClient(app)
@@ -279,7 +279,7 @@ class TestExtensionDownloadEndpoint(unittest.TestCase):
             self.assertEqual(r1.status_code, 200)
             self.assertEqual(r2.status_code, 429)
         finally:
-            os.environ.pop("VIDEO2TEXT_RATE_LIMIT", None)
+            os.environ.pop("MEDIASCRIBE_RATE_LIMIT", None)
 
     def test_index_page_links_to_install(self):
         r = self.client.get("/")

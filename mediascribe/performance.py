@@ -39,7 +39,7 @@ STEP_TIMES: Dict[str, List[float]] = {}
 # ``None`` 表示无 run 上下文 — 所有 API 回退到全局 ``STEP_TIMES``
 # (向后兼容:老调用方直接读写 ``STEP_TIMES`` 的行为不变)。
 _RUN_TIMES: contextvars.ContextVar[Optional[Dict[str, List[float]]]] = (
-    contextvars.ContextVar("video2text_step_times_run", default=None)
+    contextvars.ContextVar("mediascribe_step_times_run", default=None)
 )
 
 
@@ -77,7 +77,7 @@ def profile_step(name: Optional[str] = None, *, log_to: Optional[Path] = None) -
             ...
 
     With ``log_to`` set, every call also appends a JSONL line to the
-    given file for offline analysis by ``python -m video2text.profile``.
+    given file for offline analysis by ``python -m mediascribe.profile``.
     """
     def deco(fn: Callable) -> Callable:
         label = name or fn.__qualname__

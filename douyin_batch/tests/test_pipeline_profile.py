@@ -20,10 +20,10 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from video2text.config import Settings  # noqa: E402
-from video2text.models import TranscriptResult  # noqa: E402
-from video2text.performance import STEP_TIMES, clear_step_times, get_step_times  # noqa: E402
-from video2text.pipeline import Pipeline  # noqa: E402
+from mediascribe.config import Settings  # noqa: E402
+from mediascribe.models import TranscriptResult  # noqa: E402
+from mediascribe.performance import STEP_TIMES, clear_step_times, get_step_times  # noqa: E402
+from mediascribe.pipeline import Pipeline  # noqa: E402
 
 
 def _fake_settings(tmp: Path) -> Settings:

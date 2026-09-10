@@ -1,7 +1,7 @@
 """
-MCP (Model Context Protocol) server for Video2Text.
+MCP (Model Context Protocol) server for MediaScribe.
 
-Exposes Video2Text's transcribe / batch / inspect capabilities as MCP tools
+Exposes MediaScribe's transcribe / batch / inspect capabilities as MCP tools
 that AI agents (Claude Code, Cursor, Cline, Windsurf, Continue, etc.) can call
 natively.
 
@@ -10,26 +10,26 @@ Two transports are supported:
 - **HTTP** (--transport http) — for remote agents
 
 HTTP transport hardening (P1-4):
-- ``VIDEO2TEXT_MCP_TOKEN`` — when set, every HTTP request must carry
+- ``MEDIASCRIBE_MCP_TOKEN`` — when set, every HTTP request must carry
   ``X-MCP-Token: <token>`` or ``Authorization: Bearer <token>``
   (401 otherwise).  Unset ⇒ auth disabled (stdio unaffected).
 - Host header allowlist: only ``127.0.0.1:<port>``,
   ``localhost:<port>`` and extra hosts from
-  ``VIDEO2TEXT_MCP_ALLOWED_HOSTS`` are accepted (403 otherwise) to
+  ``MEDIASCRIBE_MCP_ALLOWED_HOSTS`` are accepted (403 otherwise) to
   prevent DNS rebinding.
 - Request bodies larger than 1 MiB are rejected with 413.
 
 Usage:
     # Install MCP SDK first:  pip install mcp
     # Then register in your agent's MCP config:
-    #   { "mcpServers": { "video2text": { "command": "python",
-    #     "args": ["-m", "video2text.mcp_server"] } } }
+    #   { "mcpServers": { "mediascribe": { "command": "python",
+    #     "args": ["-m", "mediascribe.mcp_server"] } } }
     #
     # Or run directly to test:
-    #   python -m video2text.mcp_server
+    #   python -m mediascribe.mcp_server
     #
     # HTTP transport:
-    #   python -m video2text.mcp_server --transport http --port 8765
+    #   python -m mediascribe.mcp_server --transport http --port 8765
 
 This module uses the official `mcp` Python SDK if available; if not, it
 falls back to a minimal stdio-JSON-RPC implementation that still works
@@ -46,7 +46,7 @@ from typing import Any, Dict, Optional
 
 from .models import TranscriptResult  # noqa: F401  (re-exported for type hints)
 
-SCHEMA_VERSION = "video2text.mcp/v1"
+SCHEMA_VERSION = "mediascribe.mcp/v1"
 
 TOOL_LIST = [
     {
@@ -305,7 +305,7 @@ def _tool_get_transcript(args: Dict[str, Any]) -> Dict[str, Any]:
     reachable root to a single directory and refuses anything else.
 
     Configuration:
-        VIDEO2TEXT_TRANSCRIPT_ROOT — directory under which transcripts
+        MEDIASCRIBE_TRANSCRIPT_ROOT — directory under which transcripts
         may be read (default: ``./output/transcripts``).  Relative paths
         are resolved against the current working directory.
 
@@ -319,7 +319,7 @@ def _tool_get_transcript(args: Dict[str, Any]) -> Dict[str, Any]:
     """
     max_bytes = 5 * 1024 * 1024  # 5 MiB
     root = Path(
-        os.environ.get("VIDEO2TEXT_TRANSCRIPT_ROOT", "output/transcripts")
+        os.environ.get("MEDIASCRIBE_TRANSCRIPT_ROOT", "output/transcripts")
     ).expanduser().resolve()
 
     raw = str(args.get("path", "")).strip()
@@ -340,7 +340,7 @@ def _tool_get_transcript(args: Dict[str, Any]) -> Dict[str, Any]:
             "exists": candidate.exists(),
             "error": (
                 f"path escapes the transcript root ({root}); "
-                "set VIDEO2TEXT_TRANSCRIPT_ROOT to allow a different directory"
+                "set MEDIASCRIBE_TRANSCRIPT_ROOT to allow a different directory"
             ),
         }
 
@@ -391,8 +391,8 @@ def _tool_transcribe_video(args: Dict[str, Any]) -> Dict[str, Any]:
     ``TranscriptResult``.  This wrapper maps the flat MCP argument shape to
     that API.
     """
-    from video2text.config import Settings
-    from video2text.pipeline import Pipeline
+    from mediascribe.config import Settings
+    from mediascribe.pipeline import Pipeline
 
     source_input = args.get("source") or args.get("url") or args.get("path")
     if not source_input:
@@ -435,13 +435,13 @@ def _tool_batch_transcribe_creator(args: Dict[str, Any]) -> Dict[str, Any]:
 
     v3.2.0e+ 安全加固 (F-10):
       * 为 ``subprocess.run`` 添加 ``timeout`` 参数（默认 1800s = 30min,
-        可通过环境变量 ``VIDEO2TEXT_BATCH_TIMEOUT`` 覆盖），
+        可通过环境变量 ``MEDIASCRIBE_BATCH_TIMEOUT`` 覆盖），
         防止批量 CLI 长时间阻塞 MCP 服务进程。
       * 捕获 ``subprocess.TimeoutExpired`` 异常，返回结构化错误而非崩溃
         MCP 工具调用链。
     """
     import subprocess
-    env_val = os.environ.get("VIDEO2TEXT_BATCH_TIMEOUT", "").strip()
+    env_val = os.environ.get("MEDIASCRIBE_BATCH_TIMEOUT", "").strip()
     if env_val:
         try:
             timeout = float(env_val)
@@ -500,9 +500,9 @@ def _tool_transcribe_wechat_mp(args: Dict[str, Any]) -> Dict[str, Any]:
     (highest priority) or a file path. Returns a summary suitable for
     agents: {url, mode, transcript_path, audio_path, error}.
     """
-    from video2text.config import Settings
-    from video2text.inputs import parse_source
-    from video2text.pipeline import Pipeline
+    from mediascribe.config import Settings
+    from mediascribe.inputs import parse_source
+    from mediascribe.pipeline import Pipeline
 
     url = args.get("url", "").strip()
     if not url:
@@ -598,7 +598,7 @@ def _handle_request(req: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if method == "initialize":
         return _make_response(req_id, {
             "protocolVersion": "2024-11-05",
-            "serverInfo": {"name": "video2text", "version": "2.1.0"},
+            "serverInfo": {"name": "mediascribe", "version": "2.1.0"},
             "capabilities": {"tools": {}},
         })
 
@@ -651,7 +651,7 @@ def _safe_handle_request(req: Any) -> Optional[Dict[str, Any]]:
 
 def _run_stdio() -> None:
     """Read JSON-RPC messages from stdin, write responses to stdout."""
-    sys.stderr.write("[video2text MCP] stdio server ready\n")
+    sys.stderr.write("[mediascribe MCP] stdio server ready\n")
     sys.stderr.flush()
     for raw in sys.stdin:
         line = raw.strip()
@@ -679,13 +679,13 @@ _MAX_REQUEST_BODY_BYTES = 1024 * 1024  # 1 MiB — 请求体上限 (P1-4③)
 
 
 def _mcp_expected_token() -> str:
-    return os.environ.get("VIDEO2TEXT_MCP_TOKEN", "").strip()
+    return os.environ.get("MEDIASCRIBE_MCP_TOKEN", "").strip()
 
 
 def _mcp_token_ok(headers: Any) -> bool:
     """P1-4①: 可选 token 鉴权。
 
-    设置了 ``VIDEO2TEXT_MCP_TOKEN`` 时, 请求必须携带 ``X-MCP-Token``
+    设置了 ``MEDIASCRIBE_MCP_TOKEN`` 时, 请求必须携带 ``X-MCP-Token``
     头或 ``Authorization: Bearer <token>``; 常数时间比较。未设置时不
     鉴权 — 默认本地 stdio 用法与既有部署行为完全不变。
     """
@@ -708,7 +708,7 @@ def _mcp_host_ok(host_header: str, port: int) -> bool:
     """P1-4②: Host 头白名单, 防 DNS rebinding。
 
     仅允许 ``127.0.0.1:<port>`` / ``localhost:<port>`` 以及
-    ``VIDEO2TEXT_MCP_ALLOWED_HOSTS``(逗号分隔)配置的额外主机; 额外
+    ``MEDIASCRIBE_MCP_ALLOWED_HOSTS``(逗号分隔)配置的额外主机; 额外
     主机条目可带端口(须精确匹配)或不带端口(匹配任意端口)。
     """
     host = (host_header or "").strip().lower()
@@ -716,7 +716,7 @@ def _mcp_host_ok(host_header: str, port: int) -> bool:
         return False
     if host in (f"127.0.0.1:{port}", f"localhost:{port}"):
         return True
-    for extra in os.environ.get("VIDEO2TEXT_MCP_ALLOWED_HOSTS", "").split(","):
+    for extra in os.environ.get("MEDIASCRIBE_MCP_ALLOWED_HOSTS", "").split(","):
         extra = extra.strip().lower()
         if not extra:
             continue
@@ -812,13 +812,13 @@ def _run_http(host: str, port: int) -> None:
     """Tiny HTTP server (no extra deps). For production use a real ASGI server.
 
     P1-4 安全加固:
-      * ``VIDEO2TEXT_MCP_TOKEN`` 设置时要求 ``X-MCP-Token`` /
+      * ``MEDIASCRIBE_MCP_TOKEN`` 设置时要求 ``X-MCP-Token`` /
         ``Authorization: Bearer``(否则 401); 未设置时行为不变。
       * Host 头白名单(否则 403), 防 DNS rebinding。
       * 请求体 > 1 MiB 直接 413。
     """
     server = _make_http_server(host, port)
-    sys.stderr.write(f"[video2text MCP] http server listening on {host}:{port}\n")
+    sys.stderr.write(f"[mediascribe MCP] http server listening on {host}:{port}\n")
     sys.stderr.flush()
     try:
         server.serve_forever()
@@ -830,7 +830,7 @@ def _run_http(host: str, port: int) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Video2Text MCP server — expose transcription as MCP tools"
+        description="MediaScribe MCP server — expose transcription as MCP tools"
     )
     parser.add_argument(
         "--transport", choices=["stdio", "http"], default="stdio",

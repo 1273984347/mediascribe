@@ -1,4 +1,4 @@
-# Video2Text 一键启动 — PowerShell 包装。
+# MediaScribe 一键启动 — PowerShell 包装。
 #
 # Thin wrapper around the cross-platform Python launcher so that
 # Windows users can run ``.\scripts\one_click_up.ps1`` instead of

@@ -1,13 +1,13 @@
 # MCP server
 
-Video2Text ships an MCP server so LLM agents can transcribe
+MediaScribe ships an MCP server so LLM agents can transcribe
 videos by calling tools.
 
 ## Quick start
 
 ```bash
-pip install "video2text[mcp]"
-python -m video2text.mcp_server
+pip install "mediascribe[mcp]"
+python -m mediascribe.mcp_server
 ```
 
 Connect your MCP client (Claude Desktop, Cursor, Cline, etc.)

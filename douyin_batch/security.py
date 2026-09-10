@@ -8,7 +8,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 # 文件名清洗的规范实现统一收敛到 ``platform_compat.safe_filename``（被
-# video2text 核心包直接引用，行为契约稳定）。``sanitize_filename`` 在其基础上
+# mediascribe 核心包直接引用，行为契约稳定）。``sanitize_filename`` 在其基础上
 # 叠加安全专用规则（路径穿越 ``..``、空值回退 ``unnamed``、可调 max_length），
 # 避免两份重复实现。
 from .platform_compat import safe_filename

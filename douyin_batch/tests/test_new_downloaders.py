@@ -2,10 +2,10 @@
 测试新下载源：YouTube / 小红书
 
 覆盖范围：
-- video2text.inputs.parse_source 对 YouTube / 小红书 URL 的路由
-- video2text.downloaders.YouTubeDownloader 的 supports() 与参数
-- video2text.downloaders.XiaohongshuDownloader 的 supports() 与 URL 提取兜底
-- video2text.models.SourceRef kind 字符串
+- mediascribe.inputs.parse_source 对 YouTube / 小红书 URL 的路由
+- mediascribe.downloaders.YouTubeDownloader 的 supports() 与参数
+- mediascribe.downloaders.XiaohongshuDownloader 的 supports() 与 URL 提取兜底
+- mediascribe.models.SourceRef kind 字符串
 - downloaders/__init__.py 导出
 """
 import sys
@@ -21,7 +21,7 @@ class TestInputRouting(unittest.TestCase):
     """parse_source 对 YouTube / 小红书 URL 的路由"""
 
     def setUp(self):
-        from video2text.inputs import parse_source
+        from mediascribe.inputs import parse_source
 
         self.parse_source = parse_source
 
@@ -74,13 +74,13 @@ class TestYouTubeDownloader(unittest.TestCase):
     """YouTubeDownloader 单元测试"""
 
     def test_import_and_registered(self):
-        from video2text.downloaders import YouTubeDownloader
+        from mediascribe.downloaders import YouTubeDownloader
 
         self.assertEqual(YouTubeDownloader.name, "youtube")
 
     def test_supports_youtube_url(self):
-        from video2text.downloaders import YouTubeDownloader
-        from video2text.models import SourceRef
+        from mediascribe.downloaders import YouTubeDownloader
+        from mediascribe.models import SourceRef
 
         d = YouTubeDownloader()
         self.assertTrue(d.supports(SourceRef(raw_input="x", kind="youtube", url="https://www.youtube.com/watch?v=x")))
@@ -89,15 +89,15 @@ class TestYouTubeDownloader(unittest.TestCase):
         self.assertTrue(d.supports(SourceRef(raw_input="x", kind="video", url="https://www.youtube-nocookie.com/embed/abc")))
 
     def test_does_not_support_bilibili(self):
-        from video2text.downloaders import YouTubeDownloader
-        from video2text.models import SourceRef
+        from mediascribe.downloaders import YouTubeDownloader
+        from mediascribe.models import SourceRef
 
         d = YouTubeDownloader()
         self.assertFalse(d.supports(SourceRef(raw_input="x", kind="bilibili", url="https://www.bilibili.com/video/BV1xx")))
         self.assertFalse(d.supports(SourceRef(raw_input="x", kind="douyin", url="https://www.douyin.com/video/1")))
 
     def test_player_clients_list(self):
-        from video2text.downloaders import YouTubeDownloader
+        from mediascribe.downloaders import YouTubeDownloader
 
         clients = YouTubeDownloader.YOUTUBE_PLAYER_CLIENTS
         # 必须包含 web_safari 与 ios
@@ -111,13 +111,13 @@ class TestXiaohongshuDownloader(unittest.TestCase):
     """XiaohongshuDownloader 单元测试"""
 
     def test_import_and_registered(self):
-        from video2text.downloaders import XiaohongshuDownloader
+        from mediascribe.downloaders import XiaohongshuDownloader
 
         self.assertEqual(XiaohongshuDownloader.name, "xiaohongshu")
 
     def test_supports_xhs_url(self):
-        from video2text.downloaders import XiaohongshuDownloader
-        from video2text.models import SourceRef
+        from mediascribe.downloaders import XiaohongshuDownloader
+        from mediascribe.models import SourceRef
 
         d = XiaohongshuDownloader()
         self.assertTrue(d.supports(SourceRef(raw_input="x", kind="xiaohongshu", url="https://www.xiaohongshu.com/explore/abc")))
@@ -125,15 +125,15 @@ class TestXiaohongshuDownloader(unittest.TestCase):
         self.assertTrue(d.supports(SourceRef(raw_input="x", kind="video", url="https://www.xiaohongshu.com/discovery/item/abc")))
 
     def test_does_not_support_other(self):
-        from video2text.downloaders import XiaohongshuDownloader
-        from video2text.models import SourceRef
+        from mediascribe.downloaders import XiaohongshuDownloader
+        from mediascribe.models import SourceRef
 
         d = XiaohongshuDownloader()
         self.assertFalse(d.supports(SourceRef(raw_input="x", kind="youtube", url="https://www.youtube.com/watch?v=x")))
         self.assertFalse(d.supports(SourceRef(raw_input="x", kind="bilibili", url="https://www.bilibili.com/video/BV1xx")))
 
     def test_grep_video_url(self):
-        from video2text.downloaders.xiaohongshu import XiaohongshuDownloader
+        from mediascribe.downloaders.xiaohongshu import XiaohongshuDownloader
 
         # 视频 CDN
         text1 = 'window.__INITIAL_STATE__ = {"video":{"media":{"stream":{"h264":["https://sns-video-bd.xhscdn.com/stream/abc.mp4"]}}}'
@@ -147,7 +147,7 @@ class TestXiaohongshuDownloader(unittest.TestCase):
         self.assertIsNone(XiaohongshuDownloader._grep_video_url("plain text without any url"))
 
     def test_resolve_short_url(self):
-        from video2text.downloaders.xiaohongshu import XiaohongshuDownloader
+        from mediascribe.downloaders.xiaohongshu import XiaohongshuDownloader
 
         d = XiaohongshuDownloader()
         # 短链接解析失败时返回 None
@@ -159,7 +159,7 @@ class TestDownloadersPackage(unittest.TestCase):
     """downloaders 包导出"""
 
     def test_all_exports(self):
-        from video2text import downloaders
+        from mediascribe import downloaders
 
         for name in (
             "Downloader",
@@ -177,7 +177,7 @@ class TestSourceRefKind(unittest.TestCase):
 
     def test_kind_constants_in_docstring(self):
         # 注释里的 kind 列表必须包含新加的 youtube/xiaohongshu
-        from video2text import models
+        from mediascribe import models
 
         src = Path(models.__file__).read_text(encoding="utf-8")
         self.assertIn("youtube", src)

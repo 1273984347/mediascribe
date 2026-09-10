@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT))
 
 class TestJobProgress(unittest.TestCase):
     def test_initial_state(self):
-        from video2text.progress import JobProgress
+        from mediascribe.progress import JobProgress
 
         job = JobProgress(job_id="abc", url="https://example.com/v")
         self.assertEqual(job.job_id, "abc")
@@ -29,7 +29,7 @@ class TestJobProgress(unittest.TestCase):
         self.assertEqual(job.stage_current, 0)
 
     def test_start_stage_emits_event(self):
-        from video2text.progress import JobProgress
+        from mediascribe.progress import JobProgress
 
         job = JobProgress(job_id="j1", url="u")
         job.start_stage("download", total=10)
@@ -43,14 +43,14 @@ class TestJobProgress(unittest.TestCase):
         self.assertEqual(ev["current"], 0)
 
     def test_start_stage_rejects_unknown(self):
-        from video2text.progress import JobProgress
+        from mediascribe.progress import JobProgress
 
         job = JobProgress(job_id="j1", url="u")
         with self.assertRaises(ValueError):
             job.start_stage("bogus_stage", total=1)
 
     def test_advance_emits_progress(self):
-        from video2text.progress import JobProgress
+        from mediascribe.progress import JobProgress
 
         job = JobProgress(job_id="j1", url="u")
         job.start_stage("transcribe", total=5)
@@ -63,7 +63,7 @@ class TestJobProgress(unittest.TestCase):
         self.assertEqual(job.stage_current, 2)
 
     def test_finish_stage(self):
-        from video2text.progress import JobProgress
+        from mediascribe.progress import JobProgress
 
         job = JobProgress(job_id="j1", url="u")
         job.start_stage("merge", total=1)
@@ -75,7 +75,7 @@ class TestJobProgress(unittest.TestCase):
         self.assertEqual(ev["total"], 1)
 
     def test_cancel_sets_flag_and_emits(self):
-        from video2text.progress import JobProgress
+        from mediascribe.progress import JobProgress
 
         job = JobProgress(job_id="j1", url="u")
         job.cancel()
@@ -85,7 +85,7 @@ class TestJobProgress(unittest.TestCase):
         self.assertTrue(ev["cancelled"])
 
     def test_fail_marks_finished(self):
-        from video2text.progress import JobProgress
+        from mediascribe.progress import JobProgress
 
         job = JobProgress(job_id="j1", url="u")
         job.fail("boom")
@@ -96,7 +96,7 @@ class TestJobProgress(unittest.TestCase):
         self.assertEqual(ev["error"], "boom")
 
     def test_succeed_marks_finished(self):
-        from video2text.progress import JobProgress
+        from mediascribe.progress import JobProgress
 
         job = JobProgress(job_id="j1", url="u")
         job.succeed({"out_path": "/tmp/x.md"})
@@ -106,7 +106,7 @@ class TestJobProgress(unittest.TestCase):
         self.assertEqual(ev["event"], "succeeded")
 
     def test_to_dict(self):
-        from video2text.progress import JobProgress
+        from mediascribe.progress import JobProgress
 
         job = JobProgress(job_id="j1", url="u")
         job.start_stage("transcribe", total=10)
@@ -119,7 +119,7 @@ class TestJobProgress(unittest.TestCase):
         self.assertEqual(d["finished"], False)
 
     def test_stages_in_order(self):
-        from video2text.progress import STAGES
+        from mediascribe.progress import STAGES
 
         self.assertEqual(
             STAGES, ("download", "extract_audio", "transcribe", "merge")
@@ -133,7 +133,7 @@ class TestJobProgress(unittest.TestCase):
 
 class TestProgressRegistry(unittest.TestCase):
     def test_create_get(self):
-        from video2text.progress import ProgressRegistry
+        from mediascribe.progress import ProgressRegistry
 
         r = ProgressRegistry()
         job = r.create("https://example.com")
@@ -141,7 +141,7 @@ class TestProgressRegistry(unittest.TestCase):
         self.assertIsNone(r.get("nonexistent"))
 
     def test_unique_ids(self):
-        from video2text.progress import ProgressRegistry
+        from mediascribe.progress import ProgressRegistry
 
         r = ProgressRegistry()
         a = r.create("u1")
@@ -149,7 +149,7 @@ class TestProgressRegistry(unittest.TestCase):
         self.assertNotEqual(a.job_id, b.job_id)
 
     def test_cancel(self):
-        from video2text.progress import ProgressRegistry
+        from mediascribe.progress import ProgressRegistry
 
         r = ProgressRegistry()
         job = r.create("u")
@@ -159,7 +159,7 @@ class TestProgressRegistry(unittest.TestCase):
         self.assertFalse(r.cancel("nonexistent"))
 
     def test_list(self):
-        from video2text.progress import ProgressRegistry
+        from mediascribe.progress import ProgressRegistry
 
         r = ProgressRegistry()
         r.create("u1")
@@ -169,7 +169,7 @@ class TestProgressRegistry(unittest.TestCase):
     def test_purge_finished(self):
         import time as _t
 
-        from video2text.progress import ProgressRegistry
+        from mediascribe.progress import ProgressRegistry
 
         r = ProgressRegistry()
         old = r.create("u1")
@@ -192,7 +192,7 @@ class TestBoundedEventsQueue(unittest.TestCase):
     """events 队列必须有界: 满时丢最旧, 终态事件永不丢。"""
 
     def test_queue_is_bounded_and_drops_oldest(self):
-        from video2text.progress import EVENTS_QUEUE_MAXSIZE, JobProgress
+        from mediascribe.progress import EVENTS_QUEUE_MAXSIZE, JobProgress
 
         job = JobProgress(job_id="j1", url="u")
         self.assertEqual(job.events.maxsize, EVENTS_QUEUE_MAXSIZE)
@@ -207,7 +207,7 @@ class TestBoundedEventsQueue(unittest.TestCase):
         self.assertGreaterEqual(first["current"], 50)
 
     def test_terminal_event_never_dropped(self):
-        from video2text.progress import EVENTS_QUEUE_MAXSIZE, JobProgress
+        from mediascribe.progress import EVENTS_QUEUE_MAXSIZE, JobProgress
 
         job = JobProgress(job_id="j1", url="u")
         for i in range(EVENTS_QUEUE_MAXSIZE + 10):
@@ -227,7 +227,7 @@ class TestBoundedEventsQueue(unittest.TestCase):
 
 class TestWithProgress(unittest.TestCase):
     def test_runs_through_all_stages_on_success(self):
-        from video2text.progress import JobProgress, with_progress
+        from mediascribe.progress import JobProgress, with_progress
 
         job = JobProgress(job_id="j1", url="u")
         result = mock.MagicMock()
@@ -258,7 +258,7 @@ class TestWithProgress(unittest.TestCase):
         self.assertTrue(any(e["event"] == "succeeded" for e in events))
 
     def test_cancellation_raises_and_marks_job(self):
-        from video2text.progress import JobCancelled, JobProgress, with_progress
+        from mediascribe.progress import JobCancelled, JobProgress, with_progress
 
         job = JobProgress(job_id="j1", url="u")
         # Pre-cancel so the first stage boundary aborts immediately
@@ -276,7 +276,7 @@ class TestWithProgress(unittest.TestCase):
         self.assertIn("cancelled_done", ev_types)
 
     def test_pipeline_exception_records_error(self):
-        from video2text.progress import JobProgress, with_progress
+        from mediascribe.progress import JobProgress, with_progress
 
         job = JobProgress(job_id="j1", url="u")
         pipeline = mock.MagicMock()
@@ -295,7 +295,7 @@ class TestWithProgress(unittest.TestCase):
 
 class TestJobCancelled(unittest.TestCase):
     def test_is_exception(self):
-        from video2text.progress import JobCancelled
+        from mediascribe.progress import JobCancelled
 
         with self.assertRaises(JobCancelled):
             raise JobCancelled("test")

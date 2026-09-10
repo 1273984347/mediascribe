@@ -3,9 +3,9 @@ P2-5 — PersistentDownloadCache 接入 DownloadStage 的最小单测。
 
 覆盖:
 
-1. ``VIDEO2TEXT_DOWNLOAD_CACHE`` 未设(默认)→ 行为与旧版一致,
+1. ``MEDIASCRIBE_DOWNLOAD_CACHE`` 未设(默认)→ 行为与旧版一致,
    每次都走 downloader,不查不写缓存。
-2. ``VIDEO2TEXT_DOWNLOAD_CACHE=1`` → 未命中时下载并回写缓存。
+2. ``MEDIASCRIBE_DOWNLOAD_CACHE=1`` → 未命中时下载并回写缓存。
 3. ``=1`` 且 URL 已缓存 → 直接用缓存文件,downloader 不被调用。
 """
 from __future__ import annotations
@@ -16,9 +16,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from video2text.config import Settings
-from video2text.models import DownloadResult, SourceRef
-from video2text.pipeline_stages import (
+from mediascribe.config import Settings
+from mediascribe.models import DownloadResult, SourceRef
+from mediascribe.pipeline_stages import (
     DownloadStage,
     PipelineContext,
     _get_download_cache,
@@ -39,10 +39,10 @@ class TestDownloadCacheWiring(unittest.TestCase):
         self._media_file.write_bytes(b"fake video bytes")
         self._saved_env = {
             k: os.environ.get(k)
-            for k in ("VIDEO2TEXT_DOWNLOAD_CACHE", "VIDEO2TEXT_CACHE_DIR")
+            for k in ("MEDIASCRIBE_DOWNLOAD_CACHE", "MEDIASCRIBE_CACHE_DIR")
         }
-        os.environ["VIDEO2TEXT_CACHE_DIR"] = str(self._tmp / "cache")
-        os.environ.pop("VIDEO2TEXT_DOWNLOAD_CACHE", None)
+        os.environ["MEDIASCRIBE_CACHE_DIR"] = str(self._tmp / "cache")
+        os.environ.pop("MEDIASCRIBE_DOWNLOAD_CACHE", None)
         _reset_download_cache()
 
     def tearDown(self) -> None:
@@ -85,7 +85,7 @@ class TestDownloadCacheWiring(unittest.TestCase):
         self.assertEqual(ctx.video_path, self._media_file)
 
     def test_enabled_miss_downloads_and_puts(self):
-        os.environ["VIDEO2TEXT_DOWNLOAD_CACHE"] = "1"
+        os.environ["MEDIASCRIBE_DOWNLOAD_CACHE"] = "1"
         calls: list = []
         stage = DownloadStage(downloader=self._fake_downloader(calls))
         ctx = stage.run(self._ctx())
@@ -100,7 +100,7 @@ class TestDownloadCacheWiring(unittest.TestCase):
         self.assertTrue(cached.exists())
 
     def test_enabled_hit_skips_download(self):
-        os.environ["VIDEO2TEXT_DOWNLOAD_CACHE"] = "1"
+        os.environ["MEDIASCRIBE_DOWNLOAD_CACHE"] = "1"
         # 预热缓存
         first = DownloadStage(downloader=self._fake_downloader([]))
         first.run(self._ctx())

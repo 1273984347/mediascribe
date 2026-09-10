@@ -5,18 +5,18 @@ This page walks through the most common workflows.
 ## 1. Install
 
 ```bash
-pip install "video2text[all]"
+pip install "mediascribe[all]"
 ```
 
 The `[all]` extra pulls every optional dependency (Whisper
 engines, OCR, MCP, Web UI).  If you only need a subset:
 
 ```bash
-pip install "video2text[whisperx]"        # specific engine
-pip install "video2text[ocr]"             # OCR support
-pip install "video2text[web]"             # Web UI
-pip install "video2text[mcp]"             # MCP server
-pip install "video2text[dev]"             # tests + lint
+pip install "mediascribe[whisperx]"        # specific engine
+pip install "mediascribe[ocr]"             # OCR support
+pip install "mediascribe[web]"             # Web UI
+pip install "mediascribe[mcp]"             # MCP server
+pip install "mediascribe[dev]"             # tests + lint
 ```
 
 System dependencies:
@@ -29,7 +29,7 @@ System dependencies:
 ## 2. Transcribe a single video
 
 ```bash
-python -m video2text --url "https://www.youtube.com/watch?v=..." \
+python -m mediascribe --url "https://www.youtube.com/watch?v=..." \
   --model small --lang en
 ```
 
@@ -48,7 +48,7 @@ with a leading timestamp.
 ## 3. Transcribe a WeChat MP article
 
 ```bash
-python -m video2text --url "https://mp.weixin.qq.com/s/abc?__biz=..." \
+python -m mediascribe --url "https://mp.weixin.qq.com/s/abc?__biz=..." \
   --wechat-cookies "wxuin=abc123; pass_ticket=xyz" \
   --ocr-engine easyocr --save-images
 ```
@@ -67,7 +67,7 @@ python douyin_batch_v3.py --user "https://www.bilibili.com/..." \
 ## 5. Web UI
 
 ```bash
-python -m video2text.web.app --port 8000
+python -m mediascribe.web.app --port 8000
 ```
 
 Open `http://127.0.0.1:8000` and paste up to 20 URLs at once.
@@ -75,7 +75,7 @@ Open `http://127.0.0.1:8000` and paste up to 20 URLs at once.
 ## 6. MCP server (for LLM agents)
 
 ```bash
-python -m video2text.mcp_server
+python -m mediascribe.mcp_server
 ```
 
 Connect your MCP client (Claude Desktop, Cursor, Cline, etc.) to
@@ -84,7 +84,7 @@ the stdio transport.  See [MCP server](mcp.md) for the tool list.
 ## 7. Verify the install
 
 ```bash
-python -c "import video2text; print(video2text.__version__)"
+python -c "import mediascribe; print(mediascribe.__version__)"
 python -m pytest douyin_batch/tests/ -q
 ```
 

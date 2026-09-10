@@ -1,4 +1,4 @@
-// Video2Text Sender — popup / side panel script
+// MediaScribe Sender — popup / side panel script
 //
 // Same code path is used for both the toolbar popup (chrome.action
 // default_popup) and the Chrome Side Panel (chrome.sidePanel).  We

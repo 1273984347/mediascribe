@@ -162,7 +162,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "## How to reproduce",
         "",
         "```bash",
-        "pip install \"video2text[all]\"",
+        "pip install \"mediascribe[all]\"",
         "python scripts/capture_e2e_recording.py --output-dir ./e2e-recording",
         "```",
         "",

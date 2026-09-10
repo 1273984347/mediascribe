@@ -9,7 +9,7 @@
 ----
 
 ```python
-from video2text.post_process import post_process_transcript
+from mediascribe.post_process import post_process_transcript
 from pathlib import Path
 
 raw = Path("output/transcripts/article.md").read_text(encoding="utf-8")
@@ -21,7 +21,7 @@ Path("output/transcripts/article_corrected.md").write_text(fixed, encoding="utf-
 ------
 默认术语表覆盖教育/历史/文学领域的常见 ASR 错误。
 调用方可通过 ``custom_terms`` 追加,或通过
-``VIDEO2TEXT_CUSTOM_TERMS`` 环境变量 (JSON dict)。
+``MEDIASCRIBE_CUSTOM_TERMS`` 环境变量 (JSON dict)。
 
 模型推荐
 --------
@@ -77,7 +77,7 @@ def post_process_transcript(
 
     术语合并优先级 (低 → 高)::
 
-        DEFAULT_TERMS < learned_terms < env VIDEO2TEXT_CUSTOM_TERMS < custom_terms
+        DEFAULT_TERMS < learned_terms < env MEDIASCRIBE_CUSTOM_TERMS < custom_terms
 
     Parameters
     ----------
@@ -86,10 +86,10 @@ def post_process_transcript(
     custom_terms
         额外术语字典;key 为错误词,value 为正确词。
     merge_env
-        如果为 True,从 ``VIDEO2TEXT_CUSTOM_TERMS`` 环境变量读取
+        如果为 True,从 ``MEDIASCRIBE_CUSTOM_TERMS`` 环境变量读取
         JSON dict 并合并。
     merge_learned
-        如果为 True,从 :func:`video2text.learn.get_learned_terms`
+        如果为 True,从 :func:`mediascribe.learn.get_learned_terms`
         加载自动学习的术语并合并。
 
     Returns
@@ -107,7 +107,7 @@ def post_process_transcript(
             pass  # 学习模块不可用时不阻塞
 
     if merge_env:
-        env_raw = os.environ.get("VIDEO2TEXT_CUSTOM_TERMS")
+        env_raw = os.environ.get("MEDIASCRIBE_CUSTOM_TERMS")
         if env_raw:
             try:
                 terms.update(json.loads(env_raw))
@@ -116,7 +116,7 @@ def post_process_transcript(
                 # 已生效。log warning 带异常与原文摘要,方便定位拼写
                 # / 引号错误,且不阻塞主流程。
                 _logger.warning(
-                    "VIDEO2TEXT_CUSTOM_TERMS JSON 解析失败(%s),"
+                    "MEDIASCRIBE_CUSTOM_TERMS JSON 解析失败(%s),"
                     "已忽略该环境变量;内容摘要: %.120s",
                     exc,
                     env_raw,

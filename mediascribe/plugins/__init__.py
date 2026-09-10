@@ -1,4 +1,4 @@
-"""Plugin system: third-party extension points for Video2Text.
+"""Plugin system: third-party extension points for MediaScribe.
 
 Public API
 ----------

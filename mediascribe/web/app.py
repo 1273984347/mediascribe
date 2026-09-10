@@ -1,5 +1,5 @@
 """
-Web UI for Video2Text (FastAPI + vanilla HTML).
+Web UI for MediaScribe (FastAPI + vanilla HTML).
 
 A minimal browser interface that lets a non-technical user paste
 one or more URLs and get back Markdown transcriptions.  The page
@@ -10,12 +10,12 @@ shown in a copyable textbox and can be downloaded with one click.
 
 This module is *optional*: it depends on ``fastapi`` and ``uvicorn``,
 which are NOT hard dependencies.  Install them via
-``pip install video2text[web]``.
+``pip install mediascribe[web]``.
 
 Usage:
-    uvicorn video2text.web.app:app --reload --port 8000
+    uvicorn mediascribe.web.app:app --reload --port 8000
     # or
-    python -m video2text.web.app --port 8000
+    python -m mediascribe.web.app --port 8000
 
 Endpoints:
     GET  /            → HTML page
@@ -29,9 +29,9 @@ Endpoints:
 
 Security:
     * CORS: extension origins and the local dashboard are pre-allowed
-      by default.  Set ``VIDEO2TEXT_CORS_ORIGINS`` to a comma-separated
+      by default.  Set ``MEDIASCRIBE_CORS_ORIGINS`` to a comma-separated
       list to override.  ``*`` is also accepted.
-    * Auth: if ``VIDEO2TEXT_API_TOKEN`` is set, every API request
+    * Auth: if ``MEDIASCRIBE_API_TOKEN`` is set, every API request
       (except ``/api/health`` and ``/``) must carry
       ``Authorization: Bearer <token>``.  The same token is required on
       the ``/ws/progress/{job_id}`` WebSocket handshake via
@@ -40,17 +40,17 @@ Security:
       server.
     * SSRF: user-submitted http(s) URLs are resolved and rejected when
       they point at private / loopback / link-local / reserved
-      addresses (``VIDEO2TEXT_ALLOWED_HOSTS`` opts hostnames out for
+      addresses (``MEDIASCRIBE_ALLOWED_HOSTS`` opts hostnames out for
       local development).  Local file paths are only accepted inside
       the workspace directory.
     * CSRF: JSON-body POST endpoints require ``Content-Type:
       application/json`` (else 415), so cross-site ``text/plain`` form
       posts cannot drive them.
-    * Misc env knobs: ``VIDEO2TEXT_PUBLIC_BASE_URL`` (origin rendered
-      into INSTALL.md), ``VIDEO2TEXT_WORKSPACE`` (data root),
-      ``VIDEO2TEXT_LOG_LEVEL`` (root log level),
-      ``VIDEO2TEXT_WS_MAX_SESSION_SECONDS`` /
-      ``VIDEO2TEXT_WS_IDLE_TIMEOUT_SECONDS`` (WebSocket lifetime caps).
+    * Misc env knobs: ``MEDIASCRIBE_PUBLIC_BASE_URL`` (origin rendered
+      into INSTALL.md), ``MEDIASCRIBE_WORKSPACE`` (data root),
+      ``MEDIASCRIBE_LOG_LEVEL`` (root log level),
+      ``MEDIASCRIBE_WS_MAX_SESSION_SECONDS`` /
+      ``MEDIASCRIBE_WS_IDLE_TIMEOUT_SECONDS`` (WebSocket lifetime caps).
 """
 from __future__ import annotations
 
@@ -90,12 +90,12 @@ logger = logging.getLogger(__name__)
 
 
 def _configure_logging_from_env() -> None:
-    """把 ``VIDEO2TEXT_LOG_LEVEL`` 应用到 root logger(幂等)。
+    """把 ``MEDIASCRIBE_LOG_LEVEL`` 应用到 root logger(幂等)。
 
-    docker-compose / Dockerfile 已经导出 ``VIDEO2TEXT_LOG_LEVEL=info``,
+    docker-compose / Dockerfile 已经导出 ``MEDIASCRIBE_LOG_LEVEL=info``,
     但此前代码从不读取 — 死配置。无法识别的取值直接忽略, 保持默认级别。
     """
-    raw = os.environ.get("VIDEO2TEXT_LOG_LEVEL", "").strip().upper()
+    raw = os.environ.get("MEDIASCRIBE_LOG_LEVEL", "").strip().upper()
     if not raw:
         return
     level = getattr(logging, raw, None)
@@ -208,8 +208,8 @@ def _build_pipeline(req: "TranscribeRequest", workspace: Path):
         ``Pipeline`` 共享 cached 的 ``transcriber`` / ``downloader``（重资源 5s+
         模型加载），保证每请求独立的 ``settings`` 不被并发污染。
     """
-    from video2text.config import Settings
-    from video2text.pipeline import Pipeline, resolve_device
+    from mediascribe.config import Settings
+    from mediascribe.pipeline import Pipeline, resolve_device
 
     cookies: Optional[Dict[str, str]] = None
     if req.wechat_cookies:
@@ -219,7 +219,7 @@ def _build_pipeline(req: "TranscribeRequest", workspace: Path):
                 k, _, v = part.partition("=")
                 cookies[k.strip()] = v.strip()
 
-    device = resolve_device(os.environ.get("VIDEO2TEXT_DEVICE", "auto"))
+    device = resolve_device(os.environ.get("MEDIASCRIBE_DEVICE", "auto"))
     # 缓存 key 不含 cookies（不影响 transcriber），不含 workspace（每次请求不同）
     cache_key = (
         req.engine if req.engine != "whisper" else "faster-whisper",
@@ -347,13 +347,13 @@ _DEFAULT_CORS_ORIGIN_REGEX = (
     r"|^chrome-extension://[a-z]+$"
     r"|^moz-extension://[a-f0-9-]{36,}$"
     # P2-2: ``file://`` 分支已删除 — 任意本地页面都能带着用户凭据场景
-    # 打跨站请求。确有需要时经 ``VIDEO2TEXT_CORS_ORIGINS`` 显式配置。
+    # 打跨站请求。确有需要时经 ``MEDIASCRIBE_CORS_ORIGINS`` 显式配置。
 )
 
 
 def _resolve_cors_origins() -> tuple[List[str], Optional[str]]:
     """Return ``(origins, regex)`` honouring the env override."""
-    override = os.environ.get("VIDEO2TEXT_CORS_ORIGINS", "").strip()
+    override = os.environ.get("MEDIASCRIBE_CORS_ORIGINS", "").strip()
     if not override:
         return _default_cors_origins(), _DEFAULT_CORS_ORIGIN_REGEX
     origins = [o.strip() for o in override.split(",") if o.strip()]
@@ -364,12 +364,12 @@ def _resolve_cors_origins() -> tuple[List[str], Optional[str]]:
 
 def _require_api_token(authorization: Optional[str] = Header(default=None)) -> None:
     """Enforce a single shared bearer token on every API route that depends
-    on it.  Disabled (no-op) when ``VIDEO2TEXT_API_TOKEN`` is unset so local
+    on it.  Disabled (no-op) when ``MEDIASCRIBE_API_TOKEN`` is unset so local
     development keeps working without ceremony.  Comparison is constant-time
     to prevent timing oracles against the secret.
     """
     import hmac
-    expected = os.environ.get("VIDEO2TEXT_API_TOKEN", "").strip()
+    expected = os.environ.get("MEDIASCRIBE_API_TOKEN", "").strip()
     if not expected:
         return  # auth disabled
     if not authorization or not authorization.lower().startswith("bearer "):
@@ -390,10 +390,10 @@ def _verify_api_token(presented: Optional[str]) -> bool:
     """Constant-time token check shared by HTTP and WebSocket auth (P1-1).
 
     Same server-side token source as :func:`_require_api_token`
-    (``VIDEO2TEXT_API_TOKEN``).  When the env var is unset auth is
+    (``MEDIASCRIBE_API_TOKEN``).  When the env var is unset auth is
     disabled and every caller is allowed — mirroring the HTTP behaviour.
     """
-    expected = os.environ.get("VIDEO2TEXT_API_TOKEN", "").strip()
+    expected = os.environ.get("MEDIASCRIBE_API_TOKEN", "").strip()
     if not expected:
         return True  # auth disabled — same as the HTTP side
     if not presented or not presented.strip():
@@ -445,7 +445,7 @@ def _validate_public_url(url: str) -> str:
        IP is caught too;
     4. hostnames that fail to resolve (fail closed).
 
-    Opt-out for local development: set ``VIDEO2TEXT_ALLOWED_HOSTS`` to a
+    Opt-out for local development: set ``MEDIASCRIBE_ALLOWED_HOSTS`` to a
     comma-separated list of hostnames that skip the private-address
     check (they still must be http(s) and userinfo-free).
 
@@ -466,7 +466,7 @@ def _validate_public_url(url: str) -> str:
         raise ValueError(f"URL 缺少 hostname: {url[:80]}")
     allowed = {
         h.strip().lower()
-        for h in os.environ.get("VIDEO2TEXT_ALLOWED_HOSTS", "").split(",")
+        for h in os.environ.get("MEDIASCRIBE_ALLOWED_HOSTS", "").split(",")
         if h.strip()
     }
     if hostname in allowed:
@@ -549,11 +549,11 @@ def _validate_submitted_urls(urls: List[str], workspace: Path) -> None:
 def _public_base_url(request: "Request") -> str:
     """决定 INSTALL.md 中展示的服务端 origin (P2-10)。
 
-    优先 ``VIDEO2TEXT_PUBLIC_BASE_URL``; 否则取 ``request.base_url`` 但
+    优先 ``MEDIASCRIBE_PUBLIC_BASE_URL``; 否则取 ``request.base_url`` 但
     只保留 scheme + host(:port) — Host 头可被客户端伪造, 不能把
     userinfo / 任意字符原样反射进文档。
     """
-    env_base = os.environ.get("VIDEO2TEXT_PUBLIC_BASE_URL", "").strip().rstrip("/")
+    env_base = os.environ.get("MEDIASCRIBE_PUBLIC_BASE_URL", "").strip().rstrip("/")
     if env_base:
         return env_base
     try:
@@ -599,7 +599,7 @@ class _RateLimiter:
     When running behind a reverse proxy that terminates the connection
     (uvicorn ``--proxy-headers`` / nginx), every client shares the
     proxy's single bucket, so the limiter degrades to a *global* limit —
-    deployers behind a proxy should raise ``VIDEO2TEXT_RATE_LIMIT``
+    deployers behind a proxy should raise ``MEDIASCRIBE_RATE_LIMIT``
     accordingly or move limiting into the proxy.
     """
 
@@ -674,18 +674,18 @@ class _RateLimiter:
 def _build_rate_limiter() -> _RateLimiter:
     """Build a rate limiter from the environment.
 
-    * ``VIDEO2TEXT_RATE_LIMIT`` — integer max requests per minute
+    * ``MEDIASCRIBE_RATE_LIMIT`` — integer max requests per minute
       (default ``10``).  ``0`` disables the limiter entirely.
-    * ``VIDEO2TEXT_RATE_LIMIT_WINDOW`` — float window in seconds
+    * ``MEDIASCRIBE_RATE_LIMIT_WINDOW`` — float window in seconds
       (default ``60``).  This is a free-form knob in case users want
       "5 requests per 10 seconds" style limits.
     """
     try:
-        max_req = int(os.environ.get("VIDEO2TEXT_RATE_LIMIT", "10"))
+        max_req = int(os.environ.get("MEDIASCRIBE_RATE_LIMIT", "10"))
     except ValueError:
         max_req = 10
     try:
-        window = float(os.environ.get("VIDEO2TEXT_RATE_LIMIT_WINDOW", "60"))
+        window = float(os.environ.get("MEDIASCRIBE_RATE_LIMIT_WINDOW", "60"))
     except ValueError:
         window = 60.0
     return _RateLimiter(
@@ -749,7 +749,7 @@ def _cached_gpu_health(ttl_seconds: float = 1.0) -> Dict[str, Any]:
     if cached is not None and (now - ts) < ttl_seconds:
         return cached
     # Local import — keeps the module importable without torch.
-    from video2text.pipeline import gpu_health
+    from mediascribe.pipeline import gpu_health
     fresh = gpu_health()
     with _gpu_health_lock:
         _gpu_health_cache["ts"] = time.monotonic()
@@ -778,7 +778,7 @@ def _store_job_result(
 ) -> None:
     """执行 ``runner()`` 并把结果安全写入 ``results_store``。
 
-    ``runner`` 由调用方构造(可包含 :func:`video2text.progress.with_progress`
+    ``runner`` 由调用方构造(可包含 :func:`mediascribe.progress.with_progress`
     进度包装)。所有写操作都在 ``results_lock`` 内,且先校验 job 仍在
     ``registry`` 中(关闭 TOCTOU 窗口)。
 
@@ -974,19 +974,19 @@ def create_app(workspace: Optional[Path] = None,
     Args:
         workspace: directory where transcripts and audio are written.
         api_token: optional shared secret.  If ``None``, falls back to
-            ``VIDEO2TEXT_API_TOKEN`` from the environment; if neither is
+            ``MEDIASCRIBE_API_TOKEN`` from the environment; if neither is
             set, the API is unauthenticated (fine for ``127.0.0.1``-only
             dev usage; **do not** expose such an instance on a public
             network).
         cors_origins: explicit list of allowed origins.  ``None`` falls
-            back to ``VIDEO2TEXT_CORS_ORIGINS`` or the built-in
+            back to ``MEDIASCRIBE_CORS_ORIGINS`` or the built-in
             extension-friendly defaults.
     """
     if not _FASTAPI_AVAILABLE:
         raise RuntimeError(
-            "FastAPI is not installed. Run: pip install video2text[web]"
+            "FastAPI is not installed. Run: pip install mediascribe[web]"
         )
-    # 附加修复: docker-compose 已设 ``VIDEO2TEXT_LOG_LEVEL=info`` 但代码
+    # 附加修复: docker-compose 已设 ``MEDIASCRIBE_LOG_LEVEL=info`` 但代码
     # 此前不读 — 在应用装配处应用一次(幂等)。
     _configure_logging_from_env()
 
@@ -1011,7 +1011,7 @@ def create_app(workspace: Optional[Path] = None,
             bridge.close()
 
     app = FastAPI(
-        title="Video2Text Web UI",
+        title="MediaScribe Web UI",
         version="3.2.0c",
         description="Transcribe videos to Markdown from your browser.",
         lifespan=_lifespan,
@@ -1019,7 +1019,7 @@ def create_app(workspace: Optional[Path] = None,
 
     # CORS — pre-allow extension + local origins; the user can override.
     if api_token is None:
-        api_token = os.environ.get("VIDEO2TEXT_API_TOKEN", "").strip() or None
+        api_token = os.environ.get("MEDIASCRIBE_API_TOKEN", "").strip() or None
     if cors_origins is None:
         cors_origins, cors_regex = _resolve_cors_origins()
     else:
@@ -1035,12 +1035,12 @@ def create_app(workspace: Optional[Path] = None,
     # Persist the active token on app.state for tests / introspection.
     app.state.api_token_configured = bool(api_token)
     # Rate limiter: per-client, sliding-window.  Default = 10 req / 60 s.
-    # Disable by setting ``VIDEO2TEXT_RATE_LIMIT=0``.
+    # Disable by setting ``MEDIASCRIBE_RATE_LIMIT=0``.
     app.state.rate_limiter = _build_rate_limiter()
     # Job progress registry (v3.2.0a) — backs ``/ws/progress/{job_id}``
     # and the ``/api/jobs/{job_id}`` REST helpers.
-    from video2text.pipeline import resolve_device
-    from video2text.progress import ProgressRegistry
+    from mediascribe.pipeline import resolve_device
+    from mediascribe.progress import ProgressRegistry
 
     app.state.jobs = ProgressRegistry()
     # v3.2.0c Tier 1: background job runner — ThreadPoolExecutor for
@@ -1051,7 +1051,7 @@ def create_app(workspace: Optional[Path] = None,
     # 并发度可通过环境变量覆盖（参考 AsyncPipeline._default_max_concurrent）。
     # 默认 2：转录是 GPU/IO 密集型，过多并发反而争抢显存。
     try:
-        _max_workers = int(os.environ.get("VIDEO2TEXT_MAX_WORKERS", "2"))
+        _max_workers = int(os.environ.get("MEDIASCRIBE_MAX_WORKERS", "2"))
     except ValueError:
         _max_workers = 2
     if _max_workers <= 0:
@@ -1084,10 +1084,10 @@ def create_app(workspace: Optional[Path] = None,
     app.state.ws_bridges: Dict[str, _JobEventBridge] = {}
     app.state.ws_bridge_lock = threading.Lock()
 
-    # 附加修复: Docker 镜像已设 ``VIDEO2TEXT_WORKSPACE=/workspace`` 且
+    # 附加修复: Docker 镜像已设 ``MEDIASCRIBE_WORKSPACE=/workspace`` 且
     # compose 已挂卷, 但代码此前不读该变量, 导致容器内数据不落卷。
     if workspace is None:
-        env_ws = os.environ.get("VIDEO2TEXT_WORKSPACE", "").strip()
+        env_ws = os.environ.get("MEDIASCRIBE_WORKSPACE", "").strip()
         workspace = Path(env_ws) if env_ws else Path.cwd() / "web-workspace"
 
     @app.get("/api/health")
@@ -1137,7 +1137,7 @@ def create_app(workspace: Optional[Path] = None,
             "rate_limit_enabled": app.state.rate_limiter.enabled,
             "rate_limit_max": app.state.rate_limiter.max_requests,
             "rate_limit_window": app.state.rate_limiter.window_seconds,
-            "device_hint": resolve_device(os.environ.get("VIDEO2TEXT_DEVICE", "auto")),
+            "device_hint": resolve_device(os.environ.get("MEDIASCRIBE_DEVICE", "auto")),
             "gpu": gpu,
         }
 
@@ -1146,7 +1146,7 @@ def create_app(workspace: Optional[Path] = None,
         """The user-facing install page for the browser extension.
 
         The page is rendered as a server-side template so we can show
-        a useful banner when ``VIDEO2TEXT_API_TOKEN`` is set, and we
+        a useful banner when ``MEDIASCRIBE_API_TOKEN`` is set, and we
         do not need a second build step.
         """
         auth_on = app.state.api_token_configured
@@ -1160,7 +1160,7 @@ def create_app(workspace: Optional[Path] = None,
         # Render the same dark theme as the main UI for visual consistency.
         html = (
             "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
-            "<title>Video2Text Browser Extension</title>"
+            "<title>MediaScribe Browser Extension</title>"
             "<style>"
             "body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"
             "background:#0f172a;color:#e2e8f0;padding:32px;line-height:1.55;}"
@@ -1179,7 +1179,7 @@ def create_app(workspace: Optional[Path] = None,
             ".ok{color:#22c55e;}.warn{color:#f59e0b;}"
             "</style></head><body>"
             "<div class=\"card\">"
-            "<h1>Video2Text Browser Extension"
+            "<h1>MediaScribe Browser Extension"
             f"<span class=\"tag\">manifest v{_EXTENSION_MANIFEST_VERSION}</span>"
             "</h1>"
             "<p>Send the URL of the page you are reading straight to this "
@@ -1195,7 +1195,7 @@ def create_app(workspace: Optional[Path] = None,
             "<ol>"
             "<li>Click <b>Download extension</b> above and save the ZIP.</li>"
             "<li>Extract it into a permanent folder, e.g. "
-            "<code>~/video2text-extension/</code>.</li>"
+            "<code>~/mediascribe-extension/</code>.</li>"
             "<li>Open <code>chrome://extensions/</code> "
             "(or <code>edge://extensions/</code>) and turn on "
             "<b>Developer mode</b>.</li>"
@@ -1207,10 +1207,10 @@ def create_app(workspace: Optional[Path] = None,
             "<li><b>Side panel button missing</b> — update to Chrome / "
             "Edge 114 or newer.</li>"
             "<li><b>401 Unauthorized</b> — your server has "
-            "<code>VIDEO2TEXT_API_TOKEN</code> set. Paste the same token "
+            "<code>MEDIASCRIBE_API_TOKEN</code> set. Paste the same token "
             "in the extension options page.</li>"
             "<li><b>CORS blocked</b> — the server is configured to reject "
-            "browser-extension origins. Check <code>VIDEO2TEXT_CORS_ORIGINS</code>."
+            "browser-extension origins. Check <code>MEDIASCRIBE_CORS_ORIGINS</code>."
             "</li>"
             "</ul>"
             "</div></body></html>"
@@ -1233,7 +1233,7 @@ def create_app(workspace: Optional[Path] = None,
             import importlib
             try:
                 builder = importlib.import_module(
-                    "video2text.web.extension_builder"
+                    "mediascribe.web.extension_builder"
                 )
             except Exception:
                 builder = importlib.import_module("extension_builder")
@@ -1286,7 +1286,7 @@ def create_app(workspace: Optional[Path] = None,
             import importlib
             try:
                 builder = importlib.import_module(
-                    "video2text.web.extension_builder"
+                    "mediascribe.web.extension_builder"
                 )
             except Exception:
                 builder = importlib.import_module("extension_builder")
@@ -1311,7 +1311,7 @@ def create_app(workspace: Optional[Path] = None,
         from html import escape
         body = (
             "<!doctype html><meta charset=\"utf-8\">"
-            "<title>Video2Text — Install guide</title>"
+            "<title>MediaScribe — Install guide</title>"
             "<style>body{font-family:-apple-system,BlinkMacSystemFont,"
             "'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;"
             "padding:32px;line-height:1.55;max-width:760px;}"
@@ -1364,12 +1364,12 @@ def create_app(workspace: Optional[Path] = None,
     async def ws_progress(websocket: WebSocket, job_id: str) -> None:
         """Stream per-stage progress events for a job.
 
-        The job is created by :class:`video2text.progress.ProgressRegistry`
+        The job is created by :class:`mediascribe.progress.ProgressRegistry`
         and its events queue is drained here.  The connection stays
         open until the job finishes (event ``succeeded`` / ``failed``
         / ``cancelled``) and then closes with code ``1000``.
 
-        P1-1 — 握手鉴权: 服务端设置了 ``VIDEO2TEXT_API_TOKEN`` 时,
+        P1-1 — 握手鉴权: 服务端设置了 ``MEDIASCRIBE_API_TOKEN`` 时,
         WS 必须携带 token(与 HTTP 侧同源、同为常数时间比较):
           * query param ``?token=<tok>``, 或
           * ``Sec-WebSocket-Protocol`` 首段(浏览器无法给 WS 加自定义头)。
@@ -1380,8 +1380,8 @@ def create_app(workspace: Optional[Path] = None,
         P2-9 — 事件桥接: 每个 job 一个常驻 drain 线程
         (:class:`_JobEventBridge`)把阻塞 events 队列桥接到 asyncio,
         多个 WS 连接订阅同一 bridge, 不再每连接每 0.5s 提交线程池任务。
-        连接另有最大时长(``VIDEO2TEXT_WS_MAX_SESSION_SECONDS``, 默认
-        3600s)与空闲超时(``VIDEO2TEXT_WS_IDLE_TIMEOUT_SECONDS``,
+        连接另有最大时长(``MEDIASCRIBE_WS_MAX_SESSION_SECONDS``, 默认
+        3600s)与空闲超时(``MEDIASCRIBE_WS_IDLE_TIMEOUT_SECONDS``,
         默认 300s), 超时以 ``1000`` 正常关闭。
 
         v3.2.0c Tier 1 — clients may send ``{"event": "cancel"}`` to
@@ -1401,7 +1401,7 @@ def create_app(workspace: Optional[Path] = None,
             return
         await websocket.accept()
         try:
-            from video2text.progress import ProgressRegistry
+            from mediascribe.progress import ProgressRegistry
         except ImportError:
             await websocket.send_json({"event": "error", "message": "progress module missing"})
             await websocket.close(code=1011)
@@ -1425,11 +1425,11 @@ def create_app(workspace: Optional[Path] = None,
                 app.state.ws_bridges[job.job_id] = bridge
         subscriber_queue = bridge.subscribe()
         max_session_seconds = _env_float(
-            "VIDEO2TEXT_WS_MAX_SESSION_SECONDS", 3600.0)
+            "MEDIASCRIBE_WS_MAX_SESSION_SECONDS", 3600.0)
         if max_session_seconds <= 0:
             max_session_seconds = float("inf")  # 显式禁用会话上限
         idle_timeout = _env_float(
-            "VIDEO2TEXT_WS_IDLE_TIMEOUT_SECONDS", 300.0)
+            "MEDIASCRIBE_WS_IDLE_TIMEOUT_SECONDS", 300.0)
         # ping 周期取空闲超时与 30s 的较小者 — 让客户端能探测连接活性。
         ping_interval = min(30.0, idle_timeout) if idle_timeout > 0 else 30.0
 
@@ -1542,7 +1542,7 @@ def create_app(workspace: Optional[Path] = None,
         so in-flight ``asyncio.Task``s are torn down, not just the
         cooperative ``job.cancelled`` flag.
         """
-        from video2text.progress import ProgressRegistry
+        from mediascribe.progress import ProgressRegistry
 
         registry: ProgressRegistry = app.state.jobs  # type: ignore[attr-defined]
         cancelled = registry.cancel(job_id)
@@ -1559,7 +1559,7 @@ def create_app(workspace: Optional[Path] = None,
     @app.get("/api/jobs/{job_id}", dependencies=[Depends(_require_api_token)])
     def job_status(job_id: str) -> Dict[str, Any]:
         """Return the current snapshot of a job's progress."""
-        from video2text.progress import ProgressRegistry
+        from mediascribe.progress import ProgressRegistry
 
         registry: ProgressRegistry = app.state.jobs  # type: ignore[attr-defined]
         job = registry.get(job_id)
@@ -1577,7 +1577,7 @@ def create_app(workspace: Optional[Path] = None,
     ) -> Dict[str, Any]:
         """Submit URLs as background jobs; returns immediately with job_ids.
 
-        Each URL is run via :func:`video2text.progress.with_progress` on
+        Each URL is run via :func:`mediascribe.progress.with_progress` on
         the app's :class:`ThreadPoolExecutor`.  The caller should:
 
         1. ``GET /ws/progress/{job_id}`` (WebSocket) to receive
@@ -1614,8 +1614,8 @@ def create_app(workspace: Optional[Path] = None,
                 status_code=500,
                 detail="internal error while initialising the pipeline; see server logs",
             )
-        from video2text.pipeline_async import AsyncPipeline
-        from video2text.progress import ProgressRegistry, with_progress
+        from mediascribe.pipeline_async import AsyncPipeline
+        from mediascribe.progress import ProgressRegistry, with_progress
 
         registry: ProgressRegistry = app.state.jobs  # type: ignore[attr-defined]
         out_dir = workspace / "out"
@@ -1677,7 +1677,7 @@ def create_app(workspace: Optional[Path] = None,
         optional ``engine`` / ``title``.  Cancelled jobs return
         ``cancelled=True`` with ``markdown=None``.
         """
-        from video2text.progress import ProgressRegistry
+        from mediascribe.progress import ProgressRegistry
 
         registry: ProgressRegistry = app.state.jobs  # type: ignore[attr-defined]
         job = registry.get(job_id)
@@ -1706,7 +1706,7 @@ def create_app(workspace: Optional[Path] = None,
 
 
 # ---------------------------------------------------------------------------
-# CLI (run via ``python -m video2text.web.app``)
+# CLI (run via ``python -m mediascribe.web.app``)
 # ---------------------------------------------------------------------------
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
@@ -1717,12 +1717,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = parser.parse_args(argv)
 
     if not _FASTAPI_AVAILABLE:
-        print("FastAPI not installed. Run: pip install video2text[web]")
+        print("FastAPI not installed. Run: pip install mediascribe[web]")
         return 1
     try:
         import uvicorn
     except ImportError:
-        print("uvicorn not installed. Run: pip install video2text[web]")
+        print("uvicorn not installed. Run: pip install mediascribe[web]")
         return 1
     app = create_app(workspace=args.workspace)
     uvicorn.run(app, host=args.host, port=args.port, reload=args.reload)

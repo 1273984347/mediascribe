@@ -1,8 +1,8 @@
 """
-End-to-end (E2E) tests for the video2text pipeline.
+End-to-end (E2E) tests for the mediascribe pipeline.
 
 These tests hit real public URLs on the open internet. They are
-**opt-in**: set the environment variable ``VIDEO2TEXT_E2E=1`` to run
+**opt-in**: set the environment variable ``MEDIASCRIBE_E2E=1`` to run
 them. Without that variable, every test method is skipped (with a
 clear message). This keeps the default ``pytest`` run fast and
 network-free.
@@ -15,7 +15,7 @@ transcription E2E is reserved for the manual smoke tests in
 ``docs/e2e-results.md``.
 
 Run:
-    VIDEO2TEXT_E2E=1 python -m pytest douyin_batch/tests/test_e2e_real_urls.py -v
+    MEDIASCRIBE_E2E=1 python -m pytest douyin_batch/tests/test_e2e_real_urls.py -v
 """
 import os
 import sys
@@ -28,15 +28,15 @@ from pathlib import Path
 ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
-E2E_ENABLED = os.environ.get("VIDEO2TEXT_E2E", "0") == "1"
+E2E_ENABLED = os.environ.get("MEDIASCRIBE_E2E", "0") == "1"
 NETWORK_TIMEOUT = 5  # seconds
 
 
 def _skip_if_disabled(test):
-    """Decorator that skips a test when ``VIDEO2TEXT_E2E`` is not set."""
+    """Decorator that skips a test when ``MEDIASCRIBE_E2E`` is not set."""
     if E2E_ENABLED:
         return test
-    msg = "E2E disabled (set VIDEO2TEXT_E2E=1 to enable)"
+    msg = "E2E disabled (set MEDIASCRIBE_E2E=1 to enable)"
     return unittest.skip(msg)(test)
 
 
@@ -68,7 +68,7 @@ class _UrlResolveBase(unittest.TestCase):
             raise unittest.SkipTest("No network access")
 
     def _resolve(self, url: str):
-        from video2text.platform import detect_platform
+        from mediascribe.platform import detect_platform
         return detect_platform(url)
 
 
@@ -134,7 +134,7 @@ class TestCookieParsing(unittest.TestCase):
     ``dict[str, str]`` shape."""
 
     def test_netscape_format(self):
-        from video2text.config import _parse_cookie_string
+        from mediascribe.config import _parse_cookie_string
         text = (
             "# Netscape HTTP Cookie File\n"
             "mp.weixin.qq.com\tFALSE\t/\tFALSE\t0\twxuin\tabc123\n"
@@ -147,21 +147,21 @@ class TestCookieParsing(unittest.TestCase):
             self.assertEqual(result.get("wxuin"), "abc123")
 
     def test_json_format(self):
-        from video2text.config import _parse_cookie_string
+        from mediascribe.config import _parse_cookie_string
         data = '{"wxuin": "abc123", "pass_ticket": "def456"}'
         result = _parse_cookie_string(data)
         self.assertEqual(result.get("wxuin"), "abc123")
         self.assertEqual(result.get("pass_ticket"), "def456")
 
     def test_keyvalue_format(self):
-        from video2text.config import _parse_cookie_string
+        from mediascribe.config import _parse_cookie_string
         # Single key=value (the parser accepts one cookie at a time;
         # semicolon-separated input is consumed by the CLI separately)
         result = _parse_cookie_string("wxuin=abc123")
         self.assertEqual(result.get("wxuin"), "abc123")
 
     def test_empty_string(self):
-        from video2text.config import _parse_cookie_string
+        from mediascribe.config import _parse_cookie_string
         self.assertEqual(_parse_cookie_string(""), {})
 
 
@@ -174,7 +174,7 @@ class TestYoutubePlayerClients(unittest.TestCase):
     controlled responses."""
 
     def test_first_client_succeeds(self):
-        from video2text.downloaders.youtube import YouTubeDownloader
+        from mediascribe.downloaders.youtube import YouTubeDownloader
         d = YouTubeDownloader()
         # We only validate the *rotation logic*, not the actual
         # yt-dlp call (which is mocked).
@@ -199,7 +199,7 @@ class TestOcrGracefulDegradation(unittest.TestCase):
     ``wechat_mp_status: partial``."""
 
     def test_no_engine_returns_none(self):
-        from video2text.downloaders.wechat_mp import WechatMpDownloader
+        from mediascribe.downloaders.wechat_mp import WechatMpDownloader
         d = WechatMpDownloader()
         d._ocr_engine = "auto"
         d._ocr_lang = "chi_sim+eng"
@@ -214,7 +214,7 @@ class TestOcrGracefulDegradation(unittest.TestCase):
 if __name__ == "__main__":
     if not E2E_ENABLED:
         print(
-            "[e2e] Set VIDEO2TEXT_E2E=1 to enable real-URL tests; "
+            "[e2e] Set MEDIASCRIBE_E2E=1 to enable real-URL tests; "
             "all tests are skipped by default."
         )
     unittest.main()

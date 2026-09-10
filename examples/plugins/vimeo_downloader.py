@@ -1,7 +1,7 @@
 """
 Example plugin: a no-op downloader used in the plugin-system tests.
 
-This plugin is registered via the ``video2text.downloaders`` entry
+This plugin is registered via the ``mediascribe.downloaders`` entry
 point in ``pyproject.toml`` so the test suite can discover it
 without manual imports.  It pretends to download a ``vimeo.com``
 URL and returns a stub ``DownloadResult``.
@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from video2text.downloaders.base import Downloader
-from video2text.models import DownloadResult, SourceRef
+from mediascribe.downloaders.base import Downloader
+from mediascribe.models import DownloadResult, SourceRef
 
 
 class VimeoDownloader(Downloader):

@@ -1,5 +1,5 @@
 """
-Lightweight observability layer for Video2Text.
+Lightweight observability layer for MediaScribe.
 
 The real OpenTelemetry SDKs are heavy (megabytes of installed
 dependencies) and not everyone wants them.  This module provides
@@ -20,7 +20,7 @@ Usage:
 
 .. code-block:: python
 
-    from video2text.observability import (
+    from mediascribe.observability import (
         OBSERVABILITY, get_tracer, get_meter, install_opentelemetry_exporter,
     )
 
@@ -60,7 +60,7 @@ OBSERVABILITY: Dict[str, Any] = {
     "_lock": RLock(),
 }
 
-_MAX_RECORDS = int(os.environ.get("VIDEO2TEXT_OBS_MAX_RECORDS", "1000"))
+_MAX_RECORDS = int(os.environ.get("MEDIASCRIBE_OBS_MAX_RECORDS", "1000"))
 
 
 def clear_observability() -> None:
@@ -134,7 +134,7 @@ class _Span:
 # tuple,每个 context(线程 / asyncio task)拿到独立副本;跨
 # context 关闭 span 时 ``reset(token)`` 会失败,回退到进入时快照。
 _ACTIVE_SPANS: contextvars.ContextVar[Tuple[_Span, ...]] = (
-    contextvars.ContextVar("video2text_active_span_stack", default=())
+    contextvars.ContextVar("mediascribe_active_span_stack", default=())
 )
 
 
@@ -297,8 +297,8 @@ def install_opentelemetry_exporter(exporter: Any = None) -> bool:
         # Wrap the real OTel tracer / meter so the rest of the
         # codebase can keep using ``with tracer.start_as_current_span(...)``
         # without knowing which backend is active.
-        ot_tracer = trace.get_tracer("video2text")
-        ot_meter = metrics.get_meter("video2text")
+        ot_tracer = trace.get_tracer("mediascribe")
+        ot_meter = metrics.get_meter("mediascribe")
 
         class _Adapter:
             def start_as_current_span(self, name, **kw):

@@ -1,11 +1,11 @@
 # License
 
-Video2Text is released under the **MIT License**.
+MediaScribe is released under the **MIT License**.
 
 ```
 MIT License
 
-Copyright (c) 2024–2026 Video2Text contributors
+Copyright (c) 2024–2026 MediaScribe contributors
 
 Permission is hereby granted, free of charge, to any person
 obtaining a copy of this software and associated documentation
@@ -31,7 +31,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ## Third-party licenses
 
-Video2Text depends on many open-source packages.  The full
+MediaScribe depends on many open-source packages.  The full
 list lives in `pyproject.toml`; their licenses are reproduced
 by `pip-licenses` or `python-licenses`.  Notable dependencies:
 

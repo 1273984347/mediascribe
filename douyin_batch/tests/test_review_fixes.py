@@ -41,7 +41,7 @@ sys.path.insert(0, str(ROOT))
 
 class TestDouyinNoPlaywrightFallback:
     def test_returns_none_pair_when_playwright_missing(self):
-        from video2text.downloaders.douyin import DouyinDownloader
+        from mediascribe.downloaders.douyin import DouyinDownloader
 
         d = DouyinDownloader()
         # sys.modules 中置 None 会让 `from playwright.sync_api import ...`
@@ -51,9 +51,9 @@ class TestDouyinNoPlaywrightFallback:
         assert result == (None, None)
 
     def test_download_raises_cleanly_when_no_media_url(self, tmp_path):
-        from video2text.config import Settings
-        from video2text.downloaders.douyin import DouyinDownloader
-        from video2text.models import SourceRef
+        from mediascribe.config import Settings
+        from mediascribe.downloaders.douyin import DouyinDownloader
+        from mediascribe.models import SourceRef
 
         d = DouyinDownloader()
         with patch.object(
@@ -215,7 +215,7 @@ HTML_NESTED = """
 
 class TestWechatMpJsContentNestedDiv:
     def setup_method(self):
-        from video2text.downloaders.wechat_mp import WechatMpDownloader
+        from mediascribe.downloaders.wechat_mp import WechatMpDownloader
 
         self.d = WechatMpDownloader()
 
@@ -298,9 +298,9 @@ class TestBrowserCloseIfRunning:
 
 class TestXiaohongshuImageNote:
     def test_image_note_raises_actionable_error(self, tmp_path):
-        from video2text.config import Settings
-        from video2text.downloaders.xiaohongshu import XiaohongshuDownloader
-        from video2text.models import SourceRef
+        from mediascribe.config import Settings
+        from mediascribe.downloaders.xiaohongshu import XiaohongshuDownloader
+        from mediascribe.models import SourceRef
 
         d = XiaohongshuDownloader()
         with patch.object(
@@ -348,7 +348,7 @@ class _FakeSession:
 
 class TestStreamDownload:
     def test_success_writes_dest(self, tmp_path):
-        from video2text.downloaders._http_download import stream_download
+        from mediascribe.downloaders._http_download import stream_download
 
         dest = tmp_path / "out.mp4"
         out = stream_download("https://x/v.mp4", dest, session=_FakeSession([b"a" * 10, b"b" * 5]))
@@ -357,7 +357,7 @@ class TestStreamDownload:
         assert list(tmp_path.glob("*part*")) == []  # 无残留临时文件
 
     def test_failure_cleans_part_and_keeps_old_dest(self, tmp_path):
-        from video2text.downloaders._http_download import stream_download
+        from mediascribe.downloaders._http_download import stream_download
 
         dest = tmp_path / "out.mp4"
         dest.write_bytes(b"OLD-GOOD")
@@ -377,7 +377,7 @@ class TestStreamDownload:
     def test_http_error_cleans_part(self, tmp_path):
         import requests as _rq
 
-        from video2text.downloaders._http_download import stream_download
+        from mediascribe.downloaders._http_download import stream_download
 
         dest = tmp_path / "out.mp4"
         sess = _FakeSession([], error=_rq.HTTPError("404"))
@@ -387,7 +387,7 @@ class TestStreamDownload:
         assert list(tmp_path.glob("*part*")) == []
 
     def test_progress_cb_called(self, tmp_path):
-        from video2text.downloaders._http_download import stream_download
+        from mediascribe.downloaders._http_download import stream_download
 
         seen = []
         stream_download(
@@ -419,7 +419,7 @@ class TestTranscriberPoolConfig:
         from douyin_batch import transcribe as tmod
 
         cfg = SimpleNamespace(whisper_model="medium", language="en")
-        with patch("video2text.Pipeline") as pipe_cls, patch("video2text.Settings") as set_cls:
+        with patch("mediascribe.Pipeline") as pipe_cls, patch("mediascribe.Settings") as set_cls:
             pool = tmod.TranscriberPool(config=cfg)
             set_cls.assert_called_once_with(model="medium")
             pool.transcribe(Path("/tmp/a.wav"))
@@ -430,7 +430,7 @@ class TestTranscriberPoolConfig:
     def test_default_keeps_zh_small(self):
         from douyin_batch import transcribe as tmod
 
-        with patch("video2text.Pipeline") as pipe_cls, patch("video2text.Settings") as set_cls:
+        with patch("mediascribe.Pipeline") as pipe_cls, patch("mediascribe.Settings") as set_cls:
             pool = tmod.TranscriberPool()
             set_cls.assert_called_once_with(model="small")
             pool.transcribe(Path("/tmp/a.wav"))
@@ -452,7 +452,7 @@ class TestTranscriberPoolConfig:
 
 class TestOcrImagesOrder:
     def test_results_follow_input_order_despite_out_of_order_completion(self):
-        from video2text.downloaders.wechat_mp import WechatMpDownloader
+        from mediascribe.downloaders.wechat_mp import WechatMpDownloader
 
         d = WechatMpDownloader()
 
@@ -464,7 +464,7 @@ class TestOcrImagesOrder:
             return f"text-{url}"
 
         with patch.object(d, "_ocr_image", side_effect=fake_ocr):
-            with patch("video2text.downloaders.wechat_mp.logger") as mock_log:
+            with patch("mediascribe.downloaders.wechat_mp.logger") as mock_log:
                 texts, success, total = d._ocr_images(
                     ["slow", "fast1", "fast2"], Path(".")
                 )
@@ -477,7 +477,7 @@ class TestOcrImagesOrder:
         ]
 
     def test_partial_failure_keeps_order(self):
-        from video2text.downloaders.wechat_mp import WechatMpDownloader
+        from mediascribe.downloaders.wechat_mp import WechatMpDownloader
 
         d = WechatMpDownloader()
         with patch.object(d, "_ocr_image", side_effect=["first", None, "third"]):
@@ -623,20 +623,20 @@ class TestProcessSingleVideoSafety:
 
 class TestUrlUtilsHostMatching:
     def test_userinfo_bypass_blocked(self):
-        from video2text.url_utils import is_short_url, resolve_short_url
+        from mediascribe.url_utils import is_short_url, resolve_short_url
 
         # 实际主机是 127.0.0.1，不算短链：resolve 直接透传（不发起网络请求）
         assert is_short_url("http://b23.tv@127.0.0.1/") is False
         assert resolve_short_url("http://b23.tv@127.0.0.1/") == "http://b23.tv@127.0.0.1/"
 
     def test_path_substring_not_short(self):
-        from video2text.url_utils import is_short_url, normalize_url
+        from mediascribe.url_utils import is_short_url, normalize_url
 
         assert is_short_url("https://www.bilibili.com/b23.tv") is False
         assert normalize_url("https://www.bilibili.com/b23.tv") == "https://www.bilibili.com/b23.tv"
 
     def test_real_short_domains_still_match(self):
-        from video2text.url_utils import is_short_url
+        from mediascribe.url_utils import is_short_url
 
         assert is_short_url("https://b23.tv/abc") is True
         assert is_short_url("https://www.b23.tv/abc") is True  # 子域仍算

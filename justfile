@@ -1,4 +1,4 @@
-# Video2Text — Justfile (alternative to Makefile for AI agents)
+# MediaScribe — Justfile (alternative to Makefile for AI agents)
 # Install just: https://github.com/casey/just
 # Run `just` to list all recipes.
 
@@ -44,13 +44,13 @@ test-cross:
 
 # Lint with ruff (lint + format check)
 lint:
-    {{python}} -m ruff check video2text douyin_batch scripts examples
-    {{python}} -m ruff format --check --diff video2text douyin_batch scripts examples
+    {{python}} -m ruff check mediascribe douyin_batch scripts examples
+    {{python}} -m ruff format --check --diff mediascribe douyin_batch scripts examples
 
 # Auto-format with ruff
 format:
-    {{python}} -m ruff check --fix video2text douyin_batch scripts examples
-    {{python}} -m ruff format video2text douyin_batch scripts examples
+    {{python}} -m ruff check --fix mediascribe douyin_batch scripts examples
+    {{python}} -m ruff format mediascribe douyin_batch scripts examples
 
 # Run the v3 feature demo
 demo:

@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT))
 
 def _make_source(kind, url=None, raw="x"):
     """构造一个 SourceRef，跳过严格的路径检查。"""
-    from video2text.models import SourceRef
+    from mediascribe.models import SourceRef
 
     return SourceRef(raw_input=raw, kind=kind, url=url)
 
@@ -28,8 +28,8 @@ class TestPipelineRouter(unittest.TestCase):
 
     def setUp(self):
         # 构造一个最小可用的 Pipeline，绕开 Settings 构造副作用
-        from video2text.config import Settings
-        from video2text.pipeline import Pipeline
+        from mediascribe.config import Settings
+        from mediascribe.pipeline import Pipeline
 
         self.settings = Settings()
         self.pipeline = Pipeline(settings=self.settings, transcriber=MagicMock())
@@ -66,7 +66,7 @@ class TestPipelineRouter(unittest.TestCase):
         self.assertEqual(d.name, "yt-dlp")
 
     def test_explicit_downloader_overrides_routing(self):
-        from video2text.downloaders.ytdlp import YtDlpDownloader
+        from mediascribe.downloaders.ytdlp import YtDlpDownloader
 
         explicit = YtDlpDownloader()
         p = self.pipeline
@@ -84,7 +84,7 @@ class TestPipelineRouter(unittest.TestCase):
 
         src = _make_source("xiaohongshu", url="https://www.xiaohongshu.com/explore/abc")
         with patch(
-            "video2text.pipeline_stages.XiaohongshuDownloader",
+            "mediascribe.pipeline_stages.XiaohongshuDownloader",
             side_effect=RuntimeError("simulated init failure"),
         ):
             d = self.pipeline._get_downloader(src)
@@ -95,12 +95,12 @@ class TestWechatMpDownloader(unittest.TestCase):
     """WechatMpDownloader 单元测试（mocked 网络）"""
 
     def setUp(self):
-        from video2text.downloaders.wechat_mp import WechatMpDownloader
+        from mediascribe.downloaders.wechat_mp import WechatMpDownloader
 
         self.d = WechatMpDownloader()
 
     def test_supports_kind(self):
-        from video2text.models import SourceRef
+        from mediascribe.models import SourceRef
 
         self.assertTrue(
             self.d.supports(
@@ -109,7 +109,7 @@ class TestWechatMpDownloader(unittest.TestCase):
         )
 
     def test_supports_url(self):
-        from video2text.models import SourceRef
+        from mediascribe.models import SourceRef
 
         self.assertTrue(
             self.d.supports(
@@ -122,7 +122,7 @@ class TestWechatMpDownloader(unittest.TestCase):
         )
 
     def test_does_not_support_other(self):
-        from video2text.models import SourceRef
+        from mediascribe.models import SourceRef
 
         self.assertFalse(
             self.d.supports(
@@ -183,7 +183,7 @@ class TestWechatMpDownloader(unittest.TestCase):
 
     def test_article_mode_skips_asr(self):
         """用 mock 网络下载一篇公众号文章，验证返回 metadata 是文本型。"""
-        from video2text.config import Settings
+        from mediascribe.config import Settings
 
         html = """
         <html><head><meta property="og:title" content="文章标题">
@@ -213,8 +213,8 @@ class TestWechatMpPipelineIntegration(unittest.TestCase):
     """Pipeline._handle_wechat_mp 文本文章直接落盘（不调用 ASR）。"""
 
     def setUp(self):
-        from video2text.config import Settings
-        from video2text.pipeline import Pipeline
+        from mediascribe.config import Settings
+        from mediascribe.pipeline import Pipeline
 
         self.settings = Settings()
         # 假装一个 transcriber，调用应该不会发生
@@ -225,7 +225,7 @@ class TestWechatMpPipelineIntegration(unittest.TestCase):
     def test_text_article_writes_markdown_without_asr(self):
         import tempfile
 
-        from video2text.models import DownloadResult, SourceRef
+        from mediascribe.models import DownloadResult, SourceRef
 
         # 让 workspace_root 指向临时目录
         with tempfile.TemporaryDirectory() as tmp:
@@ -288,7 +288,7 @@ class TestWechatMpPipelineIntegration(unittest.TestCase):
     def test_text_article_empty_text_raises(self):
         import tempfile
 
-        from video2text.models import DownloadResult, SourceRef
+        from mediascribe.models import DownloadResult, SourceRef
 
         with tempfile.TemporaryDirectory() as tmp:
             self.pipeline.settings.workspace_root = Path(tmp)

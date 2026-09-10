@@ -1,5 +1,5 @@
 """
-Smoke tests for the Video2Text browser extension JS surface.
+Smoke tests for the MediaScribe browser extension JS surface.
 
 These tests do NOT spin up a real browser.  Instead they:
 

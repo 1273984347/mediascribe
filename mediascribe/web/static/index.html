@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Video2Text Web UI</title>
+  <title>MediaScribe Web UI</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -160,7 +160,7 @@
 <body>
   <main>
     <header>
-      <h1>Video2Text</h1>
+      <h1>MediaScribe</h1>
       <span id="gpu-pill" class="gpu-pill loading" title="GPU probe (refreshes every 5s)">
         <span class="dot"></span>
         <span id="gpu-label">GPU …</span>
@@ -235,7 +235,7 @@
 
       <div class="row">
         <div>
-          <label for="api-token">API token (only if server sets VIDEO2TEXT_API_TOKEN)</label>
+          <label for="api-token">API token (only if server sets MEDIASCRIBE_API_TOKEN)</label>
           <input id="api-token" type="password" autocomplete="off" placeholder="leave empty when auth is disabled">
         </div>
         <div></div>
@@ -247,7 +247,7 @@
 
     <section class="results" id="results"></section>
 
-    <footer>Video2Text v3.3.0 · <a href="/api/health" style="color:var(--accent);">/api/health</a> · <a href="/extension" style="color:var(--accent);">Browser extension</a></footer>
+    <footer>MediaScribe v3.3.0 · <a href="/api/health" style="color:var(--accent);">/api/health</a> · <a href="/extension" style="color:var(--accent);">Browser extension</a></footer>
   </main>
 
   <script>
@@ -309,7 +309,7 @@
     };
 
     // -------------------------------------------------------------------------
-    // API token — needed only when the server sets VIDEO2TEXT_API_TOKEN.
+    // API token — needed only when the server sets MEDIASCRIBE_API_TOKEN.
     // HTTP calls send it as a Bearer header; the WebSocket passes it via
     // ?token= (validated server-side before accept). Persisted per browser.
     // -------------------------------------------------------------------------

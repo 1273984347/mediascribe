@@ -1,4 +1,4 @@
-# Video2Text
+# MediaScribe
 
 > **Offline video transcription tool** - Convert videos to text using local AI models
 > **离线视频转文字工具** - 使用本地 AI 模型将视频转换为文字
@@ -23,7 +23,7 @@
 
 ## English
 
-**Video2Text** is a powerful offline video transcription tool that downloads videos from multiple platforms (Bilibili, Douyin, YouTube, Xiaohongshu, WeChat MP) and transcribes them using local AI models (Whisper, WhisperX, whisper.cpp). No cloud services, no API keys, no data leaves your machine.
+**MediaScribe** is a powerful offline video transcription tool that downloads videos from multiple platforms (Bilibili, Douyin, YouTube, Xiaohongshu, WeChat MP) and transcribes them using local AI models (Whisper, WhisperX, whisper.cpp). No cloud services, no API keys, no data leaves your machine.
 
 ### ✨ Key Features
 
@@ -35,9 +35,9 @@
 - 🔄 **Batch Processing** - Download entire creator's content
 - 🛡️ **Production Ready** - Logging, error handling, resume support
 - 🎙️ **VAD chunking** (v3.2.0a) — `webrtcvad`-driven boundaries for long videos with 5 s overlap
-- 💾 **Cross-run cache** (v3.2.0a) — XDG-spec disk cache with LRU + TTL, `VIDEO2TEXT_CACHE_DIR` override
-- 📊 **`profile` CLI** (v3.2.0a) — `python -m video2text profile <run.jsonl>` to Markdown / JSON
-- 🧠 **ASR 自动学习** (v3.2.0b) — `python -m video2text learn` 从用户校对累积术语库,越用越准
+- 💾 **Cross-run cache** (v3.2.0a) — XDG-spec disk cache with LRU + TTL, `MEDIASCRIBE_CACHE_DIR` override
+- 📊 **`profile` CLI** (v3.2.0a) — `python -m mediascribe profile <run.jsonl>` to Markdown / JSON
+- 🧠 **ASR 自动学习** (v3.2.0b) — `python -m mediascribe learn` 从用户校对累积术语库,越用越准
 - 📡 **WebSocket progress** (v3.2.0a) — `/ws/progress/{job_id}` streams 3-bar download / transcribe / assemble updates
 
 ### 🚀 Quick Start
@@ -46,8 +46,8 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/video2text.git
-cd video2text
+git clone https://github.com/yourusername/mediascribe.git
+cd mediascribe
 
 # Install dependencies
 pip install -r requirements.txt
@@ -60,16 +60,16 @@ playwright install chromium
 
 ```bash
 # From URL
-python -m video2text transcribe "https://www.bilibili.com/video/BV1Nd596vEyU"
+python -m mediascribe transcribe "https://www.bilibili.com/video/BV1Nd596vEyU"
 
 # From local file
-python -m video2text transcribe "video.mp4" --language zh
+python -m mediascribe transcribe "video.mp4" --language zh
 
 # 指定模型 / 设备（默认模型 small；中文推荐 large-v3）
-python -m video2text transcribe "video.mp4" --model large-v3 --device cuda
+python -m mediascribe transcribe "video.mp4" --model large-v3 --device cuda
 
 # 全局选项也可前置（与上一行等价）
-python -m video2text --model large-v3 transcribe "video.mp4"
+python -m mediascribe --model large-v3 transcribe "video.mp4"
 ```
 
 #### Batch Transcription (Creator's Archive)
@@ -88,30 +88,30 @@ Accumulate a term-correction glossary from your edits so transcripts get more ac
 
 ```bash
 # Recommended: diff edited text vs original ASR to extract phonetic-error mappings
-python -m video2text learn edit --original "ASR原始文本" --corrected "校对后文本"
+python -m mediascribe learn edit --original "ASR原始文本" --corrected "校对后文本"
 
 # Compare a reference transcript against the ASR output
-python -m video2text learn compare --reference "正确文本" --transcript "ASR文本"
+python -m mediascribe learn compare --reference "正确文本" --transcript "ASR文本"
 
 # Manual term management
-python -m video2text learn save    --wrong "错误词" --right "正确词"
-python -m video2text learn list
-python -m video2text learn confirm --wrong "错误词" --right "正确词"
-python -m video2text learn remove  --wrong "错误词" --right "正确词"
-python -m video2text learn export  --output terms.json
-python -m video2text learn import  --input terms.json
-python -m video2text learn clear
+python -m mediascribe learn save    --wrong "错误词" --right "正确词"
+python -m mediascribe learn list
+python -m mediascribe learn confirm --wrong "错误词" --right "正确词"
+python -m mediascribe learn remove  --wrong "错误词" --right "正确词"
+python -m mediascribe learn export  --output terms.json
+python -m mediascribe learn import  --input terms.json
+python -m mediascribe learn clear
 ```
 
 ### 🏗️ Architecture
 
 ```
-video2text/
-├── video2text/          # Core library: pipeline, downloaders, transcribers, config, url_utils
+mediascribe/
+├── mediascribe/          # Core library: pipeline, downloaders, transcribers, config, url_utils
 ├── douyin_batch/        # Batch module: browser, logger, config, cache, progress, report, retry, tests/
 ├── docs/                # Documentation sources
 ├── docs_site/           # Documentation website (MkDocs)
-├── extension/           # Browser extension assets (used by video2text/web/app.py)
+├── extension/           # Browser extension assets (used by mediascribe/web/app.py)
 ├── examples/            # Usage examples
 ├── scripts/             # Helper scripts
 └── output/              # Transcription working dir (git-ignored)
@@ -152,7 +152,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## 🤖 AI Agent Compatibility
 
-Video2Text is **built first for AI coding agents**. Every file an agent might
+MediaScribe is **built first for AI coding agents**. Every file an agent might
 need, every flag an agent might call, and every command an agent might run is
 designed to be machine-readable and deterministic.
 
@@ -179,7 +179,7 @@ recipes, and an explicit list of "what NOT to do".
 
 ### MCP (Model Context Protocol) server
 
-Expose Video2Text to any MCP-aware agent as native tools:
+Expose MediaScribe to any MCP-aware agent as native tools:
 
 ```bash
 # Install MCP SDK (optional, the stdio server is dependency-free)
@@ -189,9 +189,9 @@ pip install mcp
 # Claude Code / Cursor / Cline:
 {
   "mcpServers": {
-    "video2text": {
+    "mediascribe": {
       "command": "python",
-      "args": ["-m", "video2text.mcp_server"]
+      "args": ["-m", "mediascribe.mcp_server"]
     }
   }
 }
@@ -249,7 +249,7 @@ detect language without parsing the label value:
 
 ```json
 {
-  "schema": "video2text.agent-output/v1",
+  "schema": "mediascribe.agent-output/v1",
   "i18n_lang": "zh",
   "videos": [
     {
@@ -279,12 +279,12 @@ python douyin_batch_v3.py --user <URL> --platform youtube --platform wechat_mp -
 
 Every CLI invocation supports `--json` for agents that prefer to invoke the
 binary directly. Human-readable output is silenced and a single
-`video2text.agent-output/v1` document is emitted to stdout:
+`mediascribe.agent-output/v1` document is emitted to stdout:
 
 ```bash
 python douyin_batch_v3.py --user <URL> --json
 # {
-#   "schema": "video2text.agent-output/v1",
+#   "schema": "mediascribe.agent-output/v1",
 #   "ok": true,
 #   "command": "douyin_batch_v3",
 #   "version": "2.1.0",
@@ -345,7 +345,7 @@ python douyin_batch_v3.py --lang en --user "..."
 python douyin_batch_v3.py --lang zh --user "..."
 ```
 
-You can also set the environment variable `VIDEO2TEXT_LANG=en` (or `zh`).
+You can also set the environment variable `MEDIASCRIBE_LANG=en` (or `zh`).
 
 To add a new language, edit [`douyin_batch/i18n.py`](douyin_batch/i18n.py) — every message is a `{ "en": ..., "zh": ... }` dictionary. Adding `"ja": "..."` and exposing a `"ja"` choice in `douyin_batch_v3.py` is all that's needed.
 
@@ -367,7 +367,7 @@ The library uses `pathlib` everywhere, normalises `~` and env-vars in user paths
 
 ## 中文
 
-**Video2Text** 是一个强大的离线视频转文字工具，可以从多个平台（B站、抖音）下载视频，并使用本地 AI 模型（Whisper、WhisperX、whisper.cpp）进行转录。无需云服务、无需 API 密钥、数据不离开您的设备。
+**MediaScribe** 是一个强大的离线视频转文字工具，可以从多个平台（B站、抖音）下载视频，并使用本地 AI 模型（Whisper、WhisperX、whisper.cpp）进行转录。无需云服务、无需 API 密钥、数据不离开您的设备。
 
 ### ✨ 核心特性
 
@@ -378,7 +378,7 @@ The library uses `pathlib` everywhere, normalises `~` and env-vars in user paths
 - 📝 **Markdown 输出** - 结构化转录文档
 - 🔄 **批量处理** - 批量下载作者全部往期内容
 - 🛡️ **生产就绪** - 日志、错误处理、断点续传
-- 🧠 **ASR 自动学习** - `python -m video2text learn` 从用户校对累积术语库,越用越准
+- 🧠 **ASR 自动学习** - `python -m mediascribe learn` 从用户校对累积术语库,越用越准
 
 ### 🚀 快速开始
 
@@ -386,8 +386,8 @@ The library uses `pathlib` everywhere, normalises `~` and env-vars in user paths
 
 ```bash
 # 克隆仓库
-git clone https://github.com/yourusername/video2text.git
-cd video2text
+git clone https://github.com/yourusername/mediascribe.git
+cd mediascribe
 
 # 安装依赖
 pip install -r requirements.txt
@@ -400,16 +400,16 @@ playwright install chromium
 
 ```bash
 # 从 URL
-python -m video2text transcribe "https://www.bilibili.com/video/BV1Nd596vEyU"
+python -m mediascribe transcribe "https://www.bilibili.com/video/BV1Nd596vEyU"
 
 # 从本地文件
-python -m video2text transcribe "video.mp4" --language zh
+python -m mediascribe transcribe "video.mp4" --language zh
 
 # 指定模型 / 设备（默认 small；中文推荐 large-v3）
-python -m video2text transcribe "video.mp4" --model large-v3 --device cuda
+python -m mediascribe transcribe "video.mp4" --model large-v3 --device cuda
 
 # 全局选项也可前置（等价）
-python -m video2text --model large-v3 transcribe "video.mp4"
+python -m mediascribe --model large-v3 transcribe "video.mp4"
 ```
 
 #### 批量转录（作者往期内容）
@@ -428,19 +428,19 @@ python douyin_batch_v3.py --from-video "https://v.douyin.com/xxxxx/" -n 10
 
 ```bash
 # 推荐：对比编辑前后文本，自动提取语音相似的错误映射
-python -m video2text learn edit --original "ASR原始文本" --corrected "校对后文本"
+python -m mediascribe learn edit --original "ASR原始文本" --corrected "校对后文本"
 
 # 对比参考文本与转录
-python -m video2text learn compare --reference "正确文本" --transcript "ASR文本"
+python -m mediascribe learn compare --reference "正确文本" --transcript "ASR文本"
 
 # 手动管理术语
-python -m video2text learn save    --wrong "错误词" --right "正确词"
-python -m video2text learn list
-python -m video2text learn confirm --wrong "错误词" --right "正确词"
-python -m video2text learn remove  --wrong "错误词" --right "正确词"
-python -m video2text learn export  --output terms.json
-python -m video2text learn import  --input terms.json
-python -m video2text learn clear
+python -m mediascribe learn save    --wrong "错误词" --right "正确词"
+python -m mediascribe learn list
+python -m mediascribe learn confirm --wrong "错误词" --right "正确词"
+python -m mediascribe learn remove  --wrong "错误词" --right "正确词"
+python -m mediascribe learn export  --output terms.json
+python -m mediascribe learn import  --input terms.json
+python -m mediascribe learn clear
 ```
 
 ### 🧪 测试
@@ -478,7 +478,7 @@ python douyin_batch_v3.py --lang en --user "..."
 python douyin_batch_v3.py --lang zh --user "..."
 ```
 
-也可通过环境变量 `VIDEO2TEXT_LANG=en`（或 `zh`）配置。
+也可通过环境变量 `MEDIASCRIBE_LANG=en`（或 `zh`）配置。
 
 如需新增语言，只需编辑 [`douyin_batch/i18n.py`](douyin_batch/i18n.py) —— 每条消息均为 `{ "en": ..., "zh": ... }` 字典，再在 `douyin_batch_v3.py` 中扩展 `--lang` 的可选值即可。
 

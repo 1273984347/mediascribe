@@ -78,11 +78,11 @@ VIDEO_KINDS = URL_KINDS | {"video"}
 # ---------------------------------------------------------------------------
 # v3.2.0x P2-5: 持久化下载缓存接线(默认关闭)
 # ---------------------------------------------------------------------------
-# 环境变量 ``VIDEO2TEXT_DOWNLOAD_CACHE=1`` 启用(读 os.environ,不改
+# 环境变量 ``MEDIASCRIBE_DOWNLOAD_CACHE=1`` 启用(读 os.environ,不改
 # config.py)。启用后 DownloadStage 下载前先按 URL 查
 # :class:`PersistentDownloadCache`,命中直接复用缓存文件,未命中下载
 # 成功后回写缓存 — 同一 URL 跨 run 不再重复下载。
-_DOWNLOAD_CACHE_ENV = "VIDEO2TEXT_DOWNLOAD_CACHE"
+_DOWNLOAD_CACHE_ENV = "MEDIASCRIBE_DOWNLOAD_CACHE"
 
 # 进程级单例(懒创建);测试用 :func:`_reset_download_cache` 重置。
 _download_cache_singleton: Optional[PersistentDownloadCache] = None
@@ -454,7 +454,7 @@ class TranscribeStage(Stage):
     """调 ``transcriber.transcribe`` 完成 ASR。
 
     v3.2.0b: 如果用户未指定 prompt,自动根据来源领域拼接
-    :func:`video2text.post_process.get_prompt_template`。
+    :func:`mediascribe.post_process.get_prompt_template`。
     """
 
     name = "transcribe"

@@ -1,5 +1,5 @@
 """
-Tests for ``video2text.inputs.safe_stem`` contract.
+Tests for ``mediascribe.inputs.safe_stem`` contract.
 
 Verifies that ``safe_stem`` delegates to
 ``douyin_batch.platform_compat.safe_filename`` and inherits the same
@@ -15,10 +15,10 @@ sys.path.insert(0, str(ROOT))
 
 
 class TestSafeStem(unittest.TestCase):
-    """``video2text.inputs.safe_stem`` must reuse safe_filename rules."""
+    """``mediascribe.inputs.safe_stem`` must reuse safe_filename rules."""
 
     def setUp(self):
-        from video2text.inputs import safe_stem
+        from mediascribe.inputs import safe_stem
 
         self.safe_stem = safe_stem
 

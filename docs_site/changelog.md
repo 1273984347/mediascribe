@@ -32,7 +32,7 @@ summary; for the full per-commit history see GitHub.
   WebSocket progress.
 * **v3.2.0b** — `AsyncPipeline` with `asyncio.Semaphore`-capped
   worker pool; `resolve_device()` / `gpu_health()` probes;
-  `VIDEO2TEXT_MAX_WORKERS` env var.
+  `MEDIASCRIBE_MAX_WORKERS` env var.
 * **v3.2.0c** — `@profile_step` decorator, UI GPU pill,
   cancel WebSocket bridge, hidden memory-leak fixes.
 * **v3.2.0d** — LLM post-processing skeleton
@@ -43,7 +43,7 @@ summary; for the full per-commit history see GitHub.
   VRAM-aware concurrency (`_gpu_aware_concurrency` caps
   `max_concurrent` by `free_vram // vram_per_task_mb` on CUDA);
   `_GpuHealthCache` TTL cache (5 s, thread-safe). New env var
-  `VIDEO2TEXT_VRAM_PER_TASK_MB` (default 3000).
+  `MEDIASCRIBE_VRAM_PER_TASK_MB` (default 3000).
 * **v3.2.0f** — Production hardening sweep:
   SSRF protocol blacklist expanded (browser/script schemes:
   `javascript:`, `vbscript:`, `blob:`, `view-source:`, etc.);
@@ -54,9 +54,9 @@ summary; for the full per-commit history see GitHub.
   `cache.py` (tmp name carries PID + UUID8 to avoid concurrent
   collisions, failure-cleanup on exception); FFmpeg audio
   extraction `subprocess.run` now honours
-  `VIDEO2TEXT_FFMPEG_TIMEOUT` (default 600 s, logs on invalid
+  `MEDIASCRIBE_FFMPEG_TIMEOUT` (default 600 s, logs on invalid
   env value); MCP batch transcribe subprocess gains
-  `VIDEO2TEXT_BATCH_TIMEOUT` (default 1800 s) with structured
+  `MEDIASCRIBE_BATCH_TIMEOUT` (default 1800 s) with structured
   `TimeoutExpired` response; new `_atomic_write_text` unit tests
   (success / failure-cleanup / parent-dir / atomic-replace).
 
@@ -67,7 +67,7 @@ summary; for the full per-commit history see GitHub.
   WeChat image articles.
 * `easyocr.Reader` cached module-level (~3 s saved per image).
 * Detector fixes for `/s/abc` and `/s?__biz=` URL shapes.
-* Real-URL E2E suite (opt-in via `VIDEO2TEXT_E2E=1`).
+* Real-URL E2E suite (opt-in via `MEDIASCRIBE_E2E=1`).
 * WhisperX support with auto-fallback to `faster-whisper`
   then `whisper`.
 

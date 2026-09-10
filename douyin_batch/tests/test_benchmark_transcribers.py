@@ -2,7 +2,7 @@
 Unit tests for the transcriber benchmark script.
 
 The benchmark is mostly an I/O / timing wrapper around the
-``video2text.transcribers.factory`` module.  These tests pin
+``mediascribe.transcribers.factory`` module.  These tests pin
 the parts that are easy to break: cost profile integrity, table
 renderer, and the JSON report shape.
 """
@@ -95,7 +95,7 @@ class TestFasterWhisperLRUCache(unittest.TestCase):
     """faster_whisper._MODEL_CACHE 必须是容量 2 的 LRU。"""
 
     def setUp(self):
-        from video2text.transcribers import faster_whisper as fw
+        from mediascribe.transcribers import faster_whisper as fw
         self.fw = fw
         fw.clear_model_cache()
         self.addCleanup(fw.clear_model_cache)
@@ -143,7 +143,7 @@ class TestWhisperXModelCache(unittest.TestCase):
     """whisperx 主模型/对齐模型必须跨转录调用复用，不再每次重载。"""
 
     def test_models_reused_across_calls(self):
-        from video2text.transcribers import whisperx as wx
+        from mediascribe.transcribers import whisperx as wx
         wx.clear_model_cache()
         self.addCleanup(wx.clear_model_cache)
 
@@ -186,7 +186,7 @@ class TestWhisperTorchLoadPatch(unittest.TestCase):
     def test_patch_is_scoped_and_restored(self):
         import torch
 
-        from video2text.transcribers import whisper as wmod
+        from mediascribe.transcribers import whisper as wmod
 
         original = torch.load
         try:
@@ -199,7 +199,7 @@ class TestWhisperTorchLoadPatch(unittest.TestCase):
     def test_weights_only_true_falls_back_to_false(self):
         import torch
 
-        from video2text.transcribers import whisper as wmod
+        from mediascribe.transcribers import whisper as wmod
 
         calls = []
 

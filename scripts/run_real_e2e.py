@@ -1,5 +1,5 @@
 """
-Real end-to-end smoke test runner for Video2Text v3.
+Real end-to-end smoke test runner for MediaScribe v3.
 
 This script is intentionally **opt-in** and **network-dependent**: it
 attempts to download a small public video from each of the 6 supported
@@ -125,7 +125,7 @@ class E2EResult:
 def detect(url: str) -> Optional[str]:
     """Run the platform detector. Returns the kind string or None."""
     try:
-        from video2text.inputs import parse_source
+        from mediascribe.inputs import parse_source
         ref = parse_source(url)
         return ref.kind
     except Exception as exc:  # pragma: no cover - defensive
@@ -139,8 +139,8 @@ def run_pipeline(
     wechat_cookies: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """Run the full Pipeline for one case and return a small report dict."""
-    from video2text.config import Settings
-    from video2text.pipeline import Pipeline
+    from mediascribe.config import Settings
+    from mediascribe.pipeline import Pipeline
 
     settings = Settings(
         workspace_root=workspace,

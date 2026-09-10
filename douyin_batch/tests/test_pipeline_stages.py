@@ -23,12 +23,12 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from video2text.config import Settings
-from video2text.downloaders.base import DownloadResult
-from video2text.inputs import parse_source
-from video2text.models import SourceRef
-from video2text.pipeline import Pipeline, gpu_health, resolve_device
-from video2text.pipeline_stages import (
+from mediascribe.config import Settings
+from mediascribe.downloaders.base import DownloadResult
+from mediascribe.inputs import parse_source
+from mediascribe.models import SourceRef
+from mediascribe.pipeline import Pipeline, gpu_health, resolve_device
+from mediascribe.pipeline_stages import (
     URL_KINDS,
     VIDEO_KINDS,
     AssembleStage,
@@ -41,7 +41,7 @@ from video2text.pipeline_stages import (
     TranscribeStage,
     default_chain,
 )
-from video2text.transcribers import Transcriber  # noqa: F401
+from mediascribe.transcribers import Transcriber  # noqa: F401
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +225,7 @@ class TestExtractAudioStage(unittest.TestCase):
         ctx.video_path = Path("/tmp/v.mp4")
         ctx.base_name = "yt-test"
         with mock.patch(
-            "video2text.pipeline_stages.extract_audio",
+            "mediascribe.pipeline_stages.extract_audio",
             return_value=Path("/tmp/audio/yt-test.wav"),
         ) as ea:
             ctx = s.run(ctx)
@@ -305,7 +305,7 @@ class TestAssembleStage(unittest.TestCase):
         # v3.2.0e+: AssembleStage 改走 _atomic_write_text 而非 Path.write_text,
         # 测试契约相应更新。mock 该 helper 验证落盘调用。
         with mock.patch(
-            "video2text.pipeline_stages._atomic_write_text"
+            "mediascribe.pipeline_stages._atomic_write_text"
         ) as wt:
             ctx = s.run(ctx)
         self.assertIsNotNone(ctx.transcript_path)
@@ -323,7 +323,7 @@ class TestAssembleStage(unittest.TestCase):
         ctx = self._ctx()
         ctx.engine_name = "whisperx"
         with mock.patch(
-            "video2text.pipeline_stages._atomic_write_text"
+            "mediascribe.pipeline_stages._atomic_write_text"
         ):
             ctx = s.run(ctx)
         self.assertEqual(ctx.result.engine, "whisperx")
@@ -486,7 +486,7 @@ class TestCreateTranscriberResolvesDevice(unittest.TestCase):
     def test_faster_whisper_gets_resolved_device(self):
         with mock.patch.dict("sys.modules", {"torch": self._torch_cuda()}), \
              mock.patch(
-                 "video2text.pipeline.FasterWhisperTranscriber"
+                 "mediascribe.pipeline.FasterWhisperTranscriber"
              ) as fwt:
             fwt.return_value = "SENTINEL"
             s = _fake_settings(Path("/tmp"))
@@ -498,7 +498,7 @@ class TestCreateTranscriberResolvesDevice(unittest.TestCase):
 
     def test_whisperx_gets_resolved_device_not_auto(self):
         with mock.patch.dict("sys.modules", {"torch": self._torch_cuda()}), \
-             mock.patch("video2text.pipeline.WhisperXTranscriber") as wx:
+             mock.patch("mediascribe.pipeline.WhisperXTranscriber") as wx:
             wx.return_value = "SENTINEL"
             s = _fake_settings(Path("/tmp"))
             s.engine = "whisperx"
@@ -508,7 +508,7 @@ class TestCreateTranscriberResolvesDevice(unittest.TestCase):
 
     def test_explicit_device_passthrough(self):
         with mock.patch.dict("sys.modules", {"torch": self._torch_cuda()}), \
-             mock.patch("video2text.pipeline.WhisperTranscriber") as wt:
+             mock.patch("mediascribe.pipeline.WhisperTranscriber") as wt:
             wt.return_value = "SENTINEL"
             s = _fake_settings(Path("/tmp"))
             s.device = "cuda:0"
@@ -518,7 +518,7 @@ class TestCreateTranscriberResolvesDevice(unittest.TestCase):
     def test_engine_none_device_resolves(self):
         """device=None 也走归一化(torch 不可用 → cpu)。"""
         with mock.patch.dict("sys.modules", {"torch": None}), \
-             mock.patch("video2text.pipeline.WhisperTranscriber") as wt:
+             mock.patch("mediascribe.pipeline.WhisperTranscriber") as wt:
             wt.return_value = "SENTINEL"
             s = _fake_settings(Path("/tmp"))
             s.device = None
@@ -729,7 +729,7 @@ class TestCancelMechanism(unittest.TestCase):
         ev.set()
         ctx.source = _url_fake_source()  # kind="youtube"
         ctx.video_path = Path("/tmp/v.mp4")
-        with mock.patch("video2text.pipeline_stages.extract_audio") as fake_extract:
+        with mock.patch("mediascribe.pipeline_stages.extract_audio") as fake_extract:
             with self.assertRaises(PipelineCancelled):
                 s.run(ctx)
             fake_extract.assert_not_called()
@@ -765,7 +765,7 @@ class TestAtomicWriteText(unittest.TestCase):
     def test_writes_content_to_target(self):
         import tempfile
 
-        from video2text.pipeline_stages import _atomic_write_text
+        from mediascribe.pipeline_stages import _atomic_write_text
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "out.md"
             _atomic_write_text(p, "hello world", encoding="utf-8")
@@ -774,7 +774,7 @@ class TestAtomicWriteText(unittest.TestCase):
     def test_creates_parent_dir(self):
         import tempfile
 
-        from video2text.pipeline_stages import _atomic_write_text
+        from mediascribe.pipeline_stages import _atomic_write_text
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "deep" / "nested" / "out.md"
             _atomic_write_text(p, "x")
@@ -784,7 +784,7 @@ class TestAtomicWriteText(unittest.TestCase):
     def test_no_tmp_left_after_success(self):
         import tempfile
 
-        from video2text.pipeline_stages import _atomic_write_text
+        from mediascribe.pipeline_stages import _atomic_write_text
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "out.md"
             _atomic_write_text(p, "x")
@@ -795,11 +795,11 @@ class TestAtomicWriteText(unittest.TestCase):
         """写失败 (mock write_text 抛异常) 时 tmp 必须被清理。"""
         import tempfile
 
-        from video2text.pipeline_stages import _atomic_write_text
+        from mediascribe.pipeline_stages import _atomic_write_text
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "out.md"
             # 拦截 os.replace 抛异常模拟"原子替换失败"
-            with mock.patch("video2text.pipeline_stages.os.replace", side_effect=OSError("disk full")):
+            with mock.patch("mediascribe.pipeline_stages.os.replace", side_effect=OSError("disk full")):
                 with self.assertRaises(OSError):
                     _atomic_write_text(p, "x")
             tmp_files = list(Path(d).glob("*.tmp"))
@@ -808,7 +808,7 @@ class TestAtomicWriteText(unittest.TestCase):
     def test_replaces_existing_file_atomically(self):
         import tempfile
 
-        from video2text.pipeline_stages import _atomic_write_text
+        from mediascribe.pipeline_stages import _atomic_write_text
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "out.md"
             p.write_text("OLD", encoding="utf-8")

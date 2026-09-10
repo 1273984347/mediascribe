@@ -17,7 +17,7 @@
    - Edge: 在扩展商店搜索 "Get cookies.txt"
 3. 访问抖音视频网页
 4. 点击扩展图标 → 点击 "Export" → 下载 `cookies.txt`
-5. 将 `cookies.txt` 放到项目目录 `d:\1\video2text\`
+5. 将 `cookies.txt` 放到项目目录 `d:\1\mediascribe\`
 6. 再次运行转录
 
 ## 支持的平台
@@ -32,8 +32,8 @@
 ## 使用示例
 ```bash
 # Bilibili (推荐，无需 cookies)
-python -m video2text --language zh transcribe "https://www.bilibili.com/video/BVxxxxxx"
+python -m mediascribe --language zh transcribe "https://www.bilibili.com/video/BVxxxxxx"
 
 # 抖音 (需 cookies.txt)
-python -m video2text --language zh transcribe "https://v.douyin.com/xxxxxx"
+python -m mediascribe --language zh transcribe "https://v.douyin.com/xxxxxx"
 ```

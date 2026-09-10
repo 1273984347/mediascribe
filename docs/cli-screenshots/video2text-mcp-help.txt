@@ -1,7 +1,7 @@
 usage: mcp_server.py [-h] [--transport {stdio,http}] [--host HOST]
                      [--port PORT]
 
-Video2Text MCP server — expose transcription as MCP tools
+MediaScribe MCP server — expose transcription as MCP tools
 
 options:
   -h, --help            show this help message and exit

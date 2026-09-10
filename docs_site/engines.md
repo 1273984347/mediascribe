@@ -1,6 +1,6 @@
 # Engines
 
-Video2Text supports three ASR engines, with automatic fallback.
+MediaScribe supports three ASR engines, with automatic fallback.
 
 | Engine | Throughput | Accuracy | Installation |
 |--------|------------|----------|--------------|
@@ -8,7 +8,7 @@ Video2Text supports three ASR engines, with automatic fallback.
 | `faster-whisper` | ~3.5x | good | `pip install faster-whisper` |
 | `whisperx` | ~5x | best, with alignment | `pip install whisperx` |
 
-The factory in `video2text/transcribers/factory.py` walks the
+The factory in `mediascribe/transcribers/factory.py` walks the
 fallback chain (`whisperx → faster-whisper → whisper` by default)
 and instantiates the first one that is installed.
 
@@ -38,7 +38,7 @@ the configured `base` (CPU / metal / unknown VRAM).
 
 | Per-task VRAM budget | Source |
 |---------------------|--------|
-| `VIDEO2TEXT_VRAM_PER_TASK_MB` env var | explicit override |
+| `MEDIASCRIBE_VRAM_PER_TASK_MB` env var | explicit override |
 | Default 3000 MB | large-v3 ~5GB / medium ~5GB / small ~2GB → conservative |
 
 GPU health is probed via `gpu_health()` and cached in `_GpuHealthCache`
@@ -52,8 +52,8 @@ blocking the host process indefinitely:
 
 | Subprocess | Env var | Default | Behaviour on timeout |
 |------------|---------|---------|----------------------|
-| FFmpeg audio extraction (`audio_utils.extract_audio`) | `VIDEO2TEXT_FFMPEG_TIMEOUT` | 600 s | raises `subprocess.TimeoutExpired` |
-| MCP batch transcribe (`mcp_server._tool_batch_transcribe_creator`) | `VIDEO2TEXT_BATCH_TIMEOUT` | 1800 s | returns `{ok: false, error: "batch transcribe timed out ..."}` |
+| FFmpeg audio extraction (`audio_utils.extract_audio`) | `MEDIASCRIBE_FFMPEG_TIMEOUT` | 600 s | raises `subprocess.TimeoutExpired` |
+| MCP batch transcribe (`mcp_server._tool_batch_transcribe_creator`) | `MEDIASCRIBE_BATCH_TIMEOUT` | 1800 s | returns `{ok: false, error: "batch transcribe timed out ..."}` |
 
 Invalid env values fall back to the default and emit a `WARNING` log
 line so misconfiguration is observable.

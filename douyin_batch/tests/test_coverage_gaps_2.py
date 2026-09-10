@@ -3,16 +3,16 @@ Second coverage pass — push the lower-impact modules to 90 %+.
 
 Targets (pre-fill coverage shown in parens):
 
-* video2text.models (91 %)
-* video2text.config (95 %)
-* video2text.observability (79 %)
-* video2text.transcribers.factory (91 %)
-* video2text.transcribers.chunked (77 %)
-* video2text.downloaders.base (90 %)
-* video2text.downloaders.youtube (73 %)
-* video2text.downloaders.ytdlp (52 %)
-* video2text.__main__ (56 %)
-* video2text.plugins.registry (79 %)
+* mediascribe.models (91 %)
+* mediascribe.config (95 %)
+* mediascribe.observability (79 %)
+* mediascribe.transcribers.factory (91 %)
+* mediascribe.transcribers.chunked (77 %)
+* mediascribe.downloaders.base (90 %)
+* mediascribe.downloaders.youtube (73 %)
+* mediascribe.downloaders.ytdlp (52 %)
+* mediascribe.__main__ (56 %)
+* mediascribe.plugins.registry (79 %)
 * douyin_batch.i18n (92 %)
 * douyin_batch.logger (75 %)
 * douyin_batch.platform_compat (64 %)
@@ -29,20 +29,20 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
-# video2text.models
+# mediascribe.models
 # ---------------------------------------------------------------------------
 class TestModels:
     """Pure dataclass helpers — no external deps."""
 
     def test_source_ref_display_name_bilibili(self):
-        from video2text.models import SourceRef
+        from mediascribe.models import SourceRef
 
         s = SourceRef(raw_input="x", kind="bilibili", bv="BV1abc")
         assert s.display_name == "BV1abc"
         assert s.is_known_kind is True
 
     def test_source_ref_display_name_fallbacks(self):
-        from video2text.models import SourceRef
+        from mediascribe.models import SourceRef
 
         s = SourceRef(raw_input="raw", kind="video", path=Path("/tmp/a.mp4"))
         assert s.display_name == "a.mp4"
@@ -52,7 +52,7 @@ class TestModels:
         assert s3.display_name == "the raw text"
 
     def test_source_ref_unknown_kind(self):
-        from video2text.models import KNOWN_SOURCE_KINDS, SourceRef
+        from mediascribe.models import KNOWN_SOURCE_KINDS, SourceRef
 
         s = SourceRef(raw_input="x", kind="something-new")
         assert s.is_known_kind is False
@@ -61,7 +61,7 @@ class TestModels:
         assert "wechat_mp" in KNOWN_SOURCE_KINDS
 
     def test_transcript_result_defaults(self):
-        from video2text.models import SourceRef, TranscriptResult
+        from mediascribe.models import SourceRef, TranscriptResult
 
         t = TranscriptResult(
             source=SourceRef(raw_input="x", kind="video"),
@@ -81,13 +81,13 @@ class TestModels:
 
 
 # ---------------------------------------------------------------------------
-# video2text.config
+# mediascribe.config
 # ---------------------------------------------------------------------------
 class TestConfig:
     """Hit the few remaining defaults that aren't covered."""
 
     def test_settings_ensure_directories(self, tmp_path):
-        from video2text.config import Settings
+        from mediascribe.config import Settings
 
         s = Settings(workspace_root=tmp_path / "ws")
         s.ensure_directories()
@@ -102,13 +102,13 @@ class TestConfig:
             assert d.exists() and d.is_dir()
 
     def test_settings_load_cookie_json(self, tmp_path):
-        from video2text.config import _parse_cookie_string
+        from mediascribe.config import _parse_cookie_string
 
         d = _parse_cookie_string('{"sid": "abc", "token": "xyz"}')
         assert d["sid"] == "abc" and d["token"] == "xyz"
 
     def test_settings_load_cookie_netscape(self, tmp_path):
-        from video2text.config import _parse_cookie_string
+        from mediascribe.config import _parse_cookie_string
 
         # Netscape format: 7 space-separated fields, last two are
         # name and value.
@@ -117,7 +117,7 @@ class TestConfig:
         assert d.get("sid") == "abc"
 
     def test_settings_load_cookie_file(self, tmp_path):
-        from video2text.config import _load_cookie_file
+        from mediascribe.config import _load_cookie_file
 
         f = tmp_path / "cookies.txt"
         f.write_text('{"k1": "v1", "k2": "v2"}', encoding="utf-8")
@@ -128,7 +128,7 @@ class TestConfig:
 
 
 # ---------------------------------------------------------------------------
-# video2text.observability — the OTel upgrade path is tested in
+# mediascribe.observability — the OTel upgrade path is tested in
 # test_observability.py::TestOptionalOtelUpgrade; we don't repeat it
 # here because swapping _TRACER / _METER globally would break every
 # subsequent test in the file that exercises the in-memory SDK.
@@ -137,18 +137,18 @@ class TestObservabilityExtras2:
     """Cover just the bits that don't replace the global tracer."""
 
     def test_install_opentelemetry_exporter_unavailable(self):
-        from video2text import observability
+        from mediascribe import observability
 
         with mock.patch.object(observability, "_REAL_OTEL_AVAILABLE", False):
             assert observability.install_opentelemetry_exporter() is False
 
 
 # ---------------------------------------------------------------------------
-# video2text.transcribers.factory / chunked
+# mediascribe.transcribers.factory / chunked
 # ---------------------------------------------------------------------------
 class TestFactoryAndChunked:
     def test_factory_creates_known_engines(self):
-        from video2text.transcribers.factory import get_transcriber
+        from mediascribe.transcribers.factory import get_transcriber
 
         # The default is whisperx.  We just assert the factory returns
         # a non-None instance and that the requested model is honoured.
@@ -157,13 +157,13 @@ class TestFactoryAndChunked:
         assert t.model_name == "tiny"
 
     def test_factory_unknown_engine_raises(self):
-        from video2text.transcribers.factory import get_transcriber
+        from mediascribe.transcribers.factory import get_transcriber
 
         with pytest.raises(ValueError):
             get_transcriber(name="definitely-not-an-engine", model="tiny")
 
     def test_factory_fallback_chain(self):
-        from video2text.transcribers.factory import (
+        from mediascribe.transcribers.factory import (
             DEFAULT_FALLBACK_CHAIN,
             get_transcriber_with_fallback,
         )
@@ -174,7 +174,7 @@ class TestFactoryAndChunked:
         assert t is not None
 
     def test_chunked_probe_duration_unsupported_path_raises(self, tmp_path):
-        from video2text.transcribers.chunked import probe_duration
+        from mediascribe.transcribers.chunked import probe_duration
 
         # ``probe_duration`` falls back to ffprobe for non-WAV inputs.
         # We don't have ffprobe in the test env, so the function must
@@ -187,24 +187,24 @@ class TestFactoryAndChunked:
 
 
 # ---------------------------------------------------------------------------
-# video2text.downloaders.base
+# mediascribe.downloaders.base
 # ---------------------------------------------------------------------------
 class TestDownloaderBase:
     def test_base_abstract_cannot_be_instantiated(self):
-        from video2text.downloaders.base import Downloader
+        from mediascribe.downloaders.base import Downloader
 
         with pytest.raises(TypeError):
             Downloader()  # abstract: must override ``download``.
 
 
 # ---------------------------------------------------------------------------
-# video2text.downloaders.youtube (uses yt-dlp but the constructor and
+# mediascribe.downloaders.youtube (uses yt-dlp but the constructor and
 # URL detection are pure)
 # ---------------------------------------------------------------------------
 class TestYoutubeDownloader:
     def test_supports_returns_bool(self):
-        from video2text.downloaders.youtube import YouTubeDownloader
-        from video2text.models import SourceRef
+        from mediascribe.downloaders.youtube import YouTubeDownloader
+        from mediascribe.models import SourceRef
 
         d = YouTubeDownloader()
         # supports() takes a SourceRef.  YouTube URLs should be True.
@@ -216,11 +216,11 @@ class TestYoutubeDownloader:
 
 
 # ---------------------------------------------------------------------------
-# video2text.downloaders.ytdlp — pure helpers
+# mediascribe.downloaders.ytdlp — pure helpers
 # ---------------------------------------------------------------------------
 class TestYtdlpDownloader:
     def test_name_attribute(self):
-        from video2text.downloaders.ytdlp import YtDlpDownloader
+        from mediascribe.downloaders.ytdlp import YtDlpDownloader
 
         d = YtDlpDownloader()
         assert d.name == "yt-dlp"
@@ -229,13 +229,13 @@ class TestYtdlpDownloader:
 
 
 # ---------------------------------------------------------------------------
-# video2text.__main__
+# mediascribe.__main__
 # ---------------------------------------------------------------------------
 class TestMain:
     def test_main_module_help(self, capsys):
-        from video2text.__main__ import main
+        from mediascribe.__main__ import main
 
-        with mock.patch.object(sys, "argv", ["video2text", "--help"]):
+        with mock.patch.object(sys, "argv", ["mediascribe", "--help"]):
             with pytest.raises(SystemExit) as excinfo:
                 main()
         assert excinfo.value.code == 0
@@ -245,12 +245,12 @@ class TestMain:
 
 
 # ---------------------------------------------------------------------------
-# video2text.plugins.registry
+# mediascribe.plugins.registry
 # ---------------------------------------------------------------------------
 class TestPluginRegistry:
     def test_list_downloaders_and_get(self):
-        from video2text.downloaders.base import Downloader
-        from video2text.plugins import registry as reg
+        from mediascribe.downloaders.base import Downloader
+        from mediascribe.plugins import registry as reg
 
         names = reg.list_downloaders()
         assert isinstance(names, list)
@@ -263,8 +263,8 @@ class TestPluginRegistry:
             assert klass is None or issubclass(klass, Downloader)
 
     def test_list_transcribers_and_get(self):
-        from video2text.plugins import registry as reg
-        from video2text.transcribers.base import Transcriber
+        from mediascribe.plugins import registry as reg
+        from mediascribe.transcribers.base import Transcriber
 
         names = reg.list_transcribers()
         assert isinstance(names, list)
@@ -275,7 +275,7 @@ class TestPluginRegistry:
             )
 
     def test_clear_cache(self):
-        from video2text.plugins import registry as reg
+        from mediascribe.plugins import registry as reg
 
         # Should not raise.
         reg.clear_cache()
@@ -296,7 +296,7 @@ class TestI18nExtras:
         from douyin_batch.i18n import set_language, t
 
         set_language("zh")
-        assert t("HEADER_TITLE") == "Video2Text - 批量转录"
+        assert t("HEADER_TITLE") == "MediaScribe - 批量转录"
 
     def test_messages_format_kwargs(self):
         from douyin_batch.i18n import set_language, t

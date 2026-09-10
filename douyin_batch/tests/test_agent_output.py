@@ -38,7 +38,7 @@ class TestAgentOutput(unittest.TestCase):
     def test_01_schema_version(self):
         d = self.out.to_dict()
         self.assertEqual(d["schema"], SCHEMA_VERSION)
-        self.assertTrue(d["schema"].startswith("video2text.agent-output/"))
+        self.assertTrue(d["schema"].startswith("mediascribe.agent-output/"))
         self.assertIn("v1", SCHEMA_VERSION, "schema must be stable v1")
 
     def test_02_required_fields(self):
@@ -145,7 +145,7 @@ class TestAgentOutput(unittest.TestCase):
 
     def test_14_schema_version_is_stable_v1(self):
         """Schema must be stable v1 for AI agent compatibility."""
-        self.assertEqual(SCHEMA_VERSION, "video2text.agent-output/v1")
+        self.assertEqual(SCHEMA_VERSION, "mediascribe.agent-output/v1")
 
 
 if __name__ == "__main__":

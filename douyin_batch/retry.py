@@ -55,7 +55,7 @@ def download_media_with_retry(
 ) -> bool:
     """带重试的下载。
 
-    P1-14 收敛：内部委托核心 ``video2text.downloaders.douyin.DouyinDownloader``
+    P1-14 收敛：内部委托核心 ``mediascribe.downloaders.douyin.DouyinDownloader``
     的媒体下载路径（流式下载 + 带 ``HTTPAdapter`` 重试的 session + 失败清理），
     消除与核心包重复的实现。
 
@@ -67,8 +67,8 @@ def download_media_with_retry(
     output_path = Path(output_path)
 
     def _do_download():
-        # 延迟导入核心下载器，避免模块导入期强依赖 video2text。
-        from video2text.downloaders.douyin import DouyinDownloader
+        # 延迟导入核心下载器，避免模块导入期强依赖 mediascribe。
+        from mediascribe.downloaders.douyin import DouyinDownloader
 
         downloader = DouyinDownloader()
         suffix = output_path.suffix or ".mp4"

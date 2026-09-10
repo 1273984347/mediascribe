@@ -1,5 +1,5 @@
 """
-Video2Text 命令行工具
+MediaScribe 命令行工具
 真正深度整合了：
 - yt-dlp（视频下载）
 - bili2text（工作流设计）
@@ -61,7 +61,7 @@ _common_transcribe_opts.add_argument(
 def _run_legacy(argv: Optional[List[str]]) -> int:
     """Original v3.1.0 CLI — ``transcribe`` / ``batch`` subcommands."""
     parser = argparse.ArgumentParser(
-        description="🎬 Video2Text - 视频转文字工具（深度整合版）",
+        description="🎬 MediaScribe - 视频转文字工具（深度整合版）",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[_common_transcribe_opts],
         epilog="""
@@ -73,17 +73,17 @@ def _run_legacy(argv: Optional[List[str]]) -> int:
 
 🚀 使用示例：
   # 基本使用（Whisper）
-  python -m video2text transcribe video.mp4
-  python -m video2text transcribe https://www.bilibili.com/video/BV...
+  python -m mediascribe transcribe video.mp4
+  python -m mediascribe transcribe https://www.bilibili.com/video/BV...
 
   # 使用 WhisperX + 说话人分离
-  python -m video2text transcribe video.mp4 --engine whisperx --diarization --hf-token YOUR_TOKEN
+  python -m mediascribe transcribe video.mp4 --engine whisperx --diarization --hf-token YOUR_TOKEN
 
   # 使用 faster-whisper（更快）
-  python -m video2text transcribe video.mp4 --engine faster-whisper
+  python -m mediascribe transcribe video.mp4 --engine faster-whisper
 
   # 批量处理
-  python -m video2text batch video1.mp4 video2.mp4 https://...
+  python -m mediascribe batch video1.mp4 video2.mp4 https://...
         """,
     )
 
@@ -285,8 +285,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not argv or argv[0] in ("-h", "--help"):
         if not argv:
             parser = argparse.ArgumentParser(
-                prog="python -m video2text",
-                description="🎬 Video2Text — video/audio to text pipeline",
+                prog="python -m mediascribe",
+                description="🎬 MediaScribe — video/audio to text pipeline",
             )
             sub = parser.add_subparsers(dest="command")
             sub.add_parser("transcribe", aliases=["t"], help="转录单个视频/音频")
@@ -301,16 +301,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(__doc__)
         return 0
     if argv[0] not in ("transcribe", "t", "batch") and not argv[0].startswith("-"):
-        print(f"video2text: unknown command {argv[0]!r}", file=sys.stderr)
-        print("Try 'python -m video2text help'", file=sys.stderr)
+        print(f"mediascribe: unknown command {argv[0]!r}", file=sys.stderr)
+        print("Try 'python -m mediascribe help'", file=sys.stderr)
         return 1
     return _run_legacy(argv)
 
 
 def _run_learn(argv: List[str]) -> int:
-    """``python -m video2text learn`` — ASR 术语自动学习。"""
+    """``python -m mediascribe learn`` — ASR 术语自动学习。"""
     parser = argparse.ArgumentParser(
-        prog="python -m video2text learn",
+        prog="python -m mediascribe learn",
         description="ASR 术语自动学习 — 对比正确文本与转录,累积术语映射",
     )
     sub = parser.add_subparsers(dest="action", required=True)

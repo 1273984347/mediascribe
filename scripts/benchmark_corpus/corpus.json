@@ -1,5 +1,5 @@
 {
-  "schema_version": "video2text-benchmark-corpus/v1",
+  "schema_version": "mediascribe-benchmark-corpus/v1",
   "description": "v3.2.0b 复现 benchmark 用的 1-hour 固定 corpus。4 个 16 kHz mono WAV,3 种语言,总时长 60 min。",
   "language_codes": {
     "zh": "Mandarin (普通话)",

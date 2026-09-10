@@ -26,17 +26,17 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "video2text" / "web"))
+sys.path.insert(0, str(ROOT / "mediascribe" / "web"))
 
 
 def setUpModule():
     # P1-2 SSRF 校验会让提交入口做 DNS 解析; 把 example.com 加入
-    # VIDEO2TEXT_ALLOWED_HOSTS 白名单, 让测试离线、确定性。
-    os.environ["VIDEO2TEXT_ALLOWED_HOSTS"] = "example.com"
+    # MEDIASCRIBE_ALLOWED_HOSTS 白名单, 让测试离线、确定性。
+    os.environ["MEDIASCRIBE_ALLOWED_HOSTS"] = "example.com"
 
 
 def tearDownModule():
-    os.environ.pop("VIDEO2TEXT_ALLOWED_HOSTS", None)
+    os.environ.pop("MEDIASCRIBE_ALLOWED_HOSTS", None)
 
 
 def _fastapi_or_skip():
@@ -82,7 +82,7 @@ class TestCachedGpuHealth(unittest.TestCase):
             calls["n"] += 1
             return {"available": True, "device": "cuda", "name": "fake"}
 
-        with mock.patch("video2text.pipeline.gpu_health", side_effect=fake_gpu_health):
+        with mock.patch("mediascribe.pipeline.gpu_health", side_effect=fake_gpu_health):
             r1 = self.app._cached_gpu_health(ttl_seconds=10.0)
             r2 = self.app._cached_gpu_health(ttl_seconds=10.0)
         self.assertEqual(calls["n"], 1, "second call must hit cache")
@@ -96,7 +96,7 @@ class TestCachedGpuHealth(unittest.TestCase):
             calls["n"] += 1
             return {"available": False, "device": "cpu", "name": None}
 
-        with mock.patch("video2text.pipeline.gpu_health", side_effect=fake_gpu_health):
+        with mock.patch("mediascribe.pipeline.gpu_health", side_effect=fake_gpu_health):
             self.app._cached_gpu_health(ttl_seconds=0.0)
             # Force expiry by setting TTL to 0 and calling again.
             r2 = self.app._cached_gpu_health(ttl_seconds=0.0)
@@ -104,7 +104,7 @@ class TestCachedGpuHealth(unittest.TestCase):
         self.assertFalse(r2["available"])
 
     def test_reset_hook(self):
-        with mock.patch("video2text.pipeline.gpu_health", return_value={"available": True}):
+        with mock.patch("mediascribe.pipeline.gpu_health", return_value={"available": True}):
             self.app._cached_gpu_health(ttl_seconds=10.0)
             self.app._reset_gpu_health_cache()
             # After reset, internal cache value should be None.
@@ -120,7 +120,7 @@ class TestCachedGpuHealth(unittest.TestCase):
             time.sleep(0.05)  # slow probe
             return {"available": True}
 
-        with mock.patch("video2text.pipeline.gpu_health", side_effect=fake_gpu_health):
+        with mock.patch("mediascribe.pipeline.gpu_health", side_effect=fake_gpu_health):
             results = []
             threads = []
             for _ in range(8):
@@ -611,7 +611,7 @@ class TestRunJobSafelyPurgeCheck(unittest.TestCase):
         """If the job is purged between runner() finish and write, skip."""
         import app as app_module
 
-        from video2text.progress import ProgressRegistry
+        from mediascribe.progress import ProgressRegistry
 
         registry = ProgressRegistry()
         job = registry.create("https://example.com/x")
@@ -640,7 +640,7 @@ class TestRunJobSafelyPurgeCheck(unittest.TestCase):
         """Regression: when job is still in registry, write happens normally."""
         import app as app_module
 
-        from video2text.progress import ProgressRegistry
+        from mediascribe.progress import ProgressRegistry
 
         registry = ProgressRegistry()
         job = registry.create("https://example.com/x")

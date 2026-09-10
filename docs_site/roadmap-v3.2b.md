@@ -1,4 +1,4 @@
-# Video2Text v3.2.0b — Planning Draft
+# MediaScribe v3.2.0b — Planning Draft
 
 > Status: **draft for community review**.  Last updated 2026-06-06.
 >
@@ -45,7 +45,7 @@ Three concrete pain points motivate v3.2.0b:
   bounded `asyncio.Queue`.
 * Worker pool size auto-detected from `os.cpu_count()` /
   `torch.cuda.device_count()` and clamped by the new
-  `VIDEO2TEXT_MAX_WORKERS` env var (default 2).
+  `MEDIASCRIBE_MAX_WORKERS` env var (default 2).
 * Each chunk carries an explicit `asyncio.Future[bytes]` so the
   transcriber can `await` it without polling.
 * `asyncio.to_thread` wraps the blocking ffmpeg / `WhisperModel`
@@ -91,10 +91,10 @@ Tests: device resolution table, `cuda` requested but missing →
 **Effort** M · **Impact** High (decides v3.3 default)
 
 * Ship a fixed 1-hour corpus under
-  [`scripts/benchmark_corpus/`](file:///d:/1/video2text/scripts/benchmark_corpus/)
+  [`scripts/benchmark_corpus/`](file:///d:/1/mediascribe/scripts/benchmark_corpus/)
   with 4 audio-only WAV files (5 min / 15 min / 30 min / 60 min),
   16 kHz mono, in 3 languages (Mandarin / English / mixed).
-* New [`scripts/benchmark_transcribers.py`](file:///d:/1/video2text/scripts/benchmark_transcribers.py)
+* New [`scripts/benchmark_transcribers.py`](file:///d:/1/mediascribe/scripts/benchmark_transcribers.py)
   CLI:
   ```bash
   python -m scripts.benchmark_transcribers \
@@ -163,8 +163,8 @@ data so the CI does not need a GPU.
 
 ```text
 612 → ~680 passed (≈ +70 new tests for async pipeline + GPU + bench)
-coverage: video2text/pipeline.py ≥ 90 %, video2text/performance.py ≥ 90 %
-ruff: 0 errors, mypy --strict on video2text/{pipeline,performance}.py: 0 errors
+coverage: mediascribe/pipeline.py ≥ 90 %, mediascribe/performance.py ≥ 90 %
+ruff: 0 errors, mypy --strict on mediascribe/{pipeline,performance}.py: 0 errors
 bench JSON schema is stable across the v3.2.0b → v3.3 cycle
 ```
 

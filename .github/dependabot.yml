@@ -1,4 +1,4 @@
-# Dependabot configuration for Video2Text
+# Dependabot configuration for MediaScribe
 #
 # Keeps the project's runtime + dev dependencies up-to-date by opening
 # weekly PRs against `main`.  The PRs trigger the existing ``test.yml``

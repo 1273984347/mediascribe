@@ -240,7 +240,7 @@ class TestURLParsing(unittest.TestCase):
 
     def test_bv_extraction(self):
         sys.path.insert(0, ".")
-        from video2text.url_utils import extract_bvid
+        from mediascribe.url_utils import extract_bvid
 
         self.assertEqual(
             extract_bvid("https://www.bilibili.com/video/BV1Nd596vEyU"),
@@ -254,7 +254,7 @@ class TestURLParsing(unittest.TestCase):
         self.assertIsNone(extract_bvid("invalid url"))
 
     def test_short_url_detection(self):
-        from video2text.url_utils import is_short_url
+        from mediascribe.url_utils import is_short_url
 
         self.assertTrue(is_short_url("https://b23.tv/xxxxx"))
         self.assertTrue(is_short_url("https://v.douyin.com/xxxxx/"))

@@ -1,9 +1,9 @@
-# Video2Text Web UI — one-click image.
+# MediaScribe Web UI — one-click image.
 # Multi-stage build to keep the runtime image small.
 # The image only ships the Web UI (no Whisper weights) so it can
 # be run on a CPU-only host or a GPU host with `--gpus all`.
 
-# ----- builder: install video2text with [web,ocr] extras -----
+# ----- builder: install mediascribe with [web,ocr] extras -----
 FROM python:3.11-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -18,12 +18,12 @@ RUN apt-get update && \
 
 WORKDIR /app
 COPY pyproject.toml README.md LICENSE ./
-COPY video2text ./video2text
+COPY mediascribe ./mediascribe
 COPY scripts ./scripts
 # douyin_batch/ + douyin_batch_v3.py are declared in pyproject.toml
 # ([tool.setuptools] packages / py-modules); without them setuptools
 # fails with "package directory 'douyin_batch' does not exist" and the
-# ``video2text-batch`` entry point would be broken.
+# ``mediascribe-batch`` entry point would be broken.
 COPY douyin_batch ./douyin_batch
 COPY douyin_batch_v3.py ./
 # --no-cache-dir keeps the build context small; PIP_NO_CACHE_DIR=1 above
@@ -43,21 +43,21 @@ RUN apt-get update && \
 
 COPY --from=builder /install /usr/local
 
-# Create a non-root user (``video2text``, uid 1000) and own both the
+# Create a non-root user (``mediascribe``, uid 1000) and own both the
 # application directory and the workspace.  Running as root inside a
 # container is convenient but a real-world attacker surface: any
 # container-escape vulnerability is amplified if the exploit lands
 # with uid 0.
-RUN groupadd --system --gid 1000 video2text && \
-    useradd  --system --uid 1000 --gid video2text \
+RUN groupadd --system --gid 1000 mediascribe && \
+    useradd  --system --uid 1000 --gid mediascribe \
              --home-dir /workspace --shell /usr/sbin/nologin \
-             --comment "video2text service account" video2text && \
+             --comment "mediascribe service account" mediascribe && \
     mkdir -p /workspace && \
-    chown -R video2text:video2text /workspace /app
+    chown -R mediascribe:mediascribe /workspace /app
 WORKDIR /app
-ENV VIDEO2TEXT_WORKSPACE=/workspace
+ENV MEDIASCRIBE_WORKSPACE=/workspace
 
-USER video2text
+USER mediascribe
 EXPOSE 8000
 
 # HEALTHCHECK lives inside the image (in addition to any docker-compose
@@ -67,4 +67,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl --silent --fail --max-time 4 http://127.0.0.1:8000/api/health || exit 1
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["python", "-m", "video2text.web.app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "mediascribe.web.app", "--host", "0.0.0.0", "--port", "8000"]

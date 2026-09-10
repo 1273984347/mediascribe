@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from video2text import Pipeline, Settings
+from mediascribe import Pipeline, Settings
 
 # 从输入中提取链接
 raw_input = "7.97 复制打开抖音，看看【无中生有头哥的作品】一人公司 | AI设计团队 头哥的AI硅基团队，完... https://v.douyin.com/0ZfD-oGOfow/ :0pm daA:/ 08/10 D@U.lP"

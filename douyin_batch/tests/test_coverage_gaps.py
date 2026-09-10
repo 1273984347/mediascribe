@@ -4,13 +4,13 @@ several modules so the per-file coverage moves toward 90 %+.
 
 Targets (pre-fill coverage shown in parens):
 
-* video2text.url_utils (45 %)
-* video2text.inputs (73 %)
-* video2text.audio_utils (30 %)
-* video2text.transcribers.chunked (73 %)
-* video2text.performance (94 %)
-* video2text.observability (77 %)
-* video2text.web.app (84 %)
+* mediascribe.url_utils (45 %)
+* mediascribe.inputs (73 %)
+* mediascribe.audio_utils (30 %)
+* mediascribe.transcribers.chunked (73 %)
+* mediascribe.performance (94 %)
+* mediascribe.observability (77 %)
+* mediascribe.web.app (84 %)
 * douyin_batch.cache (84 %)
 * douyin_batch.retry (51 %)
 * douyin_batch.security (67 %)
@@ -33,13 +33,13 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
-# 1. video2text.url_utils
+# 1. mediascribe.url_utils
 # ---------------------------------------------------------------------------
 class TestUrlUtils:
     """Pure-function URL helpers — no network involved."""
 
     def test_extract_bvid_from_full_url(self):
-        from video2text.url_utils import extract_bvid
+        from mediascribe.url_utils import extract_bvid
 
         assert extract_bvid("https://www.bilibili.com/video/BV1Nd596vEyU") == "BV1Nd596vEyU"
         assert extract_bvid("https://www.bilibili.com/video/BV1Nd596vEyU?p=1&t=42") == "BV1Nd596vEyU"
@@ -48,7 +48,7 @@ class TestUrlUtils:
         assert extract_bvid("") is None
 
     def test_is_short_url_known_domains(self):
-        from video2text.url_utils import is_short_url
+        from mediascribe.url_utils import is_short_url
 
         assert is_short_url("https://b23.tv/xxxxx") is True
         assert is_short_url("https://v.douyin.com/abc/") is True
@@ -63,7 +63,7 @@ class TestUrlUtils:
         assert is_short_url("https://example.com") is False
 
     def test_resolve_short_url_non_short_passthrough(self):
-        from video2text.url_utils import resolve_short_url
+        from mediascribe.url_utils import resolve_short_url
 
         # Non-short URL should be returned as-is (with https:// prefix
         # prepended if needed).
@@ -73,7 +73,7 @@ class TestUrlUtils:
         assert resolve_short_url("www.example.com/path") == "https://www.example.com/path"
 
     def test_resolve_short_url_failure_returns_none(self):
-        from video2text import url_utils
+        from mediascribe import url_utils
 
         with mock.patch.object(url_utils.urllib.request, "urlopen",
                                side_effect=Exception("boom")):
@@ -82,7 +82,7 @@ class TestUrlUtils:
     def test_resolve_short_url_http_error_403_retries_with_get(self):
         import urllib.error
 
-        from video2text import url_utils
+        from mediascribe import url_utils
 
         call_count = {"n": 0}
 
@@ -100,7 +100,7 @@ class TestUrlUtils:
         assert call_count["n"] == 2
 
     def test_normalize_bilibili_url_no_bvid(self):
-        from video2text.url_utils import normalize_bilibili_url
+        from mediascribe.url_utils import normalize_bilibili_url
 
         # When there's no BV id, the resolver returns the URL unchanged.
         url, bvid = normalize_bilibili_url("https://example.com/no-bv")
@@ -109,7 +109,7 @@ class TestUrlUtils:
         assert url == "https://example.com/no-bv"
 
     def test_normalize_url_bilibili_path(self):
-        from video2text import url_utils
+        from mediascribe import url_utils
 
         with mock.patch.object(url_utils, "resolve_short_url",
                                side_effect=lambda u: u):
@@ -120,13 +120,13 @@ class TestUrlUtils:
 
 
 # ---------------------------------------------------------------------------
-# 2. video2text.inputs
+# 2. mediascribe.inputs
 # ---------------------------------------------------------------------------
 class TestInputs:
     """Test the small file-extension and stem sanitisation helpers."""
 
     def test_is_audio_file_recognised_extensions(self):
-        from video2text.inputs import is_audio_file
+        from mediascribe.inputs import is_audio_file
 
         for ext in (".mp3", ".wav", ".m4a", ".flac", ".aac", ".ogg"):
             assert is_audio_file(Path(f"x{ext}")) is True
@@ -137,7 +137,7 @@ class TestInputs:
         assert is_audio_file(Path("noext")) is False
 
     def test_is_video_file_recognised_extensions(self):
-        from video2text.inputs import is_video_file
+        from mediascribe.inputs import is_video_file
 
         for ext in (".mp4", ".mkv", ".avi", ".mov", ".flv", ".webm", ".m4v"):
             assert is_video_file(Path(f"x{ext}")) is True
@@ -146,7 +146,7 @@ class TestInputs:
         assert is_video_file(Path("noext")) is False
 
     def test_safe_stem_windows_reserved(self):
-        from video2text.inputs import safe_stem
+        from mediascribe.inputs import safe_stem
 
         # The shared platform_compat helper turns Windows reserved names
         # into ``_NAME`` so they can be created cross-platform.
@@ -157,13 +157,13 @@ class TestInputs:
 
 
 # ---------------------------------------------------------------------------
-# 3. video2text.transcribers.chunked
+# 3. mediascribe.transcribers.chunked
 # ---------------------------------------------------------------------------
 class TestChunkedHelpers:
     """Cover the pure helpers (no ffmpeg required)."""
 
     def test_merge_texts_concatenates(self):
-        from video2text.transcribers.chunked import Chunk, ChunkResult, merge_texts
+        from mediascribe.transcribers.chunked import Chunk, ChunkResult, merge_texts
 
         c0 = Chunk(index=0, start=0.0, end=10.0, path=Path("/tmp/c0.wav"))
         c1 = Chunk(index=1, start=10.0, end=20.0, path=Path("/tmp/c1.wav"))
@@ -177,7 +177,7 @@ class TestChunkedHelpers:
         assert out == "hello world\n\nspaced\n\nfinal"
 
     def test_merge_segments_sorts_by_start(self):
-        from video2text.transcribers.chunked import Chunk, ChunkResult, merge_segments
+        from mediascribe.transcribers.chunked import Chunk, ChunkResult, merge_segments
 
         c0 = Chunk(index=0, start=0.0, end=10.0, path=Path("/tmp/c0.wav"))
         results = [
@@ -197,7 +197,7 @@ class TestChunkedHelpers:
         assert results[0].segments[1]["text"] == "a"
 
     def test_probe_duration_wav(self, tmp_path):
-        from video2text.transcribers.chunked import probe_duration
+        from mediascribe.transcribers.chunked import probe_duration
 
         wav = tmp_path / "tone.wav"
         # 0.1 s of silence at 16 kHz, mono, 16-bit
@@ -210,7 +210,7 @@ class TestChunkedHelpers:
         assert 0.05 < dur < 0.2
 
     def test_probe_duration_unsupported_format_raises(self, tmp_path):
-        from video2text.transcribers.chunked import probe_duration
+        from mediascribe.transcribers.chunked import probe_duration
 
         fake = tmp_path / "x.mp3"
         fake.write_bytes(b"ID3\x04\x00\x00\x00\x00\x00\x00not-a-real-mp3")
@@ -222,19 +222,19 @@ class TestChunkedHelpers:
 
 
 # ---------------------------------------------------------------------------
-# 4. video2text.performance
+# 4. mediascribe.performance
 # ---------------------------------------------------------------------------
 class TestPerformanceExtras:
     """Hit to_markdown, write, parallel_map edge cases."""
 
     def test_to_markdown_empty(self):
-        from video2text.performance import PerformanceReport
+        from mediascribe.performance import PerformanceReport
 
         rep = PerformanceReport()
         assert "_No steps recorded._" in rep.to_markdown()
 
     def test_to_markdown_with_steps(self):
-        from video2text.performance import (
+        from mediascribe.performance import (
             STEP_TIMES,
             PerformanceReport,
             clear_step_times,
@@ -257,7 +257,7 @@ class TestPerformanceExtras:
             clear_step_times()
 
     def test_performance_report_write(self, tmp_path):
-        from video2text.performance import (
+        from mediascribe.performance import (
             STEP_TIMES,
             PerformanceReport,
             clear_step_times,
@@ -275,18 +275,18 @@ class TestPerformanceExtras:
             clear_step_times()
 
     def test_parallel_map_empty(self):
-        from video2text.performance import parallel_map
+        from mediascribe.performance import parallel_map
 
         assert parallel_map(lambda x: x * 2, []) == []
 
     def test_parallel_map_order_preserved(self):
-        from video2text.performance import parallel_map
+        from mediascribe.performance import parallel_map
 
         out = parallel_map(lambda x: x * 2, [1, 2, 3, 4], max_workers=2)
         assert out == [2, 4, 6, 8]
 
     def test_parallel_map_exception_captured(self):
-        from video2text.performance import parallel_map
+        from mediascribe.performance import parallel_map
 
         def boom(x):
             if x == 2:
@@ -299,7 +299,7 @@ class TestPerformanceExtras:
         assert out[2] == 3
 
     def test_download_cache_round_trip(self, tmp_path):
-        from video2text.performance import DownloadCache
+        from mediascribe.performance import DownloadCache
 
         src = tmp_path / "src.txt"
         src.write_text("hi", encoding="utf-8")
@@ -317,13 +317,13 @@ class TestPerformanceExtras:
 
 
 # ---------------------------------------------------------------------------
-# 5. video2text.observability
+# 5. mediascribe.observability
 # ---------------------------------------------------------------------------
 class TestObservabilityExtras:
     """Span / Meter edge cases not yet covered."""
 
     def test_set_status_with_description(self):
-        from video2text.observability import (
+        from mediascribe.observability import (
             OBSERVABILITY,
             clear_observability,
             get_tracer,
@@ -341,7 +341,7 @@ class TestObservabilityExtras:
         assert any(e.get("name") == "checkpoint" for e in evs)
 
     def test_record_exception_marks_status_error(self):
-        from video2text.observability import (
+        from mediascribe.observability import (
             OBSERVABILITY,
             clear_observability,
             get_tracer,
@@ -357,7 +357,7 @@ class TestObservabilityExtras:
         assert any(e.get("name") == "ValueError" for e in OBSERVABILITY["spans"][0]["events"])
 
     def test_nested_spans_share_trace_id(self):
-        from video2text.observability import (
+        from mediascribe.observability import (
             OBSERVABILITY,
             clear_observability,
             get_tracer,
@@ -374,7 +374,7 @@ class TestObservabilityExtras:
         assert OBSERVABILITY["traces"][0]["name"] == "parent"
 
     def test_meter_counter_and_histogram(self):
-        from video2text.observability import (
+        from mediascribe.observability import (
             OBSERVABILITY,
             clear_observability,
             get_meter,
@@ -392,14 +392,14 @@ class TestObservabilityExtras:
         assert OBSERVABILITY["metrics"]["latency_ms"][0]["value"] == 15.5
 
     def test_install_opentelemetry_exporter_returns_false_when_missing(self):
-        from video2text import observability
+        from mediascribe import observability
 
         with mock.patch.object(observability, "_REAL_OTEL_AVAILABLE", False):
             assert observability.install_opentelemetry_exporter() is False
 
 
 # ---------------------------------------------------------------------------
-# 6. video2text.web.app — extra install.md and extension page coverage
+# 6. mediascribe.web.app — extra install.md and extension page coverage
 # ---------------------------------------------------------------------------
 class TestWebAppInstallMd:
     """The install.md endpoint has two formats (html vs raw)."""
@@ -407,7 +407,7 @@ class TestWebAppInstallMd:
     def test_install_md_html_default(self):
         from fastapi.testclient import TestClient
 
-        from video2text.web.app import create_app
+        from mediascribe.web.app import create_app
 
         c = TestClient(create_app())
         r = c.get("/api/extension/install.md")
@@ -422,7 +422,7 @@ class TestWebAppInstallMd:
     def test_install_md_raw_markdown(self):
         from fastapi.testclient import TestClient
 
-        from video2text.web.app import create_app
+        from mediascribe.web.app import create_app
 
         c = TestClient(create_app())
         r = c.get("/api/extension/install.md?raw=1")

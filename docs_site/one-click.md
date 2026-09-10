@@ -1,6 +1,6 @@
 # One-click Web UI
 
-The fastest way to try Video2Text without writing code: launch a
+The fastest way to try MediaScribe without writing code: launch a
 local Web UI server, open it in your browser, and load the browser
 extension that ships in this repository.  The whole flow is one
 command on every operating system.
@@ -11,8 +11,8 @@ command on every operating system.
 
     ```bash
     # Clone, install, run — that's it.
-    git clone https://github.com/example/video2text.git
-    cd video2text
+    git clone https://github.com/example/mediascribe.git
+    cd mediascribe
     pip install -e ".[web]"
     ./scripts/one_click_up.sh           # foreground
     # or
@@ -22,8 +22,8 @@ command on every operating system.
 === "Windows (PowerShell)"
 
     ```powershell
-    git clone https://github.com/example/video2text.git
-    cd video2text
+    git clone https://github.com/example/mediascribe.git
+    cd mediascribe
     pip install -e ".[web]"
     .\scripts\one_click_up.ps1
     # or
@@ -33,15 +33,15 @@ command on every operating system.
 === "Docker (any OS)"
 
     ```bash
-    git clone https://github.com/example/video2text.git
-    cd video2text
+    git clone https://github.com/example/mediascribe.git
+    cd mediascribe
     docker compose up -d --build
     ```
 
 The script then:
 
 1. **Verifies** ffmpeg, fastapi, and a free TCP port.
-2. **Starts** `uvicorn video2text.web.app:app` (or `docker compose up`).
+2. **Starts** `uvicorn mediascribe.web.app:app` (or `docker compose up`).
 3. **Polls** `http://127.0.0.1:8000/api/health` for up to 30 seconds.
 4. **Opens** the Web UI in your default browser.
 5. **Prints** the browser-extension install steps.
@@ -152,7 +152,7 @@ installed.
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
 | `port 8000 is already in use` | Another server is bound | `one_click_up stop` (if ours) or pass `--port 8080` |
-| `ERROR: fastapi not installed` | `[web]` extra not installed | `pip install "video2text[web]"` |
+| `ERROR: fastapi not installed` | `[web]` extra not installed | `pip install "mediascribe[web]"` |
 | `ERROR: docker not installed` | Docker daemon missing or PATH | Install Docker Desktop / engine |
 | Browser does not open | Headless environment | `one_click_up up --no-browser`, then visit the URL manually |
 | `Web UI did not respond within 30s` | Crash before binding | `cat .one-click.log` to see uvicorn's traceback |
@@ -160,7 +160,7 @@ installed.
 
 ## Why a dedicated launcher and not just `uvicorn`?
 
-`uvicorn video2text.web.app:app --reload` works, but you also want:
+`uvicorn mediascribe.web.app:app --reload` works, but you also want:
 
 * **Background / foreground toggle** — Ctrl-C in a terminal kills
   the wrong process when you actually wanted to keep the server

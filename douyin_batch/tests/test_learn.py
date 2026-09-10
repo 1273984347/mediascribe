@@ -1,4 +1,4 @@
-"""Tests for video2text.learn v2 — ASR auto-learning module."""
+"""Tests for mediascribe.learn v2 — ASR auto-learning module."""
 from __future__ import annotations
 
 import json
@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from video2text.learn import (
+from mediascribe.learn import (
     Correction,
     LearnedTermsDB,
     clear_learned_terms,
@@ -292,9 +292,9 @@ class TestLearnIntegration:
 
         from unittest.mock import patch
 
-        from video2text.post_process import post_process_transcript
+        from mediascribe.post_process import post_process_transcript
 
-        with patch("video2text.learn.learned_terms_path", return_value=store):
+        with patch("mediascribe.learn.learned_terms_path", return_value=store):
             result = post_process_transcript("青年人是长心的", merge_learned=True)
             assert "常为新的" in result
             assert "长心的" not in result
@@ -306,9 +306,9 @@ class TestLearnIntegration:
 
         from unittest.mock import patch
 
-        from video2text.post_process import post_process_transcript
+        from mediascribe.post_process import post_process_transcript
 
-        with patch("video2text.learn.learned_terms_path", return_value=store):
+        with patch("mediascribe.learn.learned_terms_path", return_value=store):
             result = post_process_transcript("青年人是长心的", merge_learned=True)
             # Should NOT be replaced (count=1, below threshold)
             assert "长心的" in result

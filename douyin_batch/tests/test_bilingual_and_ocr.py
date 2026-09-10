@@ -2,7 +2,7 @@
 测试：
 - agent_output bilingual 模式（双语标签）
 - wechat_mp 图片提取 + OCR（mock 引擎）
-- video2text.__main__ 的 --wechat-cookies / --wechat-cookie-file CLI flag
+- mediascribe.__main__ 的 --wechat-cookies / --wechat-cookie-file CLI flag
 - douyin_batch_v3._detect_platform / process_single_video_safe.platform
 """
 import io
@@ -140,45 +140,45 @@ class TestAgentOutputBilingual(unittest.TestCase):
 
 
 class TestDetectPlatformInV3(unittest.TestCase):
-    """video2text.inputs.parse_source — platform detection."""
+    """mediascribe.inputs.parse_source — platform detection."""
 
     def test_douyin(self):
-        from video2text.inputs import parse_source
+        from mediascribe.inputs import parse_source
         src = parse_source("https://www.douyin.com/video/abc")
         self.assertEqual(src.kind, "douyin")
 
     def test_bilibili(self):
-        from video2text.inputs import parse_source
+        from mediascribe.inputs import parse_source
         src = parse_source("https://www.bilibili.com/video/BV1xx411c7mD")
         self.assertEqual(src.kind, "bilibili")
 
     def test_youtube(self):
-        from video2text.inputs import parse_source
+        from mediascribe.inputs import parse_source
         src = parse_source("https://youtu.be/abc")
         self.assertEqual(src.kind, "youtube")
 
     def test_xiaohongshu(self):
-        from video2text.inputs import parse_source
+        from mediascribe.inputs import parse_source
         src = parse_source("https://www.xiaohongshu.com/explore/abc")
         self.assertEqual(src.kind, "xiaohongshu")
 
     def test_wechat_mp(self):
-        from video2text.inputs import parse_source
+        from mediascribe.inputs import parse_source
         src = parse_source("https://mp.weixin.qq.com/s?__biz=MzA&mid=1")
         self.assertEqual(src.kind, "wechat_mp")
 
     def test_tiktok(self):
-        from video2text.inputs import parse_source
+        from mediascribe.inputs import parse_source
         src = parse_source("https://www.tiktok.com/@x/video/1")
         self.assertEqual(src.kind, "tiktok")
 
     def test_unknown(self):
-        from video2text.inputs import parse_source
+        from mediascribe.inputs import parse_source
         src = parse_source("https://example.com/x")
         self.assertEqual(src.kind, "video")  # generic URL → video
 
     def test_local_path(self):
-        from video2text.inputs import parse_source
+        from mediascribe.inputs import parse_source
         # 不存在的路径 → kind="video" (fallback)
         src = parse_source("Z:/path/video.mp4")
         self.assertIn(src.kind, ("video", "audio"))
@@ -191,7 +191,7 @@ class TestWechatMpImageExtract(unittest.TestCase):
     """WechatMpDownloader 图片提取（无网络）"""
 
     def setUp(self):
-        from video2text.downloaders.wechat_mp import WechatMpDownloader
+        from mediascribe.downloaders.wechat_mp import WechatMpDownloader
 
         self.d = WechatMpDownloader()
 
@@ -250,7 +250,7 @@ class TestWechatMpOcrGracefulDegradation(unittest.TestCase):
     """_ocr_image / _ocr_images 在没有 OCR 引擎时安全降级"""
 
     def setUp(self):
-        from video2text.downloaders.wechat_mp import WechatMpDownloader
+        from mediascribe.downloaders.wechat_mp import WechatMpDownloader
 
         self.d = WechatMpDownloader()
 
@@ -303,9 +303,9 @@ class TestWechatMpDownloadWithOcr(unittest.TestCase):
 
     def test_image_article_no_ocr_engines(self):
         """所有 OCR 引擎缺失 → status=partial, ocr_success=0。"""
-        from video2text.config import Settings
-        from video2text.downloaders.wechat_mp import WechatMpDownloader
-        from video2text.models import SourceRef
+        from mediascribe.config import Settings
+        from mediascribe.downloaders.wechat_mp import WechatMpDownloader
+        from mediascribe.models import SourceRef
 
         d = WechatMpDownloader()
         s = Settings()
@@ -344,9 +344,9 @@ class TestWechatMpDownloadWithOcr(unittest.TestCase):
 
     def test_image_article_all_ocr_success(self):
         """OCR 全部成功 → status=success。"""
-        from video2text.config import Settings
-        from video2text.downloaders.wechat_mp import WechatMpDownloader
-        from video2text.models import SourceRef
+        from mediascribe.config import Settings
+        from mediascribe.downloaders.wechat_mp import WechatMpDownloader
+        from mediascribe.models import SourceRef
 
         d = WechatMpDownloader()
         s = Settings()
@@ -386,9 +386,9 @@ class TestWechatMpDownloadWithOcr(unittest.TestCase):
 
     def test_text_only_article_unchanged(self):
         """纯文本文章保持 success，不触发 OCR。"""
-        from video2text.config import Settings
-        from video2text.downloaders.wechat_mp import WechatMpDownloader
-        from video2text.models import SourceRef
+        from mediascribe.config import Settings
+        from mediascribe.downloaders.wechat_mp import WechatMpDownloader
+        from mediascribe.models import SourceRef
 
         d = WechatMpDownloader()
         s = Settings()
@@ -418,15 +418,15 @@ class TestWechatMpDownloadWithOcr(unittest.TestCase):
         # （_ocr_images 不应被触发）
 
 
-class TestVideo2TextCliWechatFlags(unittest.TestCase):
-    """video2text.__main__ 解析 --wechat-cookies / --wechat-cookie-file"""
+class TestMediaScribeCliWechatFlags(unittest.TestCase):
+    """mediascribe.__main__ 解析 --wechat-cookies / --wechat-cookie-file"""
 
     def test_argparser_accepts_wechat_cookies(self):
-        from video2text.__main__ import main
+        from mediascribe.__main__ import main
 
         # 避免 main 真实跑：mock 掉 Pipeline
-        with patch("video2text.__main__.Pipeline") as MockPipeline, patch("sys.argv", [
-            "video2text", "transcribe",
+        with patch("mediascribe.__main__.Pipeline") as MockPipeline, patch("sys.argv", [
+            "mediascribe", "transcribe",
             "https://mp.weixin.qq.com/s?__biz=MzA&mid=1",
             "--wechat-cookies", "skey=abc,uin=123",
             "--wechat-cookie-file", "Z:/cookies.txt",
@@ -446,10 +446,10 @@ class TestVideo2TextCliWechatFlags(unittest.TestCase):
         )
 
     def test_argparser_no_cookies(self):
-        from video2text.__main__ import main
+        from mediascribe.__main__ import main
 
-        with patch("video2text.__main__.Pipeline") as MockPipeline, patch("sys.argv", [
-            "video2text", "transcribe", "video.mp4",
+        with patch("mediascribe.__main__.Pipeline") as MockPipeline, patch("sys.argv", [
+            "mediascribe", "transcribe", "video.mp4",
         ]):
             try:
                 main()
@@ -466,9 +466,9 @@ class TestPipelineWechatOcrMarkdown(unittest.TestCase):
 
     def test_ocr_section_in_markdown(self):
 
-        from video2text.config import Settings
-        from video2text.models import DownloadResult, SourceRef
-        from video2text.pipeline import Pipeline
+        from mediascribe.config import Settings
+        from mediascribe.models import DownloadResult, SourceRef
+        from mediascribe.pipeline import Pipeline
 
         with tempfile.TemporaryDirectory() as tmp:
             s = Settings()

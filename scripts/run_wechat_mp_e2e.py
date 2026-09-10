@@ -138,7 +138,7 @@ def run_article(
 
     # 3.1 detection
     try:
-        from video2text.inputs import parse_source
+        from mediascribe.inputs import parse_source
         ref = parse_source(url)
         res.detected_kind = ref.kind
         if ref.kind != "wechat_mp":
@@ -153,7 +153,7 @@ def run_article(
 
     if dry_run:
         # Validate cookie parsing only, no network
-        from video2text.config import _parse_cookie_string
+        from mediascribe.config import _parse_cookie_string
         if cookies:
             parsed = _parse_cookie_string("; ".join(f"{k}={v}" for k, v in cookies.items()))
             res.cookie_source = "dict"
@@ -173,8 +173,8 @@ def run_article(
 
     # 3.2 full pipeline
     try:
-        from video2text.config import Settings
-        from video2text.pipeline import Pipeline
+        from mediascribe.config import Settings
+        from mediascribe.pipeline import Pipeline
 
         settings = Settings(
             workspace_root=workspace,
@@ -216,7 +216,7 @@ def run_article(
     res.cookie_source = (
         "dict" if cookies
         else f"file:{cookie_file}" if cookie_file
-        else "env" if os.environ.get("VIDEO2TEXT_WECHAT_COOKIE")
+        else "env" if os.environ.get("MEDIASCRIBE_WECHAT_COOKIE")
         else "none"
     )
     res.finished_at = datetime.now(timezone.utc).isoformat()

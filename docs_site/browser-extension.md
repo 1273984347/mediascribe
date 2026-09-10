@@ -1,7 +1,7 @@
 # Browser extension
 
 A small Chrome / Edge extension (Manifest v3) that sends the
-active tab URL to a self-hosted Video2Text Web UI.  The same UI
+active tab URL to a self-hosted MediaScribe Web UI.  The same UI
 runs in the **toolbar popup** and in the browser **Side Panel**,
 so you can keep a transcript open while you scroll the source
 page.
@@ -26,11 +26,11 @@ self-contained and embeds your Web UI origin in
 
 Then:
 
-1. Extract the ZIP somewhere permanent (e.g. `~/video2text/extension`).
+1. Extract the ZIP somewhere permanent (e.g. `~/mediascribe/extension`).
 2. Open `chrome://extensions/` (or `edge://extensions/`).
 3. Enable **Developer mode** (top right).
 4. Click **Load unpacked** and select the extracted directory.
-5. Click the Video2Text icon in the toolbar → the popup opens.
+5. Click the MediaScribe icon in the toolbar → the popup opens.
    On first run, the options page asks for the Web UI URL
    (default `http://127.0.0.1:8000`).
 
@@ -39,15 +39,15 @@ Then:
 1. Start the Web UI on your machine:
 
    ```bash
-   pip install "video2text[web]"
-   python -m video2text.web.app --port 8000
+   pip install "mediascribe[web]"
+   python -m mediascribe.web.app --port 8000
    ```
 
 2. Open `chrome://extensions/` (or `edge://extensions/`).
 3. Enable **Developer mode** (top right).
 4. Click **Load unpacked** and select the `extension/`
    directory of the cloned repo.
-5. Click the Video2Text icon in the toolbar → the popup opens.
+5. Click the MediaScribe icon in the toolbar → the popup opens.
    On first run, the options page asks for the Web UI URL
    (default `http://127.0.0.1:8000`).
 
@@ -121,5 +121,5 @@ skips `__pycache__` / `.pyc` / `.swp` / `.tmp` / `.bak`.
   (`*`); tighten it in production.
 * The `extension_builder` ZIP only bundles the `extension/`
   tree.  It does **not** include the Web UI source — you
-  still need to install `pip install "video2text[web]"` to
+  still need to install `pip install "mediascribe[web]"` to
   serve the backend.

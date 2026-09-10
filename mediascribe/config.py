@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 
 _logger = logging.getLogger(__name__)
 
-# 合法转录引擎（与 video2text/transcribers/factory.py、web 层校验一致）
+# 合法转录引擎（与 mediascribe/transcribers/factory.py、web 层校验一致）
 _VALID_ENGINES = ("whisper", "faster-whisper", "whisperx")
 # 合法模型名（与 CLI --model choices、web 层 TranscribeRequest 校验一致）
 _VALID_MODELS = frozenset({
@@ -37,13 +37,13 @@ class Settings:
         cache_dir: Optional[Path] = None,
         llm_post_process: Optional[Dict[str, Any]] = None,
     ):
-        # workspace 根目录：显式参数 > VIDEO2TEXT_WORKSPACE 环境变量 > 默认 ./output
-        # （Docker 镜像 ENV VIDEO2TEXT_WORKSPACE=/workspace 指向挂载卷；web 层读取
+        # workspace 根目录：显式参数 > MEDIASCRIBE_WORKSPACE 环境变量 > 默认 ./output
+        # （Docker 镜像 ENV MEDIASCRIBE_WORKSPACE=/workspace 指向挂载卷；web 层读取
         # 同一 env，此处保持“env 优先于默认值、显式参数最优先”的一致语义。）
         if workspace_root is not None:
             self.workspace_root = Path(workspace_root)
         else:
-            env_workspace = os.environ.get("VIDEO2TEXT_WORKSPACE", "").strip()
+            env_workspace = os.environ.get("MEDIASCRIBE_WORKSPACE", "").strip()
             self.workspace_root = (
                 Path(env_workspace) if env_workspace else Path.cwd() / "output"
             )
@@ -65,14 +65,14 @@ class Settings:
         self.metadata_dir = self.workspace_root / "metadata"
 
         # 跨 run 持久化缓存（v3.2.0a）
-        # None 意味着遵循 XDG / VIDEO2TEXT_CACHE_DIR / 默认值
+        # None 意味着遵循 XDG / MEDIASCRIBE_CACHE_DIR / 默认值
         self.cache_dir: Optional[Path] = Path(cache_dir) if cache_dir else None
 
         # 模型配置（已通过上方 _VALID_ENGINES / _VALID_MODELS 校验）
         self.model = model
         self.engine = engine
         # device 默认 auto-resolve (CUDA > Metal > ROCm > CPU)
-        self.device = device if device else os.environ.get("VIDEO2TEXT_DEVICE", "auto")
+        self.device = device if device else os.environ.get("MEDIASCRIBE_DEVICE", "auto")
         self.language = language
 
         # 高级功能
@@ -89,7 +89,7 @@ class Settings:
 
         # 反向兼容：允许通过环境变量注入 cookies
         if not self.wechat_cookies:
-            env_cookie = os.environ.get("VIDEO2TEXT_WECHAT_COOKIE")
+            env_cookie = os.environ.get("MEDIASCRIBE_WECHAT_COOKIE")
             if env_cookie:
                 self.wechat_cookies = _parse_cookie_string(env_cookie)
 
@@ -98,29 +98,29 @@ class Settings:
         # 仅设置 API_KEY 不再自动启用，避免误触外部计费 API）
         self.llm_post_process: Dict[str, Any] = dict(llm_post_process or {})
         # 环境变量兜底
-        env_api_key = os.environ.get("VIDEO2TEXT_LLM_API_KEY", "").strip()
+        env_api_key = os.environ.get("MEDIASCRIBE_LLM_API_KEY", "").strip()
         if env_api_key and "api_key" not in self.llm_post_process:
             self.llm_post_process.setdefault("api_key", env_api_key)
         if "api_base" not in self.llm_post_process:
             # api_base 无默认厂商值：必须由用户显式配置（env 或参数）
-            env_api_base = os.environ.get("VIDEO2TEXT_LLM_API_BASE", "").strip()
+            env_api_base = os.environ.get("MEDIASCRIBE_LLM_API_BASE", "").strip()
             if env_api_base:
                 self.llm_post_process["api_base"] = env_api_base
         if "model" not in self.llm_post_process:
             self.llm_post_process.setdefault(
                 "model",
-                os.environ.get("VIDEO2TEXT_LLM_MODEL", "deepseek-chat").strip(),
+                os.environ.get("MEDIASCRIBE_LLM_MODEL", "deepseek-chat").strip(),
             )
         if "enabled" not in self.llm_post_process:
-            # 安全默认 False：仅当 VIDEO2TEXT_LLM_ENABLED 显式为
+            # 安全默认 False：仅当 MEDIASCRIBE_LLM_ENABLED 显式为
             # 1/true/yes/on 时才启用
-            enabled_env = os.environ.get("VIDEO2TEXT_LLM_ENABLED", "").strip().lower()
+            enabled_env = os.environ.get("MEDIASCRIBE_LLM_ENABLED", "").strip().lower()
             self.llm_post_process["enabled"] = enabled_env in ("1", "true", "yes", "on")
         # 启用 LLM 时必须已显式配置 api_base，否则在构造期给出清晰错误
         if self.llm_post_process.get("enabled") and not self.llm_post_process.get("api_base"):
             raise ValueError(
                 "LLM 后处理已启用（enabled=True），但未配置 api_base。"
-                " 请设置环境变量 VIDEO2TEXT_LLM_API_BASE"
+                " 请设置环境变量 MEDIASCRIBE_LLM_API_BASE"
                 "（如 https://api.deepseek.com / https://api.openai.com/v1），"
                 " 或在 Settings(llm_post_process={'api_base': ...}) 中显式传入。"
             )

@@ -16,7 +16,7 @@ class TestMCPServer(unittest.TestCase):
     """Test the MCP server's JSON-RPC handling and tool dispatch."""
 
     def _request(self, method, params=None, req_id=1):
-        from video2text.mcp_server import _handle_request
+        from mediascribe.mcp_server import _handle_request
         req = {"jsonrpc": "2.0", "id": req_id, "method": method, "params": params or {}}
         return _handle_request(req)
 
@@ -25,7 +25,7 @@ class TestMCPServer(unittest.TestCase):
     def test_initialize(self):
         r = self._request("initialize")
         self.assertIn("result", r)
-        self.assertEqual(r["result"]["serverInfo"]["name"], "video2text")
+        self.assertEqual(r["result"]["serverInfo"]["name"], "mediascribe")
         self.assertIn("capabilities", r["result"])
 
     def test_initialized_notification(self):
@@ -168,8 +168,8 @@ class TestMCPServer(unittest.TestCase):
         fake_pipeline.transcribe.return_value = fake_result
 
         # Make Settings / Pipeline pickable but cheap to import.
-        with patch("video2text.config.Settings") as MockSettings, \
-             patch("video2text.pipeline.Pipeline", return_value=fake_pipeline) as MockPipeline:
+        with patch("mediascribe.config.Settings") as MockSettings, \
+             patch("mediascribe.pipeline.Pipeline", return_value=fake_pipeline) as MockPipeline:
             MockSettings.return_value = MagicMock(name="SettingsInstance")
             r = self._request("tools/call", {
                 "name": "transcribe_video",
@@ -232,8 +232,8 @@ class TestMCPServer(unittest.TestCase):
         fake_pipeline = MagicMock()
         fake_pipeline.transcribe.return_value = fake_result
 
-        with patch("video2text.config.Settings") as MockSettings, \
-             patch("video2text.pipeline.Pipeline", return_value=fake_pipeline):
+        with patch("mediascribe.config.Settings") as MockSettings, \
+             patch("mediascribe.pipeline.Pipeline", return_value=fake_pipeline):
             MockSettings.return_value = MagicMock()
             self._request("tools/call", {
                 "name": "transcribe_video",
@@ -244,8 +244,8 @@ class TestMCPServer(unittest.TestCase):
         self.assertIsNone(call_kwargs["language"])
         # And the public ``language`` field in the result stays human-friendly.
         # (we re-invoke to inspect the body)
-        with patch("video2text.config.Settings") as MockSettings2, \
-             patch("video2text.pipeline.Pipeline", return_value=fake_pipeline):
+        with patch("mediascribe.config.Settings") as MockSettings2, \
+             patch("mediascribe.pipeline.Pipeline", return_value=fake_pipeline):
             MockSettings2.return_value = MagicMock()
             r = self._request("tools/call", {
                 "name": "transcribe_video",
@@ -262,7 +262,7 @@ class TestMCPServerStdio(unittest.TestCase):
     def test_stdio_round_trip(self):
         import io
 
-        from video2text.mcp_server import _run_stdio
+        from mediascribe.mcp_server import _run_stdio
 
         # Build a request payload
         req = {"jsonrpc": "2.0", "id": 1, "method": "ping"}
@@ -285,7 +285,7 @@ class TestMCPServerStdio(unittest.TestCase):
         """P1-4④: 畸形请求返回 error 对象, 主循环继续服务后续请求。"""
         import io
 
-        from video2text.mcp_server import _run_stdio
+        from mediascribe.mcp_server import _run_stdio
 
         lines = (
             json.dumps([1, 2, 3]) + "\n"
@@ -310,12 +310,12 @@ class TestMCPServerStdio(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class TestMCPRequestHardening(unittest.TestCase):
     def _request(self, method, params=None, req_id=1):
-        from video2text.mcp_server import _handle_request
+        from mediascribe.mcp_server import _handle_request
         req = {"jsonrpc": "2.0", "id": req_id, "method": method, "params": params or {}}
         return _handle_request(req)
 
     def test_non_dict_request_returns_error(self):
-        from video2text.mcp_server import _handle_request
+        from mediascribe.mcp_server import _handle_request
         r = _handle_request([1, 2, 3])
         self.assertIn("error", r)
         self.assertEqual(r["error"]["code"], -32600)
@@ -326,7 +326,7 @@ class TestMCPRequestHardening(unittest.TestCase):
         self.assertEqual(r["error"]["code"], -32602)
 
     def test_safe_handle_request_never_raises(self):
-        from video2text.mcp_server import _safe_handle_request
+        from mediascribe.mcp_server import _safe_handle_request
         for bad in ([], "string", 42, None, {"method": "tools/call", "params": 7}):
             r = _safe_handle_request(bad)
             self.assertIsInstance(r, dict, repr(bad))
@@ -339,9 +339,9 @@ class TestMCPHttpTransportSecurity(unittest.TestCase):
     """Spin up the real hardened HTTP server on an ephemeral port."""
 
     def setUp(self):
-        from video2text.mcp_server import _make_http_server
-        self._saved_token = os.environ.pop("VIDEO2TEXT_MCP_TOKEN", None)
-        self._saved_hosts = os.environ.pop("VIDEO2TEXT_MCP_ALLOWED_HOSTS", None)
+        from mediascribe.mcp_server import _make_http_server
+        self._saved_token = os.environ.pop("MEDIASCRIBE_MCP_TOKEN", None)
+        self._saved_hosts = os.environ.pop("MEDIASCRIBE_MCP_ALLOWED_HOSTS", None)
         self.server = _make_http_server("127.0.0.1", 0)
         self.port = self.server.server_address[1]
         self.thread = threading.Thread(
@@ -353,12 +353,12 @@ class TestMCPHttpTransportSecurity(unittest.TestCase):
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(timeout=5)
-        os.environ.pop("VIDEO2TEXT_MCP_TOKEN", None)
-        os.environ.pop("VIDEO2TEXT_MCP_ALLOWED_HOSTS", None)
+        os.environ.pop("MEDIASCRIBE_MCP_TOKEN", None)
+        os.environ.pop("MEDIASCRIBE_MCP_ALLOWED_HOSTS", None)
         if self._saved_token is not None:
-            os.environ["VIDEO2TEXT_MCP_TOKEN"] = self._saved_token
+            os.environ["MEDIASCRIBE_MCP_TOKEN"] = self._saved_token
         if self._saved_hosts is not None:
-            os.environ["VIDEO2TEXT_MCP_ALLOWED_HOSTS"] = self._saved_hosts
+            os.environ["MEDIASCRIBE_MCP_ALLOWED_HOSTS"] = self._saved_hosts
 
     def _post(self, body: bytes, headers=None, host_header=None):
         import http.client
@@ -395,24 +395,24 @@ class TestMCPHttpTransportSecurity(unittest.TestCase):
     # ---- token enforcement ----
 
     def test_missing_token_is_401(self):
-        os.environ["VIDEO2TEXT_MCP_TOKEN"] = "s3cret"
+        os.environ["MEDIASCRIBE_MCP_TOKEN"] = "s3cret"
         status, _ = self._post(self._ping())
         self.assertEqual(status, 401)
 
     def test_wrong_token_is_401(self):
-        os.environ["VIDEO2TEXT_MCP_TOKEN"] = "s3cret"
+        os.environ["MEDIASCRIBE_MCP_TOKEN"] = "s3cret"
         status, _ = self._post(self._ping(), headers={"X-MCP-Token": "wrong"})
         self.assertEqual(status, 401)
 
     def test_token_via_x_mcp_token_header(self):
-        os.environ["VIDEO2TEXT_MCP_TOKEN"] = "s3cret"
+        os.environ["MEDIASCRIBE_MCP_TOKEN"] = "s3cret"
         status, body = self._post(
             self._ping(), headers={"X-MCP-Token": "s3cret"})
         self.assertEqual(status, 200)
         self.assertIn('"result"', body)
 
     def test_token_via_bearer_authorization(self):
-        os.environ["VIDEO2TEXT_MCP_TOKEN"] = "s3cret"
+        os.environ["MEDIASCRIBE_MCP_TOKEN"] = "s3cret"
         status, body = self._post(
             self._ping(), headers={"Authorization": "Bearer s3cret"})
         self.assertEqual(status, 200)
@@ -429,7 +429,7 @@ class TestMCPHttpTransportSecurity(unittest.TestCase):
         self.assertEqual(status, 200)
 
     def test_extra_allowed_host_via_env(self):
-        os.environ["VIDEO2TEXT_MCP_ALLOWED_HOSTS"] = "mcp.internal:443"
+        os.environ["MEDIASCRIBE_MCP_ALLOWED_HOSTS"] = "mcp.internal:443"
         status, _ = self._post(self._ping(), host_header="mcp.internal:443")
         self.assertEqual(status, 200)
         status2, _ = self._post(self._ping(), host_header="mcp.internal:9999")
@@ -465,7 +465,7 @@ class TestMCPBatchMaxVideosClamp(unittest.TestCase):
         import json as _json
         from unittest import mock
 
-        from video2text import mcp_server
+        from mediascribe import mcp_server
 
         captured = {}
 
@@ -495,7 +495,7 @@ class TestMCPBatchMaxVideosClamp(unittest.TestCase):
         import json as _json
         from unittest import mock
 
-        from video2text import mcp_server
+        from mediascribe import mcp_server
 
         captured = {}
 
@@ -516,7 +516,7 @@ class TestMCPBatchMaxVideosClamp(unittest.TestCase):
         import json as _json
         from unittest import mock
 
-        from video2text import mcp_server
+        from mediascribe import mcp_server
 
         captured = {}
 
