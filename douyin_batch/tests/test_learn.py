@@ -291,11 +291,16 @@ class TestLearnIntegration:
         learn([("长心的", "常为新的")], path=store)
         learn([("长心的", "常为新的")], path=store)  # auto-confirm
 
+        from importlib import import_module
         from unittest.mock import patch
 
         from mediascribe.post_process import post_process_transcript
 
-        with patch("mediascribe.learn.learned_terms_path", return_value=store):
+        # 包属性 ``mediascribe.learn`` 同时被 __init__ 重绑定为函数，
+        # 字符串 patch 目标可能解析到函数而非子模块 — 用 import_module
+        # 拿到确定的子模块对象再 patch。
+        learn_mod = import_module("mediascribe.learn")
+        with patch.object(learn_mod, "learned_terms_path", return_value=store):
             result = post_process_transcript("青年人是长心的", merge_learned=True)
             assert "常为新的" in result
             assert "长心的" not in result
@@ -305,11 +310,13 @@ class TestLearnIntegration:
         store = tmp_path / "learned_terms.json"
         learn([("长心的", "常为新的")], path=store)  # count=1, not active
 
+        from importlib import import_module
         from unittest.mock import patch
 
         from mediascribe.post_process import post_process_transcript
 
-        with patch("mediascribe.learn.learned_terms_path", return_value=store):
+        learn_mod = import_module("mediascribe.learn")
+        with patch.object(learn_mod, "learned_terms_path", return_value=store):
             result = post_process_transcript("青年人是长心的", merge_learned=True)
             # Should NOT be replaced (count=1, below threshold)
             assert "长心的" in result

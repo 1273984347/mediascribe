@@ -489,14 +489,20 @@ class TestRunBatchJobErrorHandling(unittest.TestCase):
             app_module._run_batch_job(FakeAP(), ["u"], {}, [], {})
 
     def test_system_exit_propagates(self):
+        import concurrent.futures
+
         import app as app_module
 
         class FakeAP:
             async def run_batch(self, urls, runners=None):
                 raise SystemExit(3)
 
+        # CI 主线程可能残留运行中的 event loop（asyncio.run 会拒绝
+        # 重入并把 SystemExit 变成被吞掉的 RuntimeError）— 放到
+        # 全新线程里跑，保证 asyncio.run 正常传播 SystemExit。
         with self.assertRaises(SystemExit):
-            app_module._run_batch_job(FakeAP(), ["u"], {}, [], {})
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                pool.submit(app_module._run_batch_job, FakeAP(), ["u"], {}, [], {}).result()
 
 
 # ---------------------------------------------------------------------------

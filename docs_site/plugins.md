@@ -50,8 +50,10 @@ my_asr = "my_pkg:MyAsrTranscriber"
 ```python
 from mediascribe.transcribers.base import Transcriber
 
+
 class MyAsrTranscriber(Transcriber):
     name = "my_asr"
+
     def transcribe(self, audio, output, *, language=None, **kw):
         # ... run your model ...
         Path(output).write_text(result_text, encoding="utf-8")
@@ -83,7 +85,8 @@ Use `mediascribe.plugins` to inspect what's installed:
 
 ```python
 from mediascribe import plugins
-print(plugins.list_downloaders())   # ['mysite', 'vimeo', ...]
+
+print(plugins.list_downloaders())  # ['mysite', 'vimeo', ...]
 print(plugins.list_transcribers())  # ['my_asr', 'whisper', ...]
 print(plugins.list_url_transformers())
 ```

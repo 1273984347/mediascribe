@@ -22,12 +22,17 @@ It provides three things:
 
 ```python
 from mediascribe.performance import (
-    profile_step, PerformanceReport, parallel_map, DownloadCache,
+    profile_step,
+    PerformanceReport,
+    parallel_map,
+    DownloadCache,
 )
+
 
 @profile_step("download")
 def fetch(url, settings):
     return settings.session.get(url).content
+
 
 results = parallel_map(lambda u: fetch(u, settings), urls)
 report = PerformanceReport.from_registry()
@@ -64,7 +69,7 @@ adds pickle overhead and a slow startup.  We cap workers at
 
 ```python
 cache = DownloadCache()  # /tmp/v2t_dl_cache_xxx
-cached_path = cache.get(url)   # None on miss
+cached_path = cache.get(url)  # None on miss
 if cached_path is None:
     fresh = download(url)
     cache.put(url, fresh)

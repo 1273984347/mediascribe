@@ -139,7 +139,12 @@ class TestConcurrentSpanContexts(unittest.TestCase):
         async def driver():
             await asyncio.gather(one("a"), one("b"))
 
-        asyncio.run(driver())
+        # 在全新线程里跑 — CI 上主线程可能被先行测试残留的运行中
+        # event loop 污染（asyncio.run 会拒绝重入），新线程保证干净。
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            pool.submit(asyncio.run, driver()).result()
 
         spans = OBSERVABILITY["spans"]
         self.assertEqual(len(spans), 4)
