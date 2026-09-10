@@ -36,8 +36,11 @@ Prompt 模板
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Optional
+
+_logger = logging.getLogger(__name__)
 
 __all__ = [
     "post_process_transcript",
@@ -108,8 +111,16 @@ def post_process_transcript(
         if env_raw:
             try:
                 terms.update(json.loads(env_raw))
-            except json.JSONDecodeError:
-                pass  # 静默忽略格式错误的环境变量
+            except json.JSONDecodeError as exc:
+                # P2-13 / DRL R2 F-7 对齐: 静默忽略会让用户以为 env
+                # 已生效。log warning 带异常与原文摘要,方便定位拼写
+                # / 引号错误,且不阻塞主流程。
+                _logger.warning(
+                    "VIDEO2TEXT_CUSTOM_TERMS JSON 解析失败(%s),"
+                    "已忽略该环境变量;内容摘要: %.120s",
+                    exc,
+                    env_raw,
+                )
     if custom_terms:
         terms.update(custom_terms)
 

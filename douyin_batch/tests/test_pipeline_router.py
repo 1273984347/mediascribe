@@ -76,11 +76,15 @@ class TestPipelineRouter(unittest.TestCase):
         self.assertIs(p._get_downloader(src), explicit)
 
     def test_fallback_when_constructor_raises(self):
-        """XhsDownloader 构造异常时回退到 YtDlpDownloader。"""
+        """XhsDownloader 构造异常时回退到 YtDlpDownloader。
+
+        P2-14 后 fallback 链唯一实现在 pipeline_stages._smart_pick_downloader
+        (Pipeline._get_downloader 委托过去),patch 点随之迁移。
+        """
 
         src = _make_source("xiaohongshu", url="https://www.xiaohongshu.com/explore/abc")
         with patch(
-            "video2text.pipeline.XiaohongshuDownloader",
+            "video2text.pipeline_stages.XiaohongshuDownloader",
             side_effect=RuntimeError("simulated init failure"),
         ):
             d = self.pipeline._get_downloader(src)

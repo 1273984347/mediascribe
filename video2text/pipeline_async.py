@@ -21,13 +21,21 @@ v3.2.0b Tier 1 — fully asynchronous pipeline.
 4. **背压** — :attr:`AsyncPipeline.max_concurrent` 控制并发上限,
    默认 ``min(4, os.cpu_count() or 2)``,可被
    ``VIDEO2TEXT_MAX_WORKERS`` 环境变量覆盖。
-5. **取消** — ``pipeline.cancel()`` 一次性 ``task.cancel()`` 所有
-   in-flight 任务。底层 :class:`Stage` 在 v3.2.0e 已把
-   ``ctx.cancel_event`` 传给 blocking ffmpeg / whisper 调用。
+5. **取消 (v3.2.0x P1-8 修订契约)** — ``pipeline.cancel()`` 对
+   in-flight 任务 ``task.cancel()`` 并置位 ``cancel_event``。
+   :class:`CancelledError` 在 ``_one`` 内被捕获并转成
+   ``_FailedResult(src, PipelineCancelled)`` 返回 —
+   :func:`asyncio.gather` 不抛(本模块 docstring 契约),调用方按位置
+   ``isinstance(r, _FailedResult)`` 判定。底层 executor 线程无法被
+   中断,但 ``cancel_event`` 会透传到 stage 层做协作式退出。
 6. **GPU 显存感知 (v3.2.0e)** — :func:`_gpu_aware_concurrency` 在
    batch 启动时快照 :func:`video2text.pipeline.gpu_health`,按
    ``free_vram // vram_per_task`` 收紧并发,避免 CUDA OOM。
    非 CUDA 设备(CPU / metal)不受影响,直接用 ``max_concurrent``。
+7. **进程级 GPU 信号量 (v3.2.0x P1-7)** — GPU 并发信号量按 device
+   键做进程级单例:Web 层并发的多个 batch 不再各自建
+   ``Semaphore`` 导致 GPU 任务数翻倍 → CUDA OOM。
+   VRAM 快照收紧逻辑保留,信号量复用首次创建的上限值。
 
 测试
 ----
@@ -40,7 +48,7 @@ import asyncio
 import os
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from .config import Settings
 from .models import TranscriptResult
@@ -55,6 +63,52 @@ def _default_max_concurrent() -> int:
         return int(env)
     cpu = os.cpu_count() or 2
     return min(4, cpu)
+
+
+# ---------------------------------------------------------------------------
+# v3.2.0x P1-7: 进程级 GPU 信号量单例
+# ---------------------------------------------------------------------------
+# 每个 AsyncPipeline 实例各自建 Semaphore 时,Web 层并发的每个批量
+# 请求都会独立放开 GPU 任务闸门,GPU 上同时在跑的任务数 = 各 batch
+# effective 之和 → CUDA OOM。改为按 device 键的进程级单例:
+# 首个 batch 创建后,后续 batch 复用同一信号量(取首次创建的上限值 —
+# 简单且正确:总量守恒,GPU 任务数不会超过首个 batch 的 effective)。
+# 创建在 threading.Lock 内完成,消除并发首建竞态。
+#
+# asyncio 原语在 Python 3.10+ 绑定首次使用的 event loop,进程内 loop
+# 被重建(如 Web 重启 / 新 asyncio.run)后旧信号量不可复用 — 此时以
+# 首次创建的上限值在新 loop 上重建,总量语义不变。
+_GPU_SEMAPHORES: Dict[str, Tuple[asyncio.Semaphore, int, "object"]] = {}
+_GPU_SEM_LOCK = threading.Lock()
+
+
+def _shared_gpu_semaphore(device: str, effective: int) -> asyncio.Semaphore:
+    """按 ``device`` 键返回进程级 GPU 信号量单例。
+
+    首次调用以 ``effective`` 为上限创建;之后同 device 的调用复用
+    首次创建的信号量(其 ``effective`` 被忽略 — 全局总量以首建值为
+    为准)。event loop 更换时用首建上限重建。
+    """
+    key = device or "cpu"
+    loop = asyncio.get_running_loop()
+    with _GPU_SEM_LOCK:
+        entry = _GPU_SEMAPHORES.get(key)
+        if entry is not None:
+            sem, cap, bound_loop = entry
+            if bound_loop is loop:
+                return sem
+            sem = asyncio.Semaphore(cap)
+            _GPU_SEMAPHORES[key] = (sem, cap, loop)
+            return sem
+        sem = asyncio.Semaphore(effective)
+        _GPU_SEMAPHORES[key] = (sem, effective, loop)
+        return sem
+
+
+def _reset_gpu_semaphores() -> None:
+    """清空进程级信号量表(测试钩子)。"""
+    with _GPU_SEM_LOCK:
+        _GPU_SEMAPHORES.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -230,10 +284,15 @@ class AsyncPipeline:
         ``runner()`` 而非底层 ``Pipeline.transcribe`` —— 这是 Web 层接线
         的关键:传入 :func:`video2text.progress.with_progress` 包装的 thunk,
         即可在并发批处理中保留进度事件与结果落盘。
+
+        v3.2.0x P1-8: 默认路径把 ``self._cancel_event`` 透传给
+        ``Pipeline.transcribe(cancel_event=...)``,stage 在阻塞点做
+        协作式取消检查。
         """
         loop = asyncio.get_running_loop()
         if runner is not None:
             return await loop.run_in_executor(None, runner)
+        kwargs.setdefault("cancel_event", self._cancel_event)
         return await loop.run_in_executor(
             None, lambda: self._sync.transcribe(source_input, **kwargs)
         )
@@ -260,27 +319,49 @@ class AsyncPipeline:
         v3.2.0e:batch 启动时调 :func:`_gpu_aware_concurrency` 收紧并发,
         避免 CUDA OOM。快照一次(不中途动态调整),中途显存波动由
         CUDA 自身处理(slowdown 而非 fail)。
+
+        v3.2.0x P1-7: 信号量按 device 键取进程级单例 — 并发 batch
+        共享同一闸门,GPU 任务总量不随 batch 数翻倍。
+        v3.2.0x P1-8: 入口 ``_cancel_event.clear()`` 修复实例复用
+        (上一次 batch 的取消请求不泄漏到本次)。
         """
         if not source_inputs:
             return []
 
+        # P1-8: 实例复用 — 上次 cancel() 置位的事件不应取消本次 batch
+        self._cancel_event.clear()
+
+        health = _GPU_HEALTH_CACHE.get()
         effective = _gpu_aware_concurrency(
-            self.max_concurrent, vram_per_task_mb=self._vram_per_task_mb
+            self.max_concurrent,
+            vram_per_task_mb=self._vram_per_task_mb,
+            health=health,
         )
-        sem = asyncio.Semaphore(effective)
+        sem = _shared_gpu_semaphore(
+            str(health.get("device") or "cpu"), effective
+        )
         runners = runners or {}
 
         async def _one(src: str) -> object:
-            async with sem:
-                if self._cancel_event.is_set():
-                    return _FailedResult(src, PipelineCancelled())
-                try:
+            try:
+                # sem 等待点也在 try 内 — task.cancel() 可能在排队等
+                # 信号量时打断,同样要按取消语义返回而非上抛 (P1-8)
+                async with sem:
+                    if self._cancel_event.is_set():
+                        return _FailedResult(src, PipelineCancelled())
                     r = runners.get(src)
                     if r is not None:
                         return await self.run(src, runner=r)
                     return await self.run(src, **kwargs)
-                except Exception as exc:  # 隔离单个视频失败(含 PipelineCancelled)
-                    return _FailedResult(src, exc)
+            except asyncio.CancelledError:
+                # P1-8: task.cancel() 的 CancelledError(BaseException)
+                # 不穿透 _one — 捕获后按取消语义返回,保证
+                # asyncio.gather 不抛、输出仍按位置对齐。底层
+                # executor 线程无法中断,但 cancel_event 已透传到
+                # stage 层,阻塞操作之间会协作式退出。
+                return _FailedResult(src, PipelineCancelled())
+            except Exception as exc:  # 隔离单个视频失败(含 PipelineCancelled)
+                return _FailedResult(src, exc)
 
         tasks = [asyncio.create_task(_one(s)) for s in source_inputs]
         self._tasks.extend(tasks)
@@ -291,7 +372,13 @@ class AsyncPipeline:
             self._tasks = [t for t in self._tasks if not t.done()]
 
     def cancel(self) -> int:
-        """取消所有 in-flight 任务,返回被取消的 task 数。"""
+        """取消所有 in-flight 任务,返回被取消的 task 数。
+
+        P1-8 修订契约: ``task.cancel()`` 触发的 :class:`CancelledError`
+        由 ``_one`` 捕获并转成 ``_FailedResult(src, PipelineCancelled)``,
+        :func:`asyncio.gather` 正常返回而非抛出;同时置位
+        ``_cancel_event``,stage 层在阻塞点之间协作式退出。
+        """
         self._cancel_event.set()
         n = 0
         for t in list(self._tasks):
@@ -346,4 +433,6 @@ __all__ = [
     "_gpu_aware_concurrency",
     "_GpuHealthCache",
     "_vram_per_task_mb",
+    "_shared_gpu_semaphore",
+    "_reset_gpu_semaphores",
 ]

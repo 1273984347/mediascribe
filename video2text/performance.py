@@ -17,6 +17,7 @@ so the same URL is not re-downloaded within a single pipeline run.
 """
 from __future__ import annotations
 
+import contextvars
 import functools
 import json
 import os
@@ -33,10 +34,41 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 # ---------------------------------------------------------------------------
 STEP_TIMES: Dict[str, List[float]] = {}
 
+# P2-7: per-run 计时上下文。并发 pipeline run 各自在自己的
+# context 里持有一份注册表,不再互相清空/混写进程级 ``STEP_TIMES``。
+# ``None`` 表示无 run 上下文 — 所有 API 回退到全局 ``STEP_TIMES``
+# (向后兼容:老调用方直接读写 ``STEP_TIMES`` 的行为不变)。
+_RUN_TIMES: contextvars.ContextVar[Optional[Dict[str, List[float]]]] = (
+    contextvars.ContextVar("video2text_step_times_run", default=None)
+)
+
+
+def _current_registry() -> Dict[str, List[float]]:
+    """返回当前生效的计时注册表(run 上下文优先,否则全局)。"""
+    reg = _RUN_TIMES.get()
+    return STEP_TIMES if reg is None else reg
+
+
+def begin_run_registry() -> Dict[str, List[float]]:
+    """开启一个新的 per-run 计时注册表(context-local)。
+
+    :meth:`Pipeline._run_stage_chain` 在 ``profile=True`` 时调用,
+    使并发 run 的计时互不干扰。返回新注册表。
+    """
+    reg: Dict[str, List[float]] = {}
+    _RUN_TIMES.set(reg)
+    return reg
+
+
+def end_run_registry() -> None:
+    """脱离 per-run 注册表,后续计时回落到全局 ``STEP_TIMES``。"""
+    _RUN_TIMES.set(None)
+
 
 def profile_step(name: Optional[str] = None, *, log_to: Optional[Path] = None) -> Callable:
     """Decorator that times the wrapped function and stores the wall-clock
-    duration (seconds) in :data:`STEP_TIMES`.
+    duration (seconds) in the active timing registry (:data:`STEP_TIMES`
+    unless a per-run registry is active, see :func:`begin_run_registry`).
 
     Usage::
 
@@ -57,7 +89,7 @@ def profile_step(name: Optional[str] = None, *, log_to: Optional[Path] = None) -
                 return fn(*args, **kwargs)
             finally:
                 dur = time.perf_counter() - t0
-                STEP_TIMES.setdefault(label, []).append(dur)
+                _current_registry().setdefault(label, []).append(dur)
                 if log_to is not None:
                     _append_jsonl(log_to, label, dur)
         return wrapper
@@ -80,13 +112,19 @@ def _append_jsonl(path: Path, label: str, duration: float) -> None:
 
 
 def clear_step_times() -> None:
-    """Reset the global timing registry.  Useful between runs."""
+    """Reset the timing registry (per-run one if active, plus the global).
+
+    Useful between runs.  P2-7: 也把 run 上下文重置回全局模式,
+    避免上一个 profile run 在本线程遗留的 per-run 注册表吞掉
+    后续计时。
+    """
+    _RUN_TIMES.set(None)
     STEP_TIMES.clear()
 
 
 def get_step_times() -> Dict[str, List[float]]:
-    """Return a copy of the current timing registry."""
-    return {k: list(v) for k, v in STEP_TIMES.items()}
+    """Return a copy of the current timing registry (run-scoped if active)."""
+    return {k: list(v) for k, v in _current_registry().items()}
 
 
 # ---------------------------------------------------------------------------
@@ -103,7 +141,7 @@ class PerformanceReport:
     def from_registry(cls) -> "PerformanceReport":
         from datetime import datetime, timezone
         steps: Dict[str, Dict[str, float]] = {}
-        for label, durations in STEP_TIMES.items():
+        for label, durations in _current_registry().items():
             if not durations:
                 continue
             steps[label] = {

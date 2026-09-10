@@ -25,13 +25,16 @@ from video2text.models import TranscriptResult
 from video2text.pipeline import Pipeline
 from video2text.pipeline_async import (
     AsyncPipeline,
-    _GpuHealthCache,
     _default_max_concurrent,
     _FailedResult,
     _gpu_aware_concurrency,
+    _GpuHealthCache,
+    _reset_gpu_semaphores,
+    _shared_gpu_semaphore,
     _vram_per_task_mb,
     from_sync,
 )
+from video2text.pipeline_stages import PipelineCancelled
 
 
 def _run_coro(coro):
@@ -208,6 +211,137 @@ class TestAsyncPipelineRunBatch(unittest.TestCase):
             self.assertIsInstance(results[1], _FailedResult)
             self.assertIsInstance(results[2], TranscriptResult)
             self.assertIn("boom", str(results[1].exc))
+
+
+# ---------------------------------------------------------------------------
+# v3.2.0x P1-7: 进程级 GPU 信号量单例
+# ---------------------------------------------------------------------------
+class TestSharedGpuSemaphore(unittest.TestCase):
+    """``_shared_gpu_semaphore`` 的单例与总量守恒契约。"""
+
+    def setUp(self):
+        _reset_gpu_semaphores()
+
+    def tearDown(self):
+        _reset_gpu_semaphores()
+
+    def test_same_device_reuses_semaphore(self):
+        async def driver():
+            s1 = _shared_gpu_semaphore("cuda", 2)
+            s2 = _shared_gpu_semaphore("cuda", 4)
+            return s1, s2
+
+        s1, s2 = _run_coro(driver())
+        self.assertIs(s1, s2)  # 复用首个实例,effective 忽略
+
+    def test_different_devices_get_different_semaphores(self):
+        async def driver():
+            return (
+                _shared_gpu_semaphore("cuda", 2),
+                _shared_gpu_semaphore("cpu", 2),
+            )
+
+        s_cuda, s_cpu = _run_coro(driver())
+        self.assertIsNot(s_cuda, s_cpu)
+
+    def test_concurrent_batches_share_global_cap(self):
+        """两个 AsyncPipeline 并发 batch,GPU 任务总量 ≤ 单个 batch 上限。
+
+        修复前每个实例各自建 Semaphore → 总量翻倍(2×cap)。
+        """
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            sync = Pipeline(
+                settings=_fake_settings(tmp), transcriber=_fake_transcriber()
+            )
+            cpu_health = {
+                "available": False,
+                "device": "cpu",
+                "vram_total_mb": None,
+                "vram_used_mb": None,
+            }
+
+            async def driver():
+                with mock.patch(
+                    "video2text.pipeline_async._GPU_HEALTH_CACHE"
+                ) as cache:
+                    cache.get.return_value = cpu_health
+                    aps = [AsyncPipeline(sync, max_concurrent=4) for _ in range(2)]
+                    in_flight = 0
+                    peak = 0
+
+                    for ap in aps:
+                        async def tracked_run(src, **kw):
+                            nonlocal in_flight, peak
+                            in_flight += 1
+                            peak = max(peak, in_flight)
+                            try:
+                                await asyncio.sleep(0.01)
+                                return "OK"
+                            finally:
+                                in_flight -= 1
+
+                        ap.run = tracked_run  # type: ignore[assignment]
+
+                    batches = [
+                        ap.run_batch([f"src{i}" for i in range(6)])
+                        for ap in aps
+                    ]
+                    await asyncio.gather(*batches)
+                return peak
+
+            peak = _run_coro(driver())
+            self.assertLessEqual(peak, 4, f"global peak {peak} > shared cap 4")
+
+
+# ---------------------------------------------------------------------------
+# v3.2.0x P1-8: 取消契约
+# ---------------------------------------------------------------------------
+class TestCancelContract(unittest.TestCase):
+    """``cancel()`` 后 gather 不抛,结果按位置是 _FailedResult。"""
+
+    def test_cancelled_batch_returns_failed_results_not_raise(self):
+        with tempfile.TemporaryDirectory() as td:
+            sync = Pipeline(
+                settings=_fake_settings(Path(td)),
+                transcriber=_fake_transcriber(),
+            )
+
+            async def driver():
+                ap = AsyncPipeline(sync, max_concurrent=2)
+
+                async def fake_run(src, **kw):
+                    await asyncio.sleep(5)  # 模拟长任务
+                    return "OK"
+
+                ap.run = fake_run  # type: ignore[assignment]
+                task = asyncio.create_task(ap.run_batch(["a", "b", "c"]))
+                await asyncio.sleep(0.05)
+                ap.cancel()
+                # P1-8: gather 正常返回,不抛 CancelledError
+                return await task
+
+            results = _run_coro(driver())
+            self.assertEqual(len(results), 3)
+            for r in results:
+                self.assertIsInstance(r, _FailedResult)
+                self.assertIsInstance(r.exc, PipelineCancelled)
+
+    def test_run_batch_clears_stale_cancel_event(self):
+        """实例复用:上一次 batch 的取消请求不泄漏到下一次。"""
+        with tempfile.TemporaryDirectory() as td:
+            sync = Pipeline(
+                settings=_fake_settings(Path(td)),
+                transcriber=_fake_transcriber(),
+            )
+
+            async def driver():
+                ap = AsyncPipeline(sync, max_concurrent=1)
+                ap._cancel_event.set()  # 模拟上次 cancel() 的残留
+                return await ap.run_batch(["a"], runners={"a": lambda: "OK"})
+
+            results = _run_coro(driver())
+            self.assertEqual(results, ["OK"])
 
 
 # ---------------------------------------------------------------------------
