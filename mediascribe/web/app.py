@@ -1180,26 +1180,27 @@ def create_app(
             if auth_on
             else "No token is required by the server, so the extension options page is optional."
         )
-        # Render the same dark theme as the main UI for visual consistency.
+        # Render the same dark console theme as the main UI (warm charcoal
+        # + amber) for visual consistency.
         html = (
             '<!doctype html><html lang="en"><head><meta charset="utf-8">'
             "<title>MediaScribe Browser Extension</title>"
             "<style>"
-            "body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"
-            "background:#0f172a;color:#e2e8f0;padding:32px;line-height:1.55;}"
-            "a{color:#38bdf8;}h1{margin:0 0 4px;font-size:22px;}"
-            "h2{margin-top:28px;font-size:16px;color:#94a3b8;letter-spacing:.04em;text-transform:uppercase;}"
-            "ol{padding-left:20px;}code,pre{background:#0b1220;border:1px solid #334155;"
+            "body{margin:0;font-family:'Spline Sans Mono',ui-monospace,'Cascadia Code',Consolas,monospace;"
+            "background:#151310;color:#ece3d1;padding:32px;line-height:1.55;}"
+            "a{color:#ffb224;}h1{margin:0 0 4px;font-size:22px;}"
+            "h2{margin-top:28px;font-size:16px;color:#a3947a;letter-spacing:.04em;text-transform:uppercase;}"
+            "ol{padding-left:20px;}code,pre{background:#100e0a;border:1px solid #3b3425;"
             "border-radius:4px;padding:2px 6px;font-size:12px;}"
             "pre{padding:10px 12px;overflow:auto;}"
-            ".card{background:#0b1220;border:1px solid #334155;border-radius:8px;padding:18px 22px;"
+            ".card{background:#1d1a14;border:1px solid #3b3425;border-radius:8px;padding:18px 22px;"
             "max-width:760px;}"
-            ".btn{display:inline-block;background:#38bdf8;color:#0b1220;font-weight:600;"
+            ".btn{display:inline-block;background:#ffb224;color:#191204;font-weight:600;"
             "padding:10px 16px;border-radius:4px;text-decoration:none;margin-top:8px;}"
             ".btn:hover{filter:brightness(1.1);}"
-            ".tag{display:inline-block;background:#0b1220;border:1px solid #334155;"
-            "color:#94a3b8;padding:2px 8px;border-radius:99px;font-size:11px;margin-left:6px;}"
-            ".ok{color:#22c55e;}.warn{color:#f59e0b;}"
+            ".tag{display:inline-block;background:#100e0a;border:1px solid #3b3425;"
+            "color:#a3947a;padding:2px 8px;border-radius:99px;font-size:11px;margin-left:6px;}"
+            ".ok{color:#a3cf63;}.warn{color:#ffb224;}"
             "</style></head><body>"
             '<div class="card">'
             "<h1>MediaScribe Browser Extension"
@@ -1212,7 +1213,7 @@ def create_app(
             '<a class="btn" href="/api/extension/download">Download '
             "extension (.zip)</a> "
             '<a class="btn" href="/api/extension/install.md" '
-            'style="background:#0b1220;color:#e2e8f0;border:1px solid #334155;">'
+            'style="background:#100e0a;color:#ece3d1;border:1px solid #3b3425;">'
             "Install guide (markdown)</a>"
             "<h2>Install in 30 seconds</h2>"
             "<ol>"
@@ -1336,12 +1337,12 @@ def create_app(
         body = (
             '<!doctype html><meta charset="utf-8">'
             "<title>MediaScribe — Install guide</title>"
-            "<style>body{font-family:-apple-system,BlinkMacSystemFont,"
-            "'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;"
+            "<style>body{font-family:'Spline Sans Mono',ui-monospace,'Cascadia Code',Consolas,monospace;"
+            "background:#151310;color:#ece3d1;"
             "padding:32px;line-height:1.55;max-width:760px;}"
-            "pre,code{background:#0b1220;border:1px solid #334155;"
+            "pre,code{background:#100e0a;border:1px solid #3b3425;"
             "border-radius:4px;padding:2px 6px;}"
-            "a{color:#38bdf8;}</style>"
+            "a{color:#ffb224;}</style>"
             '<a href="/extension">&larr; Back</a>'
             f"<pre>{escape(md)}</pre>"
         )
