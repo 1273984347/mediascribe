@@ -46,11 +46,11 @@ None.  v3.1.0 already meets all declared v3.1.0 goals.  v3.2.0 is a
 ### 3. Profile CLI 透出
 **Effort** S · **Impact** Medium
 
-* New `python -m video2text.profile <run.jsonl>` command
+* New `python -m video2text.profile_cli <run.jsonl>` command
 * Reads `@profile_step` JSONL output and renders a Markdown / JSON report
 * Aggregates by stage (`download`, `transcribe`, `merge`, `export`)
 * Supports `--top N`, `--by-stage`, `--since YYYY-MM-DD` filters
-* Optionally `python -m video2text.profile --watch` for live tailing
+* Optionally `python -m video2text.profile_cli --watch` for live tailing
 * Adds docs section in [docs_site/performance.md](performance.md)
 
 ### 4. CI matrix split (lint / unit / integration)

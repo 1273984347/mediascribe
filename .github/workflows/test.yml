@@ -259,25 +259,6 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
-  # -------------------------------------------------------------------------
-  # 6. build-docs — soft check; failures are non-blocking
-  # -------------------------------------------------------------------------
-  build-docs:
-    name: Build docs
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-      - name: Install mkdocs
-        run: |
-          pip install mkdocs mkdocs-material
-          pip install -e ".[dev]"
-      - name: Build (non-strict)
-        run: |
-          mkdocs build
-        # strict mode disabled in mkdocs.yml; some auto-generated
-        # sections may include stale cross-refs.
+  # NOTE: docs build/deploy lives in docs.yml (authoritative, `mkdocs build
+  # --strict`).  A duplicate non-strict build here previously drifted from
+  # the strict gate and was removed.

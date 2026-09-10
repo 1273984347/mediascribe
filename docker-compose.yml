@@ -14,17 +14,23 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: video2text:web-3.1.0
+    # Local build (Dockerfile ENV already pins VIDEO2TEXT_WORKSPACE=/workspace);
+    # pin a stable local tag instead of a version tag that drifts from pyproject.
+    image: video2text:local
     ports:
       - "8000:8000"
     volumes:
-      # Persist transcripts / downloads on the host
+      # Persist transcripts / downloads on the host.  Pairs with
+      # VIDEO2TEXT_WORKSPACE=/workspace baked into the image, so everything
+      # the app writes under the workspace lands in ./web-workspace.
       - ./web-workspace:/workspace
-      # Allow the host's clipboard / browser extension to reach us
-      # by name (used by extension/manifest.json host_permissions)
-      - /etc/localtime:/etc/localtime:ro
+      # Sync container clock with the host's timezone.  Only works on
+      # Linux/macOS hosts (the file does not exist on Windows; Docker
+      # Desktop there would fail the mount) — uncomment on those hosts:
+      # - /etc/localtime:/etc/localtime:ro
     environment:
       - PYTHONUNBUFFERED=1
+      # Wired into the web layer's logging setup
       - VIDEO2TEXT_LOG_LEVEL=info
     restart: unless-stopped
     # Add GPU passthrough by uncommenting on a host with nvidia-container-toolkit:

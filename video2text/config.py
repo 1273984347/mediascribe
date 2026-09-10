@@ -10,6 +10,15 @@ from typing import Any, Dict, Optional
 
 _logger = logging.getLogger(__name__)
 
+# 合法转录引擎（与 video2text/transcribers/factory.py、web 层校验一致）
+_VALID_ENGINES = ("whisper", "faster-whisper", "whisperx")
+# 合法模型名（与 CLI --model choices、web 层 TranscribeRequest 校验一致）
+_VALID_MODELS = frozenset({
+    "tiny", "base", "small", "medium", "large",
+    "large-v1", "large-v2", "large-v3",
+    "distil-large-v2", "distil-large-v3",
+})
+
 
 class Settings:
     """应用程序配置"""
@@ -28,7 +37,26 @@ class Settings:
         cache_dir: Optional[Path] = None,
         llm_post_process: Optional[Dict[str, Any]] = None,
     ):
-        self.workspace_root = workspace_root or Path.cwd() / "output"
+        # workspace 根目录：显式参数 > VIDEO2TEXT_WORKSPACE 环境变量 > 默认 ./output
+        # （Docker 镜像 ENV VIDEO2TEXT_WORKSPACE=/workspace 指向挂载卷；web 层读取
+        # 同一 env，此处保持“env 优先于默认值、显式参数最优先”的一致语义。）
+        if workspace_root is not None:
+            self.workspace_root = Path(workspace_root)
+        else:
+            env_workspace = os.environ.get("VIDEO2TEXT_WORKSPACE", "").strip()
+            self.workspace_root = (
+                Path(env_workspace) if env_workspace else Path.cwd() / "output"
+            )
+
+        # 引擎 / 模型尽早校验：非法值立即 ValueError，避免转录中途才失败
+        if engine not in _VALID_ENGINES:
+            raise ValueError(
+                f"Unknown engine {engine!r}. Allowed: {', '.join(_VALID_ENGINES)}."
+            )
+        if model not in _VALID_MODELS:
+            raise ValueError(
+                f"Unknown model {model!r}. Allowed: {', '.join(sorted(_VALID_MODELS))}."
+            )
 
         # 目录配置
         self.downloads_dir = self.workspace_root / "downloads"
@@ -40,7 +68,7 @@ class Settings:
         # None 意味着遵循 XDG / VIDEO2TEXT_CACHE_DIR / 默认值
         self.cache_dir: Optional[Path] = Path(cache_dir) if cache_dir else None
 
-        # 模型配置
+        # 模型配置（已通过上方 _VALID_ENGINES / _VALID_MODELS 校验）
         self.model = model
         self.engine = engine
         # device 默认 auto-resolve (CUDA > Metal > ROCm > CPU)
@@ -66,33 +94,46 @@ class Settings:
                 self.wechat_cookies = _parse_cookie_string(env_cookie)
 
         # v3.2.0d: LLM 后处理配置（OpenAI 兼容 API）
-        # 显式 dict 参数优先；环境变量次之；默认禁用
+        # 显式 dict 参数优先；环境变量次之；默认禁用（必须显式开启，
+        # 仅设置 API_KEY 不再自动启用，避免误触外部计费 API）
         self.llm_post_process: Dict[str, Any] = dict(llm_post_process or {})
         # 环境变量兜底
         env_api_key = os.environ.get("VIDEO2TEXT_LLM_API_KEY", "").strip()
         if env_api_key and "api_key" not in self.llm_post_process:
             self.llm_post_process.setdefault("api_key", env_api_key)
         if "api_base" not in self.llm_post_process:
-            self.llm_post_process.setdefault(
-                "api_base",
-                os.environ.get("VIDEO2TEXT_LLM_API_BASE", "https://api.deepseek.com").strip(),
-            )
+            # api_base 无默认厂商值：必须由用户显式配置（env 或参数）
+            env_api_base = os.environ.get("VIDEO2TEXT_LLM_API_BASE", "").strip()
+            if env_api_base:
+                self.llm_post_process["api_base"] = env_api_base
         if "model" not in self.llm_post_process:
             self.llm_post_process.setdefault(
                 "model",
                 os.environ.get("VIDEO2TEXT_LLM_MODEL", "deepseek-chat").strip(),
             )
         if "enabled" not in self.llm_post_process:
-            enabled_env = os.environ.get("VIDEO2TEXT_LLM_ENABLED", "0").strip().lower()
-            # 有 api_key 默认启用，无则禁用；env 显式覆盖
-            self.llm_post_process.setdefault(
-                "enabled", enabled_env in ("1", "true", "yes", "on") if enabled_env else bool(env_api_key)
+            # 安全默认 False：仅当 VIDEO2TEXT_LLM_ENABLED 显式为
+            # 1/true/yes/on 时才启用
+            enabled_env = os.environ.get("VIDEO2TEXT_LLM_ENABLED", "").strip().lower()
+            self.llm_post_process["enabled"] = enabled_env in ("1", "true", "yes", "on")
+        # 启用 LLM 时必须已显式配置 api_base，否则在构造期给出清晰错误
+        if self.llm_post_process.get("enabled") and not self.llm_post_process.get("api_base"):
+            raise ValueError(
+                "LLM 后处理已启用（enabled=True），但未配置 api_base。"
+                " 请设置环境变量 VIDEO2TEXT_LLM_API_BASE"
+                "（如 https://api.deepseek.com / https://api.openai.com/v1），"
+                " 或在 Settings(llm_post_process={'api_base': ...}) 中显式传入。"
             )
 
         self.ensure_directories()
 
     def ensure_directories(self):
-        """确保所有目录存在"""
+        """确保所有目录存在。
+
+        注意：构造 Settings 时自动创建目录是刻意保留的副作用
+        （历史契约，pipeline / web 层均依赖目录在构造后即存在），
+        不要改成惰性创建。
+        """
         for dir_path in [
             self.workspace_root,
             self.downloads_dir,
@@ -113,6 +154,7 @@ def _load_cookie_file(path: Path) -> Dict[str, str]:
     """
     path = Path(path)
     if not path.exists():
+        _logger.warning("cookie 文件不存在: %s（忽略，按无 cookies 处理）", path)
         return {}
     text = path.read_text(encoding="utf-8", errors="ignore")
     return _parse_cookie_string(text)

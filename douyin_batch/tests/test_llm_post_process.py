@@ -33,14 +33,14 @@ class TestLLMPostProcessorDisabled(unittest.TestCase):
     """未启用 / 无 api_key → 返回原文 + llm-disabled。"""
 
     def test_no_api_key_returns_disabled(self):
-        from video2text.llm_post_process import LLMPostProcessor, STATUS_DISABLED
+        from video2text.llm_post_process import STATUS_DISABLED, LLMPostProcessor
         proc = LLMPostProcessor(api_key="", enabled=True)
         text, status = proc.post_process("这是一段足够长的中文文本用于测试。" * 5)
         self.assertEqual(status, STATUS_DISABLED)
         self.assertIn("这是一段", text)
 
     def test_enabled_false_returns_disabled(self):
-        from video2text.llm_post_process import LLMPostProcessor, STATUS_DISABLED
+        from video2text.llm_post_process import STATUS_DISABLED, LLMPostProcessor
         proc = LLMPostProcessor(api_key="fake-key", enabled=False)
         text, status = proc.post_process("这是一段足够长的中文文本用于测试。" * 5)
         self.assertEqual(status, STATUS_DISABLED)
@@ -50,14 +50,14 @@ class TestLLMPostProcessorSkipped(unittest.TestCase):
     """文本过短 → 返回原文 + llm-skipped。"""
 
     def test_short_text_returns_skipped(self):
-        from video2text.llm_post_process import LLMPostProcessor, STATUS_SKIPPED
+        from video2text.llm_post_process import STATUS_SKIPPED, LLMPostProcessor
         proc = LLMPostProcessor(api_key="fake-key", enabled=True)
         text, status = proc.post_process("短文本")
         self.assertEqual(status, STATUS_SKIPPED)
         self.assertEqual(text, "短文本")
 
     def test_empty_text_returns_skipped(self):
-        from video2text.llm_post_process import LLMPostProcessor, STATUS_SKIPPED
+        from video2text.llm_post_process import STATUS_SKIPPED, LLMPostProcessor
         proc = LLMPostProcessor(api_key="fake-key", enabled=True)
         text, status = proc.post_process("")
         self.assertEqual(status, STATUS_SKIPPED)
@@ -67,7 +67,7 @@ class TestLLMPostProcessorReviewed(unittest.TestCase):
     """API 成功 → 返回修正文本 + llm-reviewed。"""
 
     def test_successful_call_returns_reviewed(self):
-        from video2text.llm_post_process import LLMPostProcessor, STATUS_REVIEWED
+        from video2text.llm_post_process import STATUS_REVIEWED, LLMPostProcessor
         proc = LLMPostProcessor(api_key="fake-key", enabled=True)
         original = "佛尔摩斯蹲下身审视太武士河边的钢国死尸。" * 5
         fixed = "福尔摩斯蹲下身审视泰晤士河边的刚果死尸。" * 5
@@ -97,7 +97,7 @@ class TestLLMPostProcessorReviewed(unittest.TestCase):
 
     def test_strips_code_fences_from_response(self):
         """模型可能输出 ```markdown ... ``` 包裹,应剥离。"""
-        from video2text.llm_post_process import LLMPostProcessor, STATUS_REVIEWED
+        from video2text.llm_post_process import STATUS_REVIEWED, LLMPostProcessor
         proc = LLMPostProcessor(api_key="fake-key", enabled=True)
         original = "原始 ASR 文本需要修正的内容。" * 5
         fixed_content = "修正后的 ASR 文本内容。" * 5
@@ -120,7 +120,7 @@ class TestLLMPostProcessorFailed(unittest.TestCase):
     """API 抛错 → 返回原文 + llm-failed,不阻塞。"""
 
     def test_api_exception_returns_failed_and_original_text(self):
-        from video2text.llm_post_process import LLMPostProcessor, STATUS_FAILED
+        from video2text.llm_post_process import STATUS_FAILED, LLMPostProcessor
         proc = LLMPostProcessor(api_key="fake-key", enabled=True)
         original = "原始 ASR 文本需要修正的内容。" * 5
 
@@ -136,7 +136,7 @@ class TestLLMPostProcessorFailed(unittest.TestCase):
         self.assertEqual(text, original)
 
     def test_empty_api_response_returns_failed(self):
-        from video2text.llm_post_process import LLMPostProcessor, STATUS_FAILED
+        from video2text.llm_post_process import STATUS_FAILED, LLMPostProcessor
         proc = LLMPostProcessor(api_key="fake-key", enabled=True)
         original = "原始 ASR 文本需要修正的内容。" * 5
 
@@ -185,7 +185,7 @@ class TestLLMPostProcessorFromEnv(unittest.TestCase):
             "VIDEO2TEXT_LLM_TIMEOUT",
             "VIDEO2TEXT_LLM_MAX_CHARS",
         ]
-        clean_env = {k: "" for k in env_keys}
+        clean_env = dict.fromkeys(env_keys, "")
         with mock.patch.dict("os.environ", clean_env, clear=False):
             # patch os.environ.get to return "" for our keys
             with mock.patch("os.environ.get") as mock_get:
@@ -199,8 +199,9 @@ class TestLLMPostProcessorFromEnv(unittest.TestCase):
 
     def test_from_settings_namespace(self):
         """Settings 有 llm_post_process dict 字段时优先用。"""
-        from video2text.llm_post_process import LLMPostProcessor
         from types import SimpleNamespace
+
+        from video2text.llm_post_process import LLMPostProcessor
 
         settings = SimpleNamespace(
             llm_post_process={
@@ -219,8 +220,9 @@ class TestLLMPostProcessorFromEnv(unittest.TestCase):
         self.assertTrue(proc.enabled)
 
     def test_from_settings_falls_back_to_env(self):
-        from video2text.llm_post_process import LLMPostProcessor
         from types import SimpleNamespace
+
+        from video2text.llm_post_process import LLMPostProcessor
 
         settings = SimpleNamespace(llm_post_process=None)
         env = {"VIDEO2TEXT_LLM_API_KEY": "fallback-key", "VIDEO2TEXT_LLM_ENABLED": "1"}
@@ -236,7 +238,7 @@ class TestBuildStatusBanner(unittest.TestCase):
     """banner 生成正确。"""
 
     def test_reviewed_with_model(self):
-        from video2text.llm_post_process import build_status_banner, STATUS_REVIEWED
+        from video2text.llm_post_process import STATUS_REVIEWED, build_status_banner
         banner = build_status_banner(STATUS_REVIEWED, "deepseek-chat")
         self.assertEqual(
             banner,
@@ -244,13 +246,13 @@ class TestBuildStatusBanner(unittest.TestCase):
         )
 
     def test_disabled_banner(self):
-        from video2text.llm_post_process import build_status_banner, STATUS_DISABLED
+        from video2text.llm_post_process import STATUS_DISABLED, build_status_banner
         banner = build_status_banner(STATUS_DISABLED)
         self.assertIn("llm-disabled", banner)
         self.assertIn("not LLM-reviewed", banner)
 
     def test_failed_banner(self):
-        from video2text.llm_post_process import build_status_banner, STATUS_FAILED
+        from video2text.llm_post_process import STATUS_FAILED, build_status_banner
         banner = build_status_banner(STATUS_FAILED)
         self.assertIn("llm-failed", banner)
         self.assertIn("fell back", banner)

@@ -8,6 +8,8 @@
   "max_videos": 10,
   "max_scroll_rounds": 10,
   "scroll_pause": 2.0,
+  "user_url": "",
+  "_comment_user_url": "可选：创作者主页 URL（https://www.douyin.com/user/...）。提供后直接按主页抓取，无需从单条视频反推；留空则沿用原有按视频抓取流程。",
   "language": "zh",
   "whisper_model": "small",
   "output_dir": "output",

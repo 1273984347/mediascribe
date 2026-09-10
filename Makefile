@@ -23,15 +23,13 @@
 
 PY      ?= python
 PIP     ?= $(PY) -m pip
-BLACK   ?= $(PY) -m black
-ISORT   ?= $(PY) -m isort
-FLAKE8  ?= $(PY) -m flake8
 PYTEST  ?= $(PY) -m pytest
+RUFF    ?= $(PY) -m ruff
 
 REQUIREMENTS      := requirements.txt
 REQUIREMENTS_DEV  := requirements-dev.txt
 
-.PHONY: help install dev test test-verbose lint format demo clean verify all install-browser up up-daemon down status logs docker-up
+.PHONY: help install dev test test-verbose test-i18n test-cross test-imports test-syntax lint format demo clean verify all install-browser up up-daemon down status logs docker-up
 
 help:
 	@echo "Video2Text — available targets:"
@@ -85,12 +83,12 @@ test-syntax:
 	$(PY) douyin_batch/tests/test_syntax.py
 
 lint:
-	$(FLAKE8) --max-line-length=100 video2text douyin_batch
-	$(BLACK) --check --diff video2text douyin_batch
+	$(RUFF) check .
+	$(RUFF) format --check .
 
 format:
-	$(RUFF) check --fix video2text douyin_batch scripts examples
-	$(RUFF) format video2text douyin_batch scripts examples
+	$(RUFF) check --fix .
+	$(RUFF) format .
 
 demo:
 	$(PY) demo_v3.py
@@ -138,5 +136,5 @@ docker-up:
 # Equivalent without `make`:
 #   pip install -r requirements.txt
 #   python run_tests.py
-#   python -m black --check video2text douyin_batch
-#   python -m flake8 --max-line-length=100 video2text douyin_batch
+#   python -m ruff check .
+#   python -m ruff format --check .

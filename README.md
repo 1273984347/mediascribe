@@ -36,7 +36,7 @@
 - 🛡️ **Production Ready** - Logging, error handling, resume support
 - 🎙️ **VAD chunking** (v3.2.0a) — `webrtcvad`-driven boundaries for long videos with 5 s overlap
 - 💾 **Cross-run cache** (v3.2.0a) — XDG-spec disk cache with LRU + TTL, `VIDEO2TEXT_CACHE_DIR` override
-- 📊 **`profile` CLI** (v3.2.0a) — `python -m video2text profile <run.jsonl>` to Markdown / JSON / CSV
+- 📊 **`profile` CLI** (v3.2.0a) — `python -m video2text profile <run.jsonl>` to Markdown / JSON
 - 🧠 **ASR 自动学习** (v3.2.0b) — `python -m video2text learn` 从用户校对累积术语库,越用越准
 - 📡 **WebSocket progress** (v3.2.0a) — `/ws/progress/{job_id}` streams 3-bar download / transcribe / assemble updates
 

@@ -291,6 +291,7 @@ class TestLearnIntegration:
         learn([("长心的", "常为新的")], path=store)  # auto-confirm
 
         from unittest.mock import patch
+
         from video2text.post_process import post_process_transcript
 
         with patch("video2text.learn.learned_terms_path", return_value=store):
@@ -304,6 +305,7 @@ class TestLearnIntegration:
         learn([("长心的", "常为新的")], path=store)  # count=1, not active
 
         from unittest.mock import patch
+
         from video2text.post_process import post_process_transcript
 
         with patch("video2text.learn.learned_terms_path", return_value=store):
