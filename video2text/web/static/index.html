@@ -233,13 +233,21 @@
         </div>
       </div>
 
+      <div class="row">
+        <div>
+          <label for="api-token">API token (only if server sets VIDEO2TEXT_API_TOKEN)</label>
+          <input id="api-token" type="password" autocomplete="off" placeholder="leave empty when auth is disabled">
+        </div>
+        <div></div>
+      </div>
+
       <button id="submit" type="submit">Transcribe</button>
       <p class="status" id="status">Ready.</p>
     </form>
 
     <section class="results" id="results"></section>
 
-    <footer>Video2Text v3.2.0c · <a href="/api/health" style="color:var(--accent);">/api/health</a> · <a href="/extension" style="color:var(--accent);">Browser extension</a></footer>
+    <footer>Video2Text v3.3.0 · <a href="/api/health" style="color:var(--accent);">/api/health</a> · <a href="/extension" style="color:var(--accent);">Browser extension</a></footer>
   </main>
 
   <script>
@@ -300,6 +308,32 @@
       merge: "Merge",
     };
 
+    // -------------------------------------------------------------------------
+    // API token — needed only when the server sets VIDEO2TEXT_API_TOKEN.
+    // HTTP calls send it as a Bearer header; the WebSocket passes it via
+    // ?token= (validated server-side before accept). Persisted per browser.
+    // -------------------------------------------------------------------------
+    const tokenInput = document.getElementById("api-token");
+    try { tokenInput.value = localStorage.getItem("v2t_api_token") || ""; } catch (_) { /* storage unavailable */ }
+    tokenInput.addEventListener("change", () => {
+      try {
+        if (tokenInput.value) localStorage.setItem("v2t_api_token", tokenInput.value);
+        else localStorage.removeItem("v2t_api_token");
+      } catch (_) { /* storage unavailable */ }
+    });
+
+    function apiToken() { return tokenInput.value.trim(); }
+    function authHeaders() {
+      const t = apiToken();
+      return t ? { "Authorization": "Bearer " + t } : {};
+    }
+    function wsUrl(path) {
+      const t = apiToken();
+      const q = t ? "?token=" + encodeURIComponent(t) : "";
+      return (location.protocol === "https:" ? "wss:" : "ws:") +
+        "//" + location.host + path + q;
+    }
+
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const urls = document.getElementById("urls").value
@@ -320,7 +354,7 @@
         };
         const resp = await fetch("/api/jobs", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...authHeaders() },
           body: JSON.stringify(body),
         });
         if (!resp.ok) {
@@ -369,7 +403,7 @@
       // Cancel button
       card.querySelector("[data-cancel]").addEventListener("click", async () => {
         try {
-          await fetch(`/api/jobs/${job.job_id}/cancel`, { method: "POST" });
+          await fetch(`/api/jobs/${job.job_id}/cancel`, { method: "POST", headers: authHeaders() });
           statusEl.textContent = `Cancellation requested for ${job.job_id}`;
         } catch (_) { /* network */ }
       });
@@ -378,8 +412,7 @@
     }
 
     function connectWs(card, job) {
-      const url = (location.protocol === "https:" ? "wss:" : "ws:") +
-        "//" + location.host + `/ws/progress/${job.job_id}`;
+      const url = wsUrl(`/ws/progress/${job.job_id}`);
       const ws = new WebSocket(url);
 
       function setStage(name, idx, pct) {
@@ -433,7 +466,7 @@
 
     async function fetchResult(card, job) {
       try {
-        const r = await fetch(`/api/jobs/${job.job_id}/result`);
+        const r = await fetch(`/api/jobs/${job.job_id}/result`, { headers: authHeaders() });
         if (!r.ok) return;
         const data = await r.json();
         if (!data.markdown) return;

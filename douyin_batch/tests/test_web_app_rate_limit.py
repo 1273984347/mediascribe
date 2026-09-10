@@ -103,6 +103,36 @@ class TestRateLimiterUnit(unittest.TestCase):
         self.assertTrue(lim.check("client-a")[0])
         self.assertTrue(lim.check("client-b")[0])
 
+    def test_sweep_removes_expired_buckets(self):
+        """P2-1: sweep() 必须清掉窗口外 client 的 bucket。"""
+        lim = _RateLimiter(max_requests=2, window_seconds=0.05)
+        lim.check("client-a")
+        lim.check("client-b")
+        self.assertEqual(len(lim._buckets), 2)
+        time.sleep(0.08)
+        removed = lim.sweep()
+        self.assertEqual(removed, 2)
+        self.assertEqual(len(lim._buckets), 0)
+
+    def test_sweep_keeps_active_buckets(self):
+        lim = _RateLimiter(max_requests=2, window_seconds=60)
+        lim.check("client-a")
+        lim.check("client-b")
+        removed = lim.sweep()
+        self.assertEqual(removed, 0)
+        self.assertEqual(len(lim._buckets), 2)
+
+    def test_check_triggers_periodic_sweep(self):
+        """check() 距上次清理超过 sweep_interval 时自动全表清理。"""
+        lim = _RateLimiter(max_requests=2, window_seconds=0.05)
+        lim.check("client-a")
+        time.sleep(0.08)
+        # 强制让 sweep 周期到期, 再从另一个 client check — 过期 bucket
+        # 应当被自动回收。
+        lim._last_sweep = 0.0
+        lim.check("client-b")
+        self.assertEqual(list(lim._buckets.keys()), ["client-b"])
+
     def test_thread_safety(self):
         """Concurrent ``check()`` from many threads must not exceed the quota."""
         import threading

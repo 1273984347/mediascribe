@@ -13,6 +13,7 @@ FastAPI is required; tests skip cleanly when it is missing.
 """
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import threading
@@ -26,6 +27,16 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "video2text" / "web"))
+
+
+def setUpModule():
+    # P1-2 SSRF 校验会让提交入口做 DNS 解析; 把 example.com 加入
+    # VIDEO2TEXT_ALLOWED_HOSTS 白名单, 让测试离线、确定性。
+    os.environ["VIDEO2TEXT_ALLOWED_HOSTS"] = "example.com"
+
+
+def tearDownModule():
+    os.environ.pop("VIDEO2TEXT_ALLOWED_HOSTS", None)
 
 
 def _fastapi_or_skip():
@@ -200,6 +211,28 @@ class TestSubmitJobs(unittest.TestCase):
             # Pydantic ``Field(min_length=1)`` rejects empty lists with
             # 422 (validation error) before the endpoint body runs.
             self.assertEqual(r.status_code, 422)
+
+    def test_duplicate_urls_deduped_preserving_order(self):
+        """P2-6: 重复 URL 只建一个 job(避免孤儿 job / 并发写同一 out_path)。"""
+        with tempfile.TemporaryDirectory() as td:
+            client, _ = _make_client(Path(td))
+            fake = _fake_pipeline()
+            with mock.patch("app._build_pipeline", return_value=fake):
+                r = client.post("/api/jobs", json={"urls": [
+                    "https://example.com/a",
+                    "https://example.com/b",
+                    "https://example.com/a",
+                ]})
+            self.assertEqual(r.status_code, 200, r.text)
+            data = r.json()
+            self.assertEqual(len(data["jobs"]), 2)
+            self.assertEqual(
+                [j["url"] for j in data["jobs"]],
+                ["https://example.com/a", "https://example.com/b"],
+            )
+            # 计数字段让客户端感知发生了去重。
+            self.assertEqual(data["requested"], 3)
+            self.assertEqual(data["unique"], 2)
 
     def test_result_returns_markdown_after_finish(self):
         """After the background runner completes, /result returns the markdown."""
@@ -577,6 +610,7 @@ class TestRunJobSafelyPurgeCheck(unittest.TestCase):
     def test_skips_write_when_job_purged_mid_run(self):
         """If the job is purged between runner() finish and write, skip."""
         import app as app_module
+
         from video2text.progress import ProgressRegistry
 
         registry = ProgressRegistry()
@@ -605,6 +639,7 @@ class TestRunJobSafelyPurgeCheck(unittest.TestCase):
     def test_writes_when_job_still_in_registry(self):
         """Regression: when job is still in registry, write happens normally."""
         import app as app_module
+
         from video2text.progress import ProgressRegistry
 
         registry = ProgressRegistry()

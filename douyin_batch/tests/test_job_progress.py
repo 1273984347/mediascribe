@@ -184,6 +184,43 @@ class TestProgressRegistry(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# P2-9 — bounded events queue
+# ---------------------------------------------------------------------------
+
+
+class TestBoundedEventsQueue(unittest.TestCase):
+    """events 队列必须有界: 满时丢最旧, 终态事件永不丢。"""
+
+    def test_queue_is_bounded_and_drops_oldest(self):
+        from video2text.progress import EVENTS_QUEUE_MAXSIZE, JobProgress
+
+        job = JobProgress(job_id="j1", url="u")
+        self.assertEqual(job.events.maxsize, EVENTS_QUEUE_MAXSIZE)
+        # 以非终态事件灌满队列再溢出 50 条。
+        for i in range(EVENTS_QUEUE_MAXSIZE + 50):
+            job.emit("stage_progress", current=i)
+        self.assertLessEqual(job.events.qsize(), EVENTS_QUEUE_MAXSIZE)
+        self.assertGreater(job.dropped_events, 0)
+        # 队列里最旧的事件已被丢弃(第一看到的是被保留的较新事件)。
+        first = job.events.get_nowait()
+        self.assertEqual(first["event"], "stage_progress")
+        self.assertGreaterEqual(first["current"], 50)
+
+    def test_terminal_event_never_dropped(self):
+        from video2text.progress import EVENTS_QUEUE_MAXSIZE, JobProgress
+
+        job = JobProgress(job_id="j1", url="u")
+        for i in range(EVENTS_QUEUE_MAXSIZE + 10):
+            job.emit("stage_progress", current=i)
+        job.succeed({"out_path": "x"})
+        events = []
+        while not job.events.empty():
+            events.append(job.events.get_nowait()["event"])
+        self.assertEqual(events[-1], "succeeded",
+                         "终态事件必须保留在队尾(丢最旧策略)")
+
+
+# ---------------------------------------------------------------------------
 # with_progress — pipeline wrapper
 # ---------------------------------------------------------------------------
 

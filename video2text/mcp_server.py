@@ -9,6 +9,16 @@ Two transports are supported:
 - **stdio** (default) — for local agents (Claude Code, Cursor, Cline)
 - **HTTP** (--transport http) — for remote agents
 
+HTTP transport hardening (P1-4):
+- ``VIDEO2TEXT_MCP_TOKEN`` — when set, every HTTP request must carry
+  ``X-MCP-Token: <token>`` or ``Authorization: Bearer <token>``
+  (401 otherwise).  Unset ⇒ auth disabled (stdio unaffected).
+- Host header allowlist: only ``127.0.0.1:<port>``,
+  ``localhost:<port>`` and extra hosts from
+  ``VIDEO2TEXT_MCP_ALLOWED_HOSTS`` are accepted (403 otherwise) to
+  prevent DNS rebinding.
+- Request bodies larger than 1 MiB are rejected with 413.
+
 Usage:
     # Install MCP SDK first:  pip install mcp
     # Then register in your agent's MCP config:
@@ -449,7 +459,14 @@ def _tool_batch_transcribe_creator(args: Dict[str, Any]) -> Dict[str, Any]:
         cmd.extend(["--user", args["user_url"]])
     elif args.get("from_video"):
         cmd.extend(["--from-video", args["from_video"]])
-    cmd.extend(["-n", str(args.get("max_videos", 10))])
+    # P1-4⑥: handler 层强制 clamp 到 schema 声明的 1-200 — 恶意/异常
+    # 客户端可能绕过 schema 校验直接传 0 / 负数 / 超大值。
+    try:
+        max_videos = int(args.get("max_videos", 10))
+    except (TypeError, ValueError):
+        max_videos = 10
+    max_videos = max(1, min(200, max_videos))
+    cmd.extend(["-n", str(max_videos)])
     if args.get("language"):
         cmd.extend(["--language", args["language"]])
     if args.get("output_dir"):
@@ -568,9 +585,15 @@ def _make_error(req_id: Any, code: int, message: str) -> Dict[str, Any]:
 
 
 def _handle_request(req: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    # P1-4⑤: 畸形请求(params 非 dict / req 非 dict)不再抛 AttributeError,
+    # 而是返回结构化 JSON-RPC error。
+    if not isinstance(req, dict):
+        return _make_error(None, -32600, "Invalid Request: body must be an object")
     method = req.get("method")
     req_id = req.get("id")
     params = req.get("params", {}) or {}
+    if not isinstance(params, dict):
+        return _make_error(req_id, -32602, "Invalid params: params must be an object")
 
     if method == "initialize":
         return _make_response(req_id, {
@@ -613,6 +636,19 @@ def _handle_request(req: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return _make_error(req_id, -32601, f"Method not found: {method}")
 
 
+def _safe_handle_request(req: Any) -> Optional[Dict[str, Any]]:
+    """``_handle_request`` 的防崩包装 (P1-4④)。
+
+    任何畸形请求都返回 JSON-RPC error 对象(而不是抛异常), stdio 主
+    循环 / HTTP handler 不会因一条坏消息退出。
+    """
+    try:
+        return _handle_request(req)
+    except Exception as exc:
+        req_id = req.get("id") if isinstance(req, dict) else None
+        return _make_error(req_id, -32603, f"Internal error: {type(exc).__name__}")
+
+
 def _run_stdio() -> None:
     """Read JSON-RPC messages from stdin, write responses to stdout."""
     sys.stderr.write("[video2text MCP] stdio server ready\n")
@@ -630,25 +666,121 @@ def _run_stdio() -> None:
             sys.stdout.write(json.dumps(_make_error(None, -32700, f"Parse error: {exc}")) + "\n")
             sys.stdout.flush()
             continue
-        resp = _handle_request(req)
+        resp = _safe_handle_request(req)
         if resp is not None:
             sys.stdout.write(json.dumps(resp) + "\n")
             sys.stdout.flush()
 
 
-def _run_http(host: str, port: int) -> None:
-    """Tiny HTTP server (no extra deps). For production use a real ASGI server."""
+# ---------------------------------------------------------------------------
+# HTTP transport hardening (P1-4)
+# ---------------------------------------------------------------------------
+_MAX_REQUEST_BODY_BYTES = 1024 * 1024  # 1 MiB — 请求体上限 (P1-4③)
+
+
+def _mcp_expected_token() -> str:
+    return os.environ.get("VIDEO2TEXT_MCP_TOKEN", "").strip()
+
+
+def _mcp_token_ok(headers: Any) -> bool:
+    """P1-4①: 可选 token 鉴权。
+
+    设置了 ``VIDEO2TEXT_MCP_TOKEN`` 时, 请求必须携带 ``X-MCP-Token``
+    头或 ``Authorization: Bearer <token>``; 常数时间比较。未设置时不
+    鉴权 — 默认本地 stdio 用法与既有部署行为完全不变。
+    """
+    expected = _mcp_expected_token()
+    if not expected:
+        return True
+    get = getattr(headers, "get")
+    presented = (get("X-MCP-Token") or "").strip()
+    if not presented:
+        auth = (get("Authorization") or "").strip()
+        if auth.lower().startswith("bearer "):
+            presented = auth.split(" ", 1)[1].strip()
+    if not presented:
+        return False
+    import hmac
+    return hmac.compare_digest(presented, expected)
+
+
+def _mcp_host_ok(host_header: str, port: int) -> bool:
+    """P1-4②: Host 头白名单, 防 DNS rebinding。
+
+    仅允许 ``127.0.0.1:<port>`` / ``localhost:<port>`` 以及
+    ``VIDEO2TEXT_MCP_ALLOWED_HOSTS``(逗号分隔)配置的额外主机; 额外
+    主机条目可带端口(须精确匹配)或不带端口(匹配任意端口)。
+    """
+    host = (host_header or "").strip().lower()
+    if not host:
+        return False
+    if host in (f"127.0.0.1:{port}", f"localhost:{port}"):
+        return True
+    for extra in os.environ.get("VIDEO2TEXT_MCP_ALLOWED_HOSTS", "").split(","):
+        extra = extra.strip().lower()
+        if not extra:
+            continue
+        if extra == host:
+            return True
+        if ":" not in extra and host.rsplit(":", 1)[0] == extra:
+            return True
+    return False
+
+
+def _make_http_server(host: str, port: int) -> Any:
+    """构建加固过的 HTTP server (不引入额外依赖)。
+
+    P1-4: 请求处理顺序为 请求体上限(413) → Host 白名单(403) →
+    token(401) → JSON-RPC; body 先于校验读取, 保证错误响应发出时
+    连接可以干净关闭; 解析/处理任何异常都回 JSON-RPC error 对象。
+    """
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     class Handler(BaseHTTPRequestHandler):
+        def _reply_plain(self, code: int, message: str, **extra_headers: str) -> None:
+            data = json.dumps({"error": message}).encode("utf-8")
+            self.send_response(code)
+            for key, value in extra_headers.items():
+                self.send_header(key.replace("_", "-"), value)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
         def do_POST(self):  # noqa: N802
-            length = int(self.headers.get("Content-Length", "0"))
-            body = self.rfile.read(length).decode("utf-8")
+            # 先读 body(带 1 MiB 上限)再做鉴权/Host 校验 — 这样任何错误
+            # 响应发出时请求体都已被消费, 连接可以干净关闭(否则 Windows
+            # 下客户端会在读到响应前收到 RST)。
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+            except ValueError:
+                length = 0
+            if length > _MAX_REQUEST_BODY_BYTES:
+                # P1-4③: 超限直接 413, 不缓冲 body。丢弃已声明的 body
+                # (设硬上限防止恶意超大声明拖住服务线程)。
+                self._reply_plain(413, "request body too large")
+                self._drain(length)
+                return
+            body = self.rfile.read(length).decode("utf-8", errors="replace")
+            bound_port = self.server.server_address[1]
+            if not _mcp_host_ok(self.headers.get("Host", ""), bound_port):
+                self._reply_plain(403, "forbidden host")
+                return
+            if not _mcp_token_ok(self.headers):
+                self._reply_plain(
+                    401, "missing or invalid MCP token",
+                    WWW_Authenticate="Bearer",
+                )
+                return
             try:
                 req = json.loads(body)
-                resp = _handle_request(req)
+                resp = _safe_handle_request(req)
                 if resp is None:
-                    resp = {"jsonrpc": "2.0", "id": req.get("id"), "result": {}}
+                    resp = {
+                        "jsonrpc": "2.0",
+                        "id": req.get("id") if isinstance(req, dict) else None,
+                        "result": {},
+                    }
             except json.JSONDecodeError as exc:
                 resp = _make_error(None, -32700, f"Parse error: {exc}")
             data = json.dumps(resp).encode("utf-8")
@@ -658,10 +790,34 @@ def _run_http(host: str, port: int) -> None:
             self.end_headers()
             self.wfile.write(data)
 
+        def _drain(self, declared_length: int) -> None:
+            """丢弃请求体(硬上限 8 MiB), 防止未读数据触发 RST。"""
+            remaining = min(declared_length, 8 * 1024 * 1024)
+            try:
+                while remaining > 0:
+                    chunk = self.rfile.read(min(65536, remaining))
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+            except OSError:  # pragma: no cover - client vanished
+                pass
+
         def log_message(self, *_):
             pass  # suppress noisy access log
 
-    server = ThreadingHTTPServer((host, port), Handler)
+    return ThreadingHTTPServer((host, port), Handler)
+
+
+def _run_http(host: str, port: int) -> None:
+    """Tiny HTTP server (no extra deps). For production use a real ASGI server.
+
+    P1-4 安全加固:
+      * ``VIDEO2TEXT_MCP_TOKEN`` 设置时要求 ``X-MCP-Token`` /
+        ``Authorization: Bearer``(否则 401); 未设置时行为不变。
+      * Host 头白名单(否则 403), 防 DNS rebinding。
+      * 请求体 > 1 MiB 直接 413。
+    """
+    server = _make_http_server(host, port)
     sys.stderr.write(f"[video2text MCP] http server listening on {host}:{port}\n")
     sys.stderr.flush()
     try:

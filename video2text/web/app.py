@@ -33,26 +33,46 @@ Security:
       list to override.  ``*`` is also accepted.
     * Auth: if ``VIDEO2TEXT_API_TOKEN`` is set, every API request
       (except ``/api/health`` and ``/``) must carry
-      ``Authorization: Bearer <token>``.  The token is loaded once at
-      startup; rotate by restarting the server.
+      ``Authorization: Bearer <token>``.  The same token is required on
+      the ``/ws/progress/{job_id}`` WebSocket handshake via
+      ``?token=`` (or the first ``Sec-WebSocket-Protocol`` entry).
+      The token is loaded once at startup; rotate by restarting the
+      server.
+    * SSRF: user-submitted http(s) URLs are resolved and rejected when
+      they point at private / loopback / link-local / reserved
+      addresses (``VIDEO2TEXT_ALLOWED_HOSTS`` opts hostnames out for
+      local development).  Local file paths are only accepted inside
+      the workspace directory.
+    * CSRF: JSON-body POST endpoints require ``Content-Type:
+      application/json`` (else 415), so cross-site ``text/plain`` form
+      posts cannot drive them.
+    * Misc env knobs: ``VIDEO2TEXT_PUBLIC_BASE_URL`` (origin rendered
+      into INSTALL.md), ``VIDEO2TEXT_WORKSPACE`` (data root),
+      ``VIDEO2TEXT_LOG_LEVEL`` (root log level),
+      ``VIDEO2TEXT_WS_MAX_SESSION_SECONDS`` /
+      ``VIDEO2TEXT_WS_IDLE_TIMEOUT_SECONDS`` (WebSocket lifetime caps).
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
 import functools
+import ipaddress
 import logging
 import os
+import queue
+import socket
 import sys
 import threading
 import time
 import uuid
-from collections import deque
+from collections import OrderedDict, deque
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Callable, Deque, Dict, List, Optional
+from urllib.parse import urlsplit
 
 # FastAPI / Pydantic are optional dependencies.  The CLI may
 # still want to print the help without them, so we keep imports
@@ -67,6 +87,20 @@ except ImportError:  # pragma: no cover - optional
     _FASTAPI_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
+
+
+def _configure_logging_from_env() -> None:
+    """把 ``VIDEO2TEXT_LOG_LEVEL`` 应用到 root logger(幂等)。
+
+    docker-compose / Dockerfile 已经导出 ``VIDEO2TEXT_LOG_LEVEL=info``,
+    但此前代码从不读取 — 死配置。无法识别的取值直接忽略, 保持默认级别。
+    """
+    raw = os.environ.get("VIDEO2TEXT_LOG_LEVEL", "").strip().upper()
+    if not raw:
+        return
+    level = getattr(logging, raw, None)
+    if isinstance(level, int):
+        logging.getLogger().setLevel(level)
 
 ROOT = Path(__file__).parent.parent.parent
 STATIC_DIR = Path(__file__).parent / "static"
@@ -240,9 +274,7 @@ def _build_pipeline(req: "TranscribeRequest", workspace: Path):
 
 # v3.2.0e: Pipeline 实例缓存，按 (engine, model, device, language) 复用。
 # 避免每个 Web 请求重新加载 Whisper 模型（5s+ → 0ms）。
-_PIPELINE_CACHE: "OrderedDict[tuple, Any]" = __import__(
-    "collections"
-).OrderedDict()
+_PIPELINE_CACHE: "OrderedDict[tuple, Any]" = OrderedDict()
 # v3.2.0e+: 保护 _PIPELINE_CACHE 的 LRU 淘汰与写入，防止并发 race。
 _PIPELINE_CACHE_LOCK = threading.Lock()
 
@@ -280,6 +312,9 @@ def _run_one(pipeline, url: str, out_dir: Path, req: "TranscribeRequest") -> "Tr
             ocr_total=int(meta.get("ocr_total", 0)),
         )
     except Exception as exc:  # pragma: no cover - defensive
+        # P2-8: 下载/解析类用户输入错误(如视频不存在)原样返回给提交者,
+        # 但完整 traceback 要落服务端日志。
+        logger.exception("transcribe failed (url=%s)", url[:200])
         return TranscribeItem(url=url, ok=False, error=f"{exc.__class__.__name__}: {exc}")
 
 
@@ -311,7 +346,8 @@ _DEFAULT_CORS_ORIGIN_REGEX = (
     r"^https?://(localhost|127\.0\.0\.1|host\.docker\.internal)(:\d+)?$"
     r"|^chrome-extension://[a-z]+$"
     r"|^moz-extension://[a-f0-9-]{36,}$"
-    r"|^file://.+$"
+    # P2-2: ``file://`` 分支已删除 — 任意本地页面都能带着用户凭据场景
+    # 打跨站请求。确有需要时经 ``VIDEO2TEXT_CORS_ORIGINS`` 显式配置。
 )
 
 
@@ -350,6 +386,193 @@ def _require_api_token(authorization: Optional[str] = Header(default=None)) -> N
         )
 
 
+def _verify_api_token(presented: Optional[str]) -> bool:
+    """Constant-time token check shared by HTTP and WebSocket auth (P1-1).
+
+    Same server-side token source as :func:`_require_api_token`
+    (``VIDEO2TEXT_API_TOKEN``).  When the env var is unset auth is
+    disabled and every caller is allowed — mirroring the HTTP behaviour.
+    """
+    expected = os.environ.get("VIDEO2TEXT_API_TOKEN", "").strip()
+    if not expected:
+        return True  # auth disabled — same as the HTTP side
+    if not presented or not presented.strip():
+        return False
+    import hmac
+    return hmac.compare_digest(presented.strip(), expected)
+
+
+def _env_float(name: str, default: float) -> float:
+    """Read a float env var; unparsable/empty falls back to ``default``."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+def _require_json_content_type(request: Request) -> None:
+    """P2-3: CSRF 防护 — ``text/plain`` 表单 "简单请求" 可携带任意 body
+    却无需 CORS 预检, 不能让它驱动 JSON API。要求带 JSON body 的 POST
+    端点显式声明 ``Content-Type: application/json``, 浏览器表单无法伪造
+    该头。仅用于 **有 JSON body** 的端点; 无 body 的端点(如
+    ``/api/jobs/{id}/cancel``)不适用。
+    """
+    ctype = (request.headers.get("content-type") or "").strip().lower()
+    if not ctype.startswith("application/json"):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Content-Type must be application/json",
+        )
+
+
+# ---------------------------------------------------------------------------
+# SSRF / local-path hardening for user-submitted sources (P1-2 / P1-3)
+# ---------------------------------------------------------------------------
+def _validate_public_url(url: str) -> str:
+    """Validate a user-supplied http(s) URL against SSRF targets (P1-2).
+
+    Rejects:
+
+    1. non-http(s) schemes (defence in depth — the pydantic validator
+       already blocks the obvious ones);
+    2. URLs carrying userinfo (``https://user@host/…``);
+    3. hostnames that resolve to private / loopback / link-local /
+       reserved / multicast addresses — checked against *every* address
+       ``socket.getaddrinfo`` returns, so DNS rebinding to an internal
+       IP is caught too;
+    4. hostnames that fail to resolve (fail closed).
+
+    Opt-out for local development: set ``VIDEO2TEXT_ALLOWED_HOSTS`` to a
+    comma-separated list of hostnames that skip the private-address
+    check (they still must be http(s) and userinfo-free).
+
+    Note: this deliberately does NOT reuse
+    ``douyin_batch.security.check_url_safety`` — that helper is a
+    Douyin-domain allowlist and would reject YouTube / Bilibili URLs.
+    """
+    try:
+        parts = urlsplit(url.strip())
+    except ValueError:
+        raise ValueError(f"URL 无法解析: {url[:80]}")
+    if parts.scheme.lower() not in ("http", "https"):
+        raise ValueError(f"仅支持 http/https URL: {url[:80]}")
+    if parts.username or parts.password:
+        raise ValueError(f"URL 不允许包含 userinfo (user@host): {url[:80]}")
+    hostname = (parts.hostname or "").lower()
+    if not hostname:
+        raise ValueError(f"URL 缺少 hostname: {url[:80]}")
+    allowed = {
+        h.strip().lower()
+        for h in os.environ.get("VIDEO2TEXT_ALLOWED_HOSTS", "").split(",")
+        if h.strip()
+    }
+    if hostname in allowed:
+        # 显式白名单: 跳过私网解析检查(本地联调用), 其余规则仍生效。
+        return url
+    try:
+        infos = socket.getaddrinfo(hostname, None)
+    except (socket.gaierror, OSError, UnicodeError):
+        # 解析失败一律拒绝(fail closed), 不给内网探测留口子。
+        raise ValueError(f"URL hostname 无法解析: {hostname}")
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if (
+            ip.is_private or ip.is_loopback or ip.is_link_local
+            or ip.is_reserved or ip.is_multicast or ip.is_unspecified
+        ):
+            raise ValueError(
+                f"URL 指向私有/环回/链路本地/保留地址, 已拒绝 (SSRF 防护): {hostname}"
+            )
+    return url
+
+
+def _is_local_path_source(entry: str) -> bool:
+    """True 当提交项应按本地文件路径处理(而非平台分享文本)。
+
+    分享文本(无 ``://`` 且磁盘上不存在同名文件)原样透传给 pipeline;
+    绝对路径(PurePosixPath / PureWindowsPath 语义均检查, 跨平台)或
+    当前工作目录下真实存在的相对路径都按本地路径校验。
+    """
+    p = entry.strip()
+    if not p:
+        return False
+    try:
+        if PurePosixPath(p).is_absolute() or PureWindowsPath(p).is_absolute():
+            return True
+        return Path(p).exists()
+    except (OSError, ValueError):  # pragma: no cover - defensive
+        return False
+
+
+def _validate_local_source(entry: str, workspace: Path) -> None:
+    """Reject local-file sources outside the workspace (P1-3).
+
+    ``inputs.parse_source`` treats any existing local path as a
+    transcription source, which turns the submit endpoints into an
+    arbitrary-local-file-read primitive on a shared server.  The web
+    layer therefore only accepts local paths that resolve *inside*
+    the workspace directory; everything else must be an http(s) URL.
+    """
+    resolved = Path(entry).expanduser().resolve()
+    try:
+        ws_root = Path(workspace).resolve()
+        contained = resolved == ws_root or resolved.is_relative_to(ws_root)
+    except OSError:  # pragma: no cover - defensive
+        ws_root = None  # type: ignore[assignment]
+        contained = False
+    if not contained:
+        raise ValueError(
+            "本地路径仅允许 workspace 目录内的文件, 远端请提交 http(s) URL"
+            f" (workspace: {ws_root}): {entry[:80]}"
+        )
+
+
+def _validate_submitted_urls(urls: List[str], workspace: Path) -> None:
+    """对提交入口的每一条 source 做 SSRF / 本地路径校验 (P1-2 + P1-3)。
+
+    校验失败抛 :class:`ValueError`, 由调用方转成 HTTP 400。
+    """
+    for entry in urls:
+        stripped = (entry or "").strip()
+        if not stripped:
+            raise ValueError("提交项不能为空")
+        if stripped.lower().startswith(("http://", "https://")):
+            _validate_public_url(stripped)
+        elif _is_local_path_source(stripped):
+            _validate_local_source(stripped, workspace)
+        # 其余: 平台分享文本(无 "://" 且无对应本地文件) — 原样放行。
+
+
+def _public_base_url(request: "Request") -> str:
+    """决定 INSTALL.md 中展示的服务端 origin (P2-10)。
+
+    优先 ``VIDEO2TEXT_PUBLIC_BASE_URL``; 否则取 ``request.base_url`` 但
+    只保留 scheme + host(:port) — Host 头可被客户端伪造, 不能把
+    userinfo / 任意字符原样反射进文档。
+    """
+    env_base = os.environ.get("VIDEO2TEXT_PUBLIC_BASE_URL", "").strip().rstrip("/")
+    if env_base:
+        return env_base
+    try:
+        parts = urlsplit(str(request.base_url))
+        scheme = parts.scheme.lower() if parts.scheme.lower() in ("http", "https") else "http"
+        host = parts.hostname or "127.0.0.1"
+        # 只放行 hostname 字符集, 防止 Host 头把引号/尖括号等注入文档。
+        if not all(c.isalnum() or c in "._-[]" for c in host):
+            host = "127.0.0.1"
+        try:
+            port = parts.port
+        except ValueError:
+            port = None
+        netloc = f"{host}:{port}" if port else host
+        return f"{scheme}://{netloc}"
+    except Exception:  # pragma: no cover - defensive
+        return "http://127.0.0.1:8000"
+
+
 # ---------------------------------------------------------------------------
 # Rate limiting (lightweight in-process sliding window)
 # ---------------------------------------------------------------------------
@@ -365,16 +588,53 @@ def _require_api_token(authorization: Optional[str] = Header(default=None)) -> N
 class _RateLimiter:
     """Sliding-window rate limiter keyed by client identity.
 
-    Thread-safe (a lock guards the underlying map).  Memory is bounded
-    by the number of distinct clients seen in the last ``window``
-    seconds — old buckets are pruned on every request.
+    Thread-safe (a lock guards the underlying map).  Each check prunes
+    the calling client's stale timestamps; **expired buckets for absent
+    clients are swept periodically** — at most once per
+    ``sweep_interval`` seconds (see :meth:`_RateLimiter.sweep`) — so
+    memory stays bounded by "clients active within the last window +
+    sweep interval".
+
+    Client identity is the direct peer address (``request.client.host``).
+    When running behind a reverse proxy that terminates the connection
+    (uvicorn ``--proxy-headers`` / nginx), every client shares the
+    proxy's single bucket, so the limiter degrades to a *global* limit —
+    deployers behind a proxy should raise ``VIDEO2TEXT_RATE_LIMIT``
+    accordingly or move limiting into the proxy.
     """
 
     max_requests: int = 10
     window_seconds: float = 60.0
     enabled: bool = True
+    sweep_interval: float = 60.0
     _buckets: Dict[str, Deque[float]] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock)
+    _last_sweep: float = 0.0
+
+    def _sweep_locked(self, cutoff: float) -> int:
+        """Drop every bucket whose newest timestamp left the window.
+
+        Caller must hold ``_lock``.
+        """
+        dead = [
+            k for k, b in self._buckets.items()
+            if not b or b[-1] <= cutoff
+        ]
+        for k in dead:
+            self._buckets.pop(k, None)
+        return len(dead)
+
+    def sweep(self) -> int:
+        """Periodic full-map cleanup of expired buckets (P2-1).
+
+        Called automatically from :meth:`check` at most once per
+        ``sweep_interval`` seconds; exposed separately for tests and
+        ops tooling.  Returns the number of buckets removed.
+        """
+        now = time.monotonic()
+        with self._lock:
+            self._last_sweep = now
+            return self._sweep_locked(now - self.window_seconds)
 
     def check(self, client_id: str) -> tuple[bool, int, float]:
         """Return ``(allowed, remaining, retry_after_seconds)``.
@@ -387,6 +647,11 @@ class _RateLimiter:
         now = time.monotonic()
         cutoff = now - self.window_seconds
         with self._lock:
+            # P2-1: 周期性全表清理 — 只 prune 当前 client 的时间戳不够,
+            # 离席 client 的空 bucket 永不回收, 长跑进程内存无界增长。
+            if now - self._last_sweep >= self.sweep_interval:
+                self._last_sweep = now
+                self._sweep_locked(cutoff)
             bucket = self._buckets.get(client_id)
             if bucket is None:
                 bucket = deque()
@@ -562,6 +827,9 @@ def _store_job_result(
         # ``job.fail(...)``; we just record the failure here so the
         # REST ``/api/jobs/{id}/result`` endpoint can surface it.
         # P3-1 + R6-fix: same TOCTOU-closing pattern on exception path.
+        # P2-8: per-URL 错误信息保留给提交者(下载失败等用户输入错误),
+        # 完整异常落服务端日志。
+        logger.exception("job %s failed (url=%s)", job_id, url[:200])
         with results_lock:
             if registry.get(job_id) is None:
                 return
@@ -610,12 +878,92 @@ def _run_batch_job(
     """
     try:
         asyncio.run(ap.run_batch(urls, runners=runners))
-    except BaseException:
-        # 取消或其他异常:后台线程静默结束,各 job 自身状态已反映结果。
-        pass
+    except Exception:
+        # P2-7: 不再裸吞 BaseException — KeyboardInterrupt / SystemExit
+        # 照常传播; 普通异常记入服务端日志(各 job 自身状态已反映结果)。
+        logger.exception("batch job failed")
     finally:
         for jid in job_ids:
             async_pipelines.pop(jid, None)
+
+
+# ---------------------------------------------------------------------------
+# WS progress plumbing (P2-9) — 常驻 drain 线程桥接阻塞 events 队列
+# ---------------------------------------------------------------------------
+_WS_TERMINAL_EVENTS = frozenset({"succeeded", "failed", "cancelled"})
+
+
+def _aio_queue_put_drop_oldest(q: "asyncio.Queue", item: Any) -> None:
+    """投入 asyncio.Queue; 满时丢最旧(终态事件后发, 天然不丢)。"""
+    if q.full():
+        try:
+            q.get_nowait()
+        except asyncio.QueueEmpty:  # pragma: no cover - defensive
+            pass
+    q.put_nowait(item)
+
+
+class _JobEventBridge:
+    """把 ``JobProgress.events``(阻塞 queue)桥接到 asyncio 事件循环。
+
+    P2-9: 旧实现每个 WS 连接每 0.5s 向线程池提交一次
+    ``asyncio.to_thread(job.events.get, ...)`` — N 个连接就是 N 个
+    0.5s 周期的线程池任务。这里改为每个 job 一个常驻 daemon drain
+    线程, 经 ``loop.call_soon_threadsafe`` 把事件扇出到每个订阅者的
+    ``asyncio.Queue``; 终态事件分发完毕后线程自动退出。
+    """
+
+    def __init__(self, job: Any, loop: asyncio.AbstractEventLoop) -> None:
+        self._job = job
+        self._loop = loop
+        self._closed = threading.Event()
+        self._subscribers: "set[asyncio.Queue]" = set()
+        self._subscribers_lock = threading.Lock()
+        self._thread = threading.Thread(
+            target=self._drain, daemon=True, name="v2t-ws-bridge",
+        )
+        self._thread.start()
+
+    @property
+    def subscriber_count(self) -> int:
+        with self._subscribers_lock:
+            return len(self._subscribers)
+
+    def subscribe(self) -> "asyncio.Queue":
+        q: "asyncio.Queue" = asyncio.Queue(maxsize=1000)
+        with self._subscribers_lock:
+            self._subscribers.add(q)
+        return q
+
+    def unsubscribe(self, q: "asyncio.Queue") -> None:
+        with self._subscribers_lock:
+            self._subscribers.discard(q)
+
+    def close(self) -> None:
+        self._closed.set()
+
+    def _drain(self) -> None:
+        job = self._job
+        while not self._closed.is_set():
+            try:
+                event = job.events.get(timeout=1.0)
+            except queue.Empty:
+                if job.finished:
+                    break
+                continue
+            with self._subscribers_lock:
+                subs = list(self._subscribers)
+            for q in subs:
+                try:
+                    self._loop.call_soon_threadsafe(
+                        _aio_queue_put_drop_oldest, q, event,
+                    )
+                except RuntimeError:
+                    # 事件循环已关闭(应用停机)— 退出线程。
+                    self._closed.set()
+                    break
+            if event.get("event") in _WS_TERMINAL_EVENTS:
+                break
 
 
 def create_app(workspace: Optional[Path] = None,
@@ -638,6 +986,9 @@ def create_app(workspace: Optional[Path] = None,
         raise RuntimeError(
             "FastAPI is not installed. Run: pip install video2text[web]"
         )
+    # 附加修复: docker-compose 已设 ``VIDEO2TEXT_LOG_LEVEL=info`` 但代码
+    # 此前不读 — 在应用装配处应用一次(幂等)。
+    _configure_logging_from_env()
 
     # v3.2.0c-fix: release worker threads + GPU memory on shutdown.
     # Without this the ``ThreadPoolExecutor`` threads outlive the app
@@ -655,6 +1006,9 @@ def create_app(workspace: Optional[Path] = None,
                 executor.shutdown(wait=False, cancel_futures=True)
             except Exception as exc:  # pragma: no cover - defensive
                 logger.warning("executor 关闭异常: %r", exc)
+        # P2-9: 停机时叫停所有 WS bridge drain 线程。
+        for bridge in list(getattr(app.state, "ws_bridges", {}).values()):
+            bridge.close()
 
     app = FastAPI(
         title="Video2Text Web UI",
@@ -726,8 +1080,15 @@ def create_app(workspace: Optional[Path] = None,
     # async-wired cancellations).  Populated by callers that wrap
     # Pipeline in AsyncPipeline; empty by default.
     app.state.async_pipelines: Dict[str, Any] = {}
+    # P2-9: job_id → WS event bridge (resident drain thread per job).
+    app.state.ws_bridges: Dict[str, _JobEventBridge] = {}
+    app.state.ws_bridge_lock = threading.Lock()
 
-    workspace = workspace or Path.cwd() / "web-workspace"
+    # 附加修复: Docker 镜像已设 ``VIDEO2TEXT_WORKSPACE=/workspace`` 且
+    # compose 已挂卷, 但代码此前不读该变量, 导致容器内数据不落卷。
+    if workspace is None:
+        env_ws = os.environ.get("VIDEO2TEXT_WORKSPACE", "").strip()
+        workspace = Path(env_ws) if env_ws else Path.cwd() / "web-workspace"
 
     @app.get("/api/health")
     def health() -> Dict[str, Any]:
@@ -885,10 +1246,9 @@ def create_app(workspace: Optional[Path] = None,
             )
         # Build the install doc with the user's actual origin so the
         # one-click instructions match the running server.
-        try:
-            origin = str(request.base_url).rstrip("/")
-        except Exception:  # pragma: no cover
-            origin = "http://127.0.0.1:8000"
+        # P2-10: 不再原样反射 Host 头 — 优先 env, 否则剥离 userinfo
+        # 只留 scheme+host。
+        origin = _public_base_url(request)
         install_md = build_install_markdown(web_ui_origin=origin)
         try:
             zip_bytes, filename = build_extension_zip(
@@ -936,10 +1296,8 @@ def create_app(workspace: Optional[Path] = None,
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="extension builder module is not importable",
             )
-        try:
-            origin = str(request.base_url).rstrip("/")
-        except Exception:  # pragma: no cover
-            origin = "http://127.0.0.1:8000"
+        # P2-10: 同上 — 不反射原始 Host 头。
+        origin = _public_base_url(request)
         md = build_install_markdown(web_ui_origin=origin)
         if request.query_params.get("raw") == "1":
             from fastapi.responses import Response
@@ -971,17 +1329,29 @@ def create_app(workspace: Optional[Path] = None,
         return HTMLResponse(content=html)
 
     @app.post("/api/transcribe", response_model=TranscribeResponse,
-              dependencies=[Depends(_require_api_token)])
+              dependencies=[Depends(_require_api_token),
+                            Depends(_require_json_content_type)])
     def transcribe(req: TranscribeRequest, request: Request) -> TranscribeResponse:
         # Rate limit is applied after auth so unauthenticated callers
         # cannot exhaust the limiter for legitimate users.
         _enforce_rate_limit(app.state.rate_limiter, request)
         if not req.urls:
             raise HTTPException(status_code=400, detail="urls must be non-empty")
+        # P1-2 + P1-3: SSRF / 本地路径校验 — 私网 URL 与 workspace 外
+        # 本地路径在提交入口拒绝。
+        try:
+            _validate_submitted_urls(req.urls, workspace)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
         try:
             pipeline = _build_pipeline(req, workspace)
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"init failed: {exc}")
+        except Exception:
+            # P2-8: 内部异常细节(路径/stack)不回显客户端, 落服务端日志。
+            logger.exception("pipeline init failed")
+            raise HTTPException(
+                status_code=500,
+                detail="internal error while initialising the pipeline; see server logs",
+            )
         items: List[TranscribeItem] = []
         for url in req.urls:
             items.append(_run_one(pipeline, url, workspace / "out", req))
@@ -999,12 +1369,36 @@ def create_app(workspace: Optional[Path] = None,
         open until the job finishes (event ``succeeded`` / ``failed``
         / ``cancelled``) and then closes with code ``1000``.
 
+        P1-1 — 握手鉴权: 服务端设置了 ``VIDEO2TEXT_API_TOKEN`` 时,
+        WS 必须携带 token(与 HTTP 侧同源、同为常数时间比较):
+          * query param ``?token=<tok>``, 或
+          * ``Sec-WebSocket-Protocol`` 首段(浏览器无法给 WS 加自定义头)。
+        未配置 token 时放行(与 HTTP 行为一致)。校验失败直接
+        ``close(1008)``, 不 accept。``cancel`` 指令同样只对已通过鉴权
+        的连接生效。
+
+        P2-9 — 事件桥接: 每个 job 一个常驻 drain 线程
+        (:class:`_JobEventBridge`)把阻塞 events 队列桥接到 asyncio,
+        多个 WS 连接订阅同一 bridge, 不再每连接每 0.5s 提交线程池任务。
+        连接另有最大时长(``VIDEO2TEXT_WS_MAX_SESSION_SECONDS``, 默认
+        3600s)与空闲超时(``VIDEO2TEXT_WS_IDLE_TIMEOUT_SECONDS``,
+        默认 300s), 超时以 ``1000`` 正常关闭。
+
         v3.2.0c Tier 1 — clients may send ``{"event": "cancel"}`` to
         request cancellation; the server then calls
         ``registry.cancel(job_id)`` (and, if registered, the matching
         ``AsyncPipeline.cancel()``) and pushes a ``cancelled`` event
         back to all listeners.
         """
+        # P1-1: accept 之前完成鉴权 — 失败则握手拒绝, 不进入事件循环。
+        presented = websocket.query_params.get("token")
+        if not presented:
+            protocol_header = websocket.headers.get("sec-websocket-protocol", "")
+            presented = protocol_header.split(",")[0].strip() or None
+        ws_authenticated = _verify_api_token(presented)
+        if not ws_authenticated:
+            await websocket.close(code=1008)
+            return
         await websocket.accept()
         try:
             from video2text.progress import ProgressRegistry
@@ -1020,6 +1414,25 @@ def create_app(workspace: Optional[Path] = None,
             return
         # Replay current state, then drain new events
         await websocket.send_json({"event": "snapshot", **job.to_dict()})
+
+        import json as _json
+
+        loop = asyncio.get_running_loop()
+        with app.state.ws_bridge_lock:
+            bridge = app.state.ws_bridges.get(job.job_id)
+            if bridge is None or bridge.subscriber_count == 0 or not bridge._thread.is_alive():
+                bridge = _JobEventBridge(job, loop)
+                app.state.ws_bridges[job.job_id] = bridge
+        subscriber_queue = bridge.subscribe()
+        max_session_seconds = _env_float(
+            "VIDEO2TEXT_WS_MAX_SESSION_SECONDS", 3600.0)
+        if max_session_seconds <= 0:
+            max_session_seconds = float("inf")  # 显式禁用会话上限
+        idle_timeout = _env_float(
+            "VIDEO2TEXT_WS_IDLE_TIMEOUT_SECONDS", 300.0)
+        # ping 周期取空闲超时与 30s 的较小者 — 让客户端能探测连接活性。
+        ping_interval = min(30.0, idle_timeout) if idle_timeout > 0 else 30.0
+
         # v3.2.0c Tier 1 — clients may send ``{"event": "cancel"}`` to
         # request cancellation.  We use :func:`asyncio.wait` with
         # ``FIRST_COMPLETED`` so that both the event-drain task and the
@@ -1029,62 +1442,77 @@ def create_app(workspace: Optional[Path] = None,
         # client call at a time) — a separate ``create_task`` listener
         # would only be scheduled when the main loop yields, which can
         # race with the client's send/receive sequence.
-        import asyncio
-        import json as _json
-
-        async def _next_event():
-            # ``queue.Queue.get(timeout=...)`` blocks in a worker thread
-            # so the event loop stays free to run other tasks.
-            return await asyncio.to_thread(job.events.get, timeout=0.5)
-
-        async def _next_client_msg():
-            return await websocket.receive_text()
-
-        event_task = asyncio.create_task(_next_event())
-        client_task = asyncio.create_task(_next_client_msg())
+        event_task = asyncio.create_task(subscriber_queue.get())
+        client_task = asyncio.create_task(websocket.receive_text())
+        session_deadline = loop.time() + max_session_seconds
+        last_activity = loop.time()
         try:
             while not job.finished:
+                now = loop.time()
+                if now >= session_deadline:
+                    break  # P2-9: 最大会话时长 — 防止连接永久挂起
+                if idle_timeout > 0 and (now - last_activity) >= idle_timeout:
+                    break  # P2-9: 空闲超时 — 无事件且无客户端消息
+                wait_timeout = min(
+                    ping_interval,
+                    max(0.05, session_deadline - now),
+                )
+                if idle_timeout > 0:
+                    wait_timeout = min(
+                        wait_timeout,
+                        max(0.05, last_activity + idle_timeout - now),
+                    )
                 done, _ = await asyncio.wait(
                     {event_task, client_task},
+                    timeout=wait_timeout,
                     return_when=asyncio.FIRST_COMPLETED,
                 )
                 if event_task in done:
+                    event = event_task.result()
+                    last_activity = loop.time()
                     try:
-                        event = event_task.result()
+                        await websocket.send_json(event)
                     except Exception:
-                        # Timeout — send a ping so the client can
-                        # detect a disconnect; keep draining.
-                        try:
-                            await websocket.send_json({"event": "ping"})
-                        except Exception:
-                            return
-                    else:
-                        try:
-                            await websocket.send_json(event)
-                        except Exception:
-                            return
-                    event_task = asyncio.create_task(_next_event())
+                        return
+                    event_task = asyncio.create_task(subscriber_queue.get())
                 if client_task in done:
                     try:
                         msg = client_task.result()
                     except Exception:
                         # WebSocket closed by client.
                         return
+                    last_activity = loop.time()
                     try:
                         parsed = _json.loads(msg)
                     except Exception:
                         parsed = None
                     if isinstance(parsed, dict) and parsed.get("event") == "cancel":
-                        registry.cancel(job_id)
-                        # Also cancel any registered AsyncPipeline so
-                        # in-flight ``asyncio.Task``s are torn down.
-                        ap = app.state.async_pipelines.get(job_id)
-                        if ap is not None and hasattr(ap, "cancel"):
+                        if ws_authenticated:
+                            registry.cancel(job_id)
+                            # Also cancel any registered AsyncPipeline so
+                            # in-flight ``asyncio.Task``s are torn down.
+                            ap = app.state.async_pipelines.get(job_id)
+                            if ap is not None and hasattr(ap, "cancel"):
+                                try:
+                                    ap.cancel()
+                                except Exception:
+                                    pass
+                        else:
+                            # P1-1: 未鉴权连接不允许驱动 cancel。
                             try:
-                                ap.cancel()
+                                await websocket.send_json({
+                                    "event": "error",
+                                    "message": "cancel requires an authenticated connection",
+                                })
                             except Exception:
-                                pass
-                    client_task = asyncio.create_task(_next_client_msg())
+                                return
+                    client_task = asyncio.create_task(websocket.receive_text())
+                if not done:
+                    # 超时 — 发 ping 让客户端探测连接活性; 继续等待。
+                    try:
+                        await websocket.send_json({"event": "ping"})
+                    except Exception:
+                        return
             # Final snapshot then close
             try:
                 await websocket.send_json({"event": "snapshot", **job.to_dict()})
@@ -1097,6 +1525,13 @@ def create_app(workspace: Optional[Path] = None,
             # ``CancelledError`` in the TestClient's ``__exit__``.
             event_task.cancel()
             client_task.cancel()
+            # P2-9: 退订; 最后一个订阅者离开时关闭并摘除 bridge。
+            bridge.unsubscribe(subscriber_queue)
+            if bridge.subscriber_count == 0:
+                bridge.close()
+                with app.state.ws_bridge_lock:
+                    if app.state.ws_bridges.get(job.job_id) is bridge:
+                        app.state.ws_bridges.pop(job.job_id, None)
         await websocket.close(code=1000)
 
     @app.post("/api/jobs/{job_id}/cancel", dependencies=[Depends(_require_api_token)])
@@ -1135,7 +1570,8 @@ def create_app(workspace: Optional[Path] = None,
     # -----------------------------------------------------------------
     # v3.2.0c Tier 1 — async job submission + result retrieval
     # -----------------------------------------------------------------
-    @app.post("/api/jobs", dependencies=[Depends(_require_api_token)])
+    @app.post("/api/jobs", dependencies=[Depends(_require_api_token),
+                                         Depends(_require_json_content_type)])
     def submit_jobs(
         req: TranscribeRequest, request: Request,
     ) -> Dict[str, Any]:
@@ -1151,18 +1587,35 @@ def create_app(workspace: Optional[Path] = None,
         3. ``GET /api/jobs/{job_id}/result`` to fetch the Markdown once
            the job reaches ``finished``.
 
+        P2-6: 重复 URL 会去重(保留首次出现顺序)— 每个唯一 URL 只创建
+        一个 job, 避免孤儿 job 与并发写同一 out_path。响应中的
+        ``requested`` / ``unique`` 计数可用于感知是否发生了去重。
+
         The synchronous ``POST /api/transcribe`` endpoint is preserved
         for backwards compatibility with the Chrome extension and MCP.
         """
         _enforce_rate_limit(app.state.rate_limiter, request)
         if not req.urls:
             raise HTTPException(status_code=400, detail="urls must be non-empty")
+        # P2-6: 去重保序 — 重复 URL 复用同一 job。
+        urls = list(dict.fromkeys(req.urls))
+        # P1-2 + P1-3: SSRF / 本地路径校验 — 私网 URL 与 workspace 外
+        # 本地路径在提交入口拒绝。
+        try:
+            _validate_submitted_urls(urls, workspace)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
         try:
             pipeline = _build_pipeline(req, workspace)
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"init failed: {exc}")
-        from video2text.progress import ProgressRegistry, with_progress
+        except Exception:
+            # P2-8: 内部异常细节不回显客户端, 落服务端日志。
+            logger.exception("pipeline init failed")
+            raise HTTPException(
+                status_code=500,
+                detail="internal error while initialising the pipeline; see server logs",
+            )
         from video2text.pipeline_async import AsyncPipeline
+        from video2text.progress import ProgressRegistry, with_progress
 
         registry: ProgressRegistry = app.state.jobs  # type: ignore[attr-defined]
         out_dir = workspace / "out"
@@ -1172,7 +1625,6 @@ def create_app(workspace: Optional[Path] = None,
         # runner 用 with_progress 包装以保留进度事件与落盘,再套 _store_job_result
         # 安全写回 job_results。
         ap = AsyncPipeline(pipeline)
-        urls = list(req.urls)
         runners: Dict[str, Callable[[], Any]] = {}
         jobs_out: List[Dict[str, Any]] = []
         job_ids: List[str] = []
@@ -1210,7 +1662,11 @@ def create_app(workspace: Optional[Path] = None,
             job_ids,
             app.state.async_pipelines,
         )
-        return {"jobs": jobs_out}
+        return {
+            "jobs": jobs_out,
+            "requested": len(req.urls),
+            "unique": len(urls),
+        }
 
     @app.get("/api/jobs/{job_id}/result", dependencies=[Depends(_require_api_token)])
     def job_result(job_id: str) -> Dict[str, Any]:
