@@ -100,7 +100,8 @@ ocr = [
 ]
 # MCP (Model Context Protocol) server support
 mcp = [
-    "mcp>=0.5.0",
+    # mcp SDK 需要 py>=3.10 — 低版本安装本 extra 时静默跳过，避免解析失败
+    "mcp>=0.5.0; python_version >= '3.10'",
 ]
 # LLM post-process (mediascribe.llm_post_process, OpenAI-compatible API)
 llm = [
@@ -126,6 +127,10 @@ dev = [
     "pytest-cov>=4.1.0",
     "ruff>=0.1.0",
     "mypy>=1.7.0",
+    # 测试 mediascribe.llm_post_process 需要 openai 类型（CI 上 mock API 调用）
+    "openai>=1.0.0",
+    # learn.compare 的拼音相似度过滤依赖 pypinyin（缺失时降级为不过滤）
+    "pypinyin>=0.44.0",
 ]
 test = [
     "pytest>=7.4.0",
@@ -204,6 +209,7 @@ exclude_lines = [
 line-length = 100
 target-version = "py38"
 extend-exclude = [
+    "archive",
     "build",
     "dist",
     "node_modules",

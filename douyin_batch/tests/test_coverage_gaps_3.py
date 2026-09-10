@@ -5,6 +5,7 @@ Targets uncovered branches in:
 - ``mediascribe.profile_cli``     (parse_iso, top=0, empty groups, filter_records)
 - ``mediascribe.web.app``         (3 new v3.2.0a endpoints)
 """
+
 from __future__ import annotations
 
 import json
@@ -66,10 +67,14 @@ class TestCacheCoverageGaps:
         assert c.contains("https://example.com/a")
 
     def test_index_save_handles_oserror_on_windows(self, tmp_path: Path) -> None:
-        """A read-only index file should not raise during _save_index.
+        """索引写失败不得向外抛（生产契约在 _flush_index_finalizer 兜底）。
 
-        On non-Windows we lock the dir; on Windows we use a no-op to keep
-        the test deterministic.
+        ``_save_index`` 本身是原子写原语，失败时清理 tmp 后 re-raise，
+        由上层（``PersistentDownloadCache`` / ``_flush_index_finalizer``）
+        吞掉 — 进程退出路径绝不能因缓存写失败崩溃。
+
+        POSIX 用只读目录制造 PermissionError；Windows 上 chmod 不可靠，
+        保持 no-op 让用例在两个平台上都确定性地通过。
         """
         from mediascribe import cache
 
@@ -77,8 +82,8 @@ class TestCacheCoverageGaps:
         if os.name != "nt":
             os.chmod(tmp_path, 0o400)
         try:
-            # Should not raise
-            cache._save_index(tmp_path, "downloads", {"y": {"path": "b"}})
+            # 兜底路径 — Should not raise
+            cache._flush_index_finalizer(tmp_path, "downloads", {"y": {"path": "b"}}, dirty=[True])
         finally:
             if os.name != "nt":
                 os.chmod(tmp_path, 0o700)

@@ -18,6 +18,7 @@ Targets (pre-fill coverage shown in parens):
 * douyin_batch.platform_compat (64 %)
 * douyin_batch.retry (54 %)
 """
+
 from __future__ import annotations
 
 import json
@@ -208,11 +209,19 @@ class TestYoutubeDownloader:
 
         d = YouTubeDownloader()
         # supports() takes a SourceRef.  YouTube URLs should be True.
-        assert d.supports(SourceRef(raw_input="x", kind="youtube",
-                                    url="https://www.youtube.com/watch?v=abc")) is True
+        assert (
+            d.supports(
+                SourceRef(raw_input="x", kind="youtube", url="https://www.youtube.com/watch?v=abc")
+            )
+            is True
+        )
         # Non-YouTube URL should be False.
-        assert d.supports(SourceRef(raw_input="x", kind="bilibili",
-                                    url="https://www.bilibili.com/video/BV1")) is False
+        assert (
+            d.supports(
+                SourceRef(raw_input="x", kind="bilibili", url="https://www.bilibili.com/video/BV1")
+            )
+            is False
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -270,9 +279,7 @@ class TestPluginRegistry:
         assert isinstance(names, list)
         if names:
             klass = reg.get_transcriber_cls(names[0])
-            assert klass is None or (
-                isinstance(klass, type) and issubclass(klass, Transcriber)
-            )
+            assert klass is None or (isinstance(klass, type) and issubclass(klass, Transcriber))
 
     def test_clear_cache(self):
         from mediascribe.plugins import registry as reg
@@ -379,7 +386,11 @@ class TestPlatformCompatMore:
     def test_find_ffmpeg_returns_none(self):
         from douyin_batch import platform_compat as pc
 
-        with mock.patch.object(pc.shutil, "which", return_value=None):
+        # PATH 和常见安装路径都没有时才返回 None — CI 上 /usr/bin/ffmpeg
+        # 真实存在，必须把 Path.exists 一并 mock 掉。
+        with mock.patch.object(pc.shutil, "which", return_value=None), mock.patch.object(
+            pc.Path, "exists", return_value=False
+        ):
             assert pc.find_ffmpeg() is None
 
     def test_find_ffmpeg_returns_path(self):

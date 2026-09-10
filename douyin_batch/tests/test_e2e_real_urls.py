@@ -17,6 +17,7 @@ transcription E2E is reserved for the manual smoke tests in
 Run:
     MEDIASCRIBE_E2E=1 python -m pytest douyin_batch/tests/test_e2e_real_urls.py -v
 """
+
 import os
 import sys
 import time
@@ -68,8 +69,11 @@ class _UrlResolveBase(unittest.TestCase):
             raise unittest.SkipTest("No network access")
 
     def _resolve(self, url: str):
-        from mediascribe.platform import detect_platform
-        return detect_platform(url)
+        # mediascribe.platform 模块在更名重构中已删除 — 平台检测的
+        # 现行公共入口是 parse_source().kind。
+        from mediascribe.inputs import parse_source
+
+        return parse_source(url).kind
 
 
 @_skip_if_disabled
@@ -108,10 +112,7 @@ class TestRealUrlYoutube(_UrlResolveBase):
 @_skip_if_disabled
 class TestRealUrlXiaohongshu(_UrlResolveBase):
     def test_explore_url(self):
-        url = (
-            "https://www.xiaohongshu.com/explore/"
-            "abc123def456?xsec_token=xxx"
-        )
+        url = "https://www.xiaohongshu.com/explore/abc123def456?xsec_token=xxx"
         self.assertEqual(self._resolve(url), "xiaohongshu")
 
     def test_xhslink_url(self):
@@ -135,10 +136,8 @@ class TestCookieParsing(unittest.TestCase):
 
     def test_netscape_format(self):
         from mediascribe.config import _parse_cookie_string
-        text = (
-            "# Netscape HTTP Cookie File\n"
-            "mp.weixin.qq.com\tFALSE\t/\tFALSE\t0\twxuin\tabc123\n"
-        )
+
+        text = "# Netscape HTTP Cookie File\nmp.weixin.qq.com\tFALSE\t/\tFALSE\t0\twxuin\tabc123\n"
         # Netscape has tab separators; _parse_cookie_string tolerates them
         result = _parse_cookie_string(text)
         # The parser may or may not treat netscape lines specially;
@@ -148,6 +147,7 @@ class TestCookieParsing(unittest.TestCase):
 
     def test_json_format(self):
         from mediascribe.config import _parse_cookie_string
+
         data = '{"wxuin": "abc123", "pass_ticket": "def456"}'
         result = _parse_cookie_string(data)
         self.assertEqual(result.get("wxuin"), "abc123")
@@ -155,6 +155,7 @@ class TestCookieParsing(unittest.TestCase):
 
     def test_keyvalue_format(self):
         from mediascribe.config import _parse_cookie_string
+
         # Single key=value (the parser accepts one cookie at a time;
         # semicolon-separated input is consumed by the CLI separately)
         result = _parse_cookie_string("wxuin=abc123")
@@ -162,6 +163,7 @@ class TestCookieParsing(unittest.TestCase):
 
     def test_empty_string(self):
         from mediascribe.config import _parse_cookie_string
+
         self.assertEqual(_parse_cookie_string(""), {})
 
 
@@ -175,13 +177,15 @@ class TestYoutubePlayerClients(unittest.TestCase):
 
     def test_first_client_succeeds(self):
         from mediascribe.downloaders.youtube import YouTubeDownloader
+
         d = YouTubeDownloader()
         # We only validate the *rotation logic*, not the actual
         # yt-dlp call (which is mocked).
         clients = d.YOUTUBE_PLAYER_CLIENTS
         # Stable order: web_safari, ios, android, web_embedded
         self.assertEqual(
-            clients[0], "web_safari",
+            clients[0],
+            "web_safari",
             "First client must be web_safari (most reliable)",
         )
         self.assertEqual(len(clients), 4)
@@ -200,6 +204,7 @@ class TestOcrGracefulDegradation(unittest.TestCase):
 
     def test_no_engine_returns_none(self):
         from mediascribe.downloaders.wechat_mp import WechatMpDownloader
+
         d = WechatMpDownloader()
         d._ocr_engine = "auto"
         d._ocr_lang = "chi_sim+eng"
