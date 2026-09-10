@@ -2,8 +2,9 @@
 #
 # Keeps the project's runtime + dev dependencies up-to-date by opening
 # weekly PRs against `main`.  The PRs trigger the existing ``test.yml``
-# matrix, so every bump is verified across Python 3.8–3.12 on
-# Windows / macOS / Linux before merge.
+# pipeline — lint + unit + coverage on Python 3.11 / ubuntu-latest —
+# while the nightly cron and tag pushes extend coverage to the full
+# 3.9–3.12 × Linux/macOS/Windows matrix before a release.
 #
 # See https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
 

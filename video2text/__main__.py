@@ -43,8 +43,8 @@ _common_transcribe_opts.add_argument(
 )
 _common_transcribe_opts.add_argument(
     "--device", "-d",
-    choices=["cpu", "cuda"],
-    help="运行设备（默认: 自动检测）",
+    choices=["auto", "cpu", "cuda"],
+    help="运行设备（默认: auto 自动检测 CUDA > CPU）",
 )
 _common_transcribe_opts.add_argument(
     "--engine", "-e",
@@ -248,6 +248,9 @@ def _run_legacy(argv: Optional[List[str]]) -> int:
             for source, ok, result in results:
                 status = "✅" if ok else "❌"
                 print(f"{status} {source}")
+            if success < len(results):
+                # 有输入失败：以非零退出码暴露，供脚本/CI 判断（此前误返回 0）
+                return 1
     except KeyboardInterrupt:
         print("\n\n⏹️ 用户中断")
         sys.exit(130)
@@ -355,17 +358,16 @@ def _run_learn(argv: List[str]) -> int:
     args = parser.parse_args(argv)
 
     from .learn import (
+        _load_db,  # type: ignore[attr-defined]
         clear_learned_terms,
         compare,
         confirm_term,
         export_terms,
-        get_learned_terms,
         import_terms,
         learn,
         learn_from_edit,
         remove_term,
     )
-    from .learn import _load_db  # type: ignore[attr-defined]
 
     if args.action == "compare":
         corrections = compare(args.reference, args.transcript)

@@ -3,11 +3,14 @@ Profile CLI — render a Markdown or JSON report from JSONL timings.
 
 Usage::
 
-    python -m video2text.profile path/to/timings.jsonl
-    python -m video2text.profile path/to/timings.jsonl --top 5
-    python -m video2text.profile path/to/timings.jsonl --by-stage download
-    python -m video2text.profile path/to/timings.jsonl --since 2026-06-01
-    python -m video2text.profile path/to/timings.jsonl --json
+    python -m video2text.profile_cli path/to/timings.jsonl
+    python -m video2text.profile_cli path/to/timings.jsonl --top 5
+    python -m video2text.profile_cli path/to/timings.jsonl --by-stage download
+    python -m video2text.profile_cli path/to/timings.jsonl --since 2026-06-01
+    python -m video2text.profile_cli path/to/timings.jsonl --json
+
+(The same subcommand is also available as ``python -m video2text profile
+path/to/timings.jsonl``.)
 
 JSONL format (one line per profiled call)::
 
@@ -194,8 +197,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    records = read_jsonl(args.path)
-    records = filter_records(records, by_stage=args.by_stage, since=args.since)
+    try:
+        records = read_jsonl(args.path)
+        records = filter_records(records, by_stage=args.by_stage, since=args.since)
+    except FileNotFoundError as exc:
+        print(f"video2text profile: {exc}", file=sys.stderr)
+        return 2
+    except ValueError as exc:
+        print(f"video2text profile: {exc}", file=sys.stderr)
+        return 2
     stages = aggregate(records)
     if args.json:
         print(render_json(stages, top=args.top))

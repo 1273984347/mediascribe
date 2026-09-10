@@ -17,13 +17,13 @@ name: bandit
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, develop]
     paths:
       - "video2text/**"
       - "douyin_batch/**"
       - ".github/workflows/bandit.yml"
   pull_request:
-    branches: [main, master]
+    branches: [main, master, develop]
     paths:
       - "video2text/**"
       - "douyin_batch/**"

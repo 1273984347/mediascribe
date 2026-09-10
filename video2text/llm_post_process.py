@@ -20,9 +20,9 @@ ASR 转录文本的 LLM 后处理步骤，用于修正 Whisper 系列模型在�
 --------
 
 * ``VIDEO2TEXT_LLM_API_KEY`` — API key
-* ``VIDEO2TEXT_LLM_API_BASE`` — 默认 ``https://api.deepseek.com``
+* ``VIDEO2TEXT_LLM_API_BASE`` — OpenAI 兼容 endpoint（无默认值，启用时必填）
 * ``VIDEO2TEXT_LLM_MODEL`` — 默认 ``deepseek-chat``
-* ``VIDEO2TEXT_LLM_ENABLED`` — ``"1"`` / ``"true"`` 启用
+* ``VIDEO2TEXT_LLM_ENABLED`` — ``"1"`` / ``"true"`` 启用（默认关闭）
 
 用法
 ----
@@ -120,7 +120,8 @@ class LLMPostProcessor:
     model : str
         模型名。默认 ``deepseek-chat``。
     enabled : bool
-        是否启用。默认 ``True``（由 Settings 层控制总开关）。
+        是否启用。默认 ``False``（必须显式开启；Settings / 环境变量
+        ``VIDEO2TEXT_LLM_ENABLED`` 控制总开关）。
     timeout : float
         请求超时秒数。默认 120s（长文本需要时间）。
     max_chars : int
@@ -131,7 +132,7 @@ class LLMPostProcessor:
     api_key: str
     api_base: str = "https://api.deepseek.com"
     model: str = "deepseek-chat"
-    enabled: bool = True
+    enabled: bool = False
     timeout: float = 120.0
     max_chars: int = 12000
     # v3.2.0e: OpenAI client 复用，避免每次 post_process 重新建连
@@ -146,9 +147,9 @@ class LLMPostProcessor:
 
         环境变量：
         - ``VIDEO2TEXT_LLM_API_KEY`` (必填)
-        - ``VIDEO2TEXT_LLM_API_BASE`` (默认 https://api.deepseek.com)
+        - ``VIDEO2TEXT_LLM_API_BASE`` (如 https://api.deepseek.com)
         - ``VIDEO2TEXT_LLM_MODEL`` (默认 deepseek-chat)
-        - ``VIDEO2TEXT_LLM_ENABLED`` (默认 1 / true 启用)
+        - ``VIDEO2TEXT_LLM_ENABLED`` (默认 0 — 必须显式 "1"/"true" 启用)
         - ``VIDEO2TEXT_LLM_TIMEOUT`` (默认 120)
         - ``VIDEO2TEXT_LLM_MAX_CHARS`` (默认 12000)
         """
@@ -157,7 +158,7 @@ class LLMPostProcessor:
             "VIDEO2TEXT_LLM_API_BASE", "https://api.deepseek.com"
         ).strip()
         model = os.environ.get("VIDEO2TEXT_LLM_MODEL", "deepseek-chat").strip()
-        enabled_env = os.environ.get("VIDEO2TEXT_LLM_ENABLED", "1").strip().lower()
+        enabled_env = os.environ.get("VIDEO2TEXT_LLM_ENABLED", "0").strip().lower()
         enabled = enabled_env in ("1", "true", "yes", "on")
         try:
             timeout = float(os.environ.get("VIDEO2TEXT_LLM_TIMEOUT", "120"))
@@ -192,7 +193,7 @@ class LLMPostProcessor:
                 api_key=llm_cfg.get("api_key", ""),
                 api_base=llm_cfg.get("api_base", "https://api.deepseek.com"),
                 model=llm_cfg.get("model", "deepseek-chat"),
-                enabled=llm_cfg.get("enabled", True) and bool(llm_cfg.get("api_key")),
+                enabled=llm_cfg.get("enabled", False) and bool(llm_cfg.get("api_key")),
                 timeout=llm_cfg.get("timeout", 120.0),
                 max_chars=llm_cfg.get("max_chars", 12000),
             )
@@ -201,7 +202,7 @@ class LLMPostProcessor:
             api_key=getattr(llm_cfg, "api_key", ""),
             api_base=getattr(llm_cfg, "api_base", "https://api.deepseek.com"),
             model=getattr(llm_cfg, "model", "deepseek-chat"),
-            enabled=getattr(llm_cfg, "enabled", True) and bool(getattr(llm_cfg, "api_key", "")),
+            enabled=getattr(llm_cfg, "enabled", False) and bool(getattr(llm_cfg, "api_key", "")),
             timeout=getattr(llm_cfg, "timeout", 120.0),
             max_chars=getattr(llm_cfg, "max_chars", 12000),
         )
@@ -242,7 +243,8 @@ class LLMPostProcessor:
             logger.info("LLM post-process skipped: text too short (%d chars)", len(text or ""))
             return text, STATUS_SKIPPED
 
-        # 截断超长文本（保留尾部，避免 token 爆炸）
+        # 截断超长文本（保留头部 max_chars 字符，尾部丢弃——LLM 无法
+        # 处理未送入的部分，输出的尾部即原文尾部）
         truncated = False
         if len(text) > self.max_chars:
             logger.warning(
@@ -327,7 +329,13 @@ class LLMPostProcessor:
                     max_tokens=4096,
                     stream=False,
                 )
-                return response.choices[0].message.content or ""
+                choice = response.choices[0]
+                if getattr(choice, "finish_reason", None) == "length":
+                    logger.warning(
+                        "LLM API 响应被 max_tokens 截断 (finish_reason=length)，"
+                        "输出可能不完整，建议调大 max_tokens 或减小输入文本"
+                    )
+                return choice.message.content or ""
             except Exception as exc:
                 last_exc = exc
                 # 判断是否可重试

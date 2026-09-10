@@ -20,6 +20,12 @@ WORKDIR /app
 COPY pyproject.toml README.md LICENSE ./
 COPY video2text ./video2text
 COPY scripts ./scripts
+# douyin_batch/ + douyin_batch_v3.py are declared in pyproject.toml
+# ([tool.setuptools] packages / py-modules); without them setuptools
+# fails with "package directory 'douyin_batch' does not exist" and the
+# ``video2text-batch`` entry point would be broken.
+COPY douyin_batch ./douyin_batch
+COPY douyin_batch_v3.py ./
 # --no-cache-dir keeps the build context small; PIP_NO_CACHE_DIR=1 above
 # also stops pip from keeping a local cache inside the layer.
 RUN pip install --prefix=/install --no-cache-dir ".[web,ocr]"

@@ -29,6 +29,7 @@ ENV/
 
 # Testing
 .pytest_cache/
+.ruff_cache/
 .coverage
 htmlcov/
 .tox/
@@ -36,6 +37,9 @@ htmlcov/
 coverage.xml
 *.cover
 .hypothesis/
+# pytest tmp_path leftovers (pytest-cache-files-XXXX) and local test workspaces
+pytest-cache-files-*/
+test-ws-*/
 
 # Logs
 logs/
@@ -43,9 +47,10 @@ logs/
 output/logs/
 
 # Output files
-output/
+# NOTE: `output/*` (not `output/`) so `!output/.gitkeep` can re-include —
+# a fully-ignored directory makes negation patterns ineffective in git.
+output/*
 !output/.gitkeep
-!output/transcripts/.gitkeep
 
 # Cache
 .cache/
@@ -77,10 +82,6 @@ my_config.json
 # Cookies (sensitive)
 cookies.txt
 *.cookies
-
-# Downloads (transient)
-output/downloads/
-!output/downloads/.gitkeep
 
 # One-click Web UI launcher state
 .one-click.pid

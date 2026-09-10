@@ -1,6 +1,4 @@
-# Dev dependencies
--r requirements.txt
-pytest>=7.4.0
-pytest-cov>=4.1.0
-ruff>=0.1.0
-mypy>=1.7.0
+# Dev dependencies — single source of truth is the [dev] extra in
+# pyproject.toml (pytest / pytest-cov / ruff / mypy).  `-e .` also installs
+# the package itself with its core runtime dependencies.
+-e .[dev]
