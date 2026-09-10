@@ -122,13 +122,19 @@ jobs:
           path: dist/
 
   # ------------------------------------------------------------------
-  # 4. publish to PyPI
+  # 4. publish to PyPI — disabled by default.
+  # To enable: create a repository *variable* ENABLE_PYPI_PUBLISH=true
+  # (Settings → Secrets and variables → Actions → Variables) AND configure
+  # PyPI Trusted Publishing for this workflow (or switch the step to an
+  # API token). Until then this job is skipped, so releases land on
+  # GitHub Releases / Docker Hub without touching PyPI.
   # ------------------------------------------------------------------
   publish-pypi:
     name: publish · PyPI
     needs: build
     runs-on: ubuntu-latest
     environment: pypi
+    if: vars.ENABLE_PYPI_PUBLISH == 'true'
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -185,6 +191,7 @@ jobs:
   github-release:
     name: github · release
     needs: [build, publish-pypi, publish-docker]
+    if: always() && needs.build.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -229,12 +236,16 @@ jobs:
     name: release · summary
     needs: [publish-pypi, publish-docker, github-release]
     runs-on: ubuntu-latest
-    if: success()
+    if: always() && needs.github-release.result == 'success'
     steps:
       - name: Print summary
         run: |
           echo "## Release ${{ github.ref_name }} shipped" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- PyPI: https://pypi.org/project/mediascribe/${{ github.ref_name }}/" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.publish-pypi.result }}" = "success" ]; then
+            echo "- PyPI: https://pypi.org/project/mediascribe/${{ github.ref_name }}/" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- PyPI: skipped (set repo variable ENABLE_PYPI_PUBLISH=true to enable)" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "- Docker: docker pull 1273984347/mediascribe:${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
           echo "- GitHub: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
