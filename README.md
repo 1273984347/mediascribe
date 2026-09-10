@@ -68,18 +68,38 @@ python -m mediascribe transcribe "video.mp4" --language zh
 # 指定模型 / 设备（默认模型 small；中文推荐 large-v3）
 python -m mediascribe transcribe "video.mp4" --model large-v3 --device cuda
 
-# 全局选项也可前置（与上一行等价）
-python -m mediascribe --model large-v3 transcribe "video.mp4"
+# 模型按音频时长自动推荐
+python -m mediascribe transcribe "video.mp4" --model auto
+
+# 分段 + 每段 [mm:ss] 时间戳
+python -m mediascribe transcribe "video.mp4" --timestamps
+
+# 常用参数持久化到配置文件（CLI 显式参数优先）
+python -m mediascribe --config mediascribe.json transcribe "video.mp4"
+
+# 环境自检（ffmpeg / GPU / 引擎 / 模型缓存 / cookies）
+python -m mediascribe doctor
 ```
+
+> **Output quality (v3.4.0).** Transcripts now use the platform's real
+> title as H1, aggregate author/duration/source-URL into a header block,
+> and split the body into paragraphs along ASR speech boundaries (no more
+> unpunctuated text walls). Add `--timestamps` for per-paragraph
+> `[mm:ss]` markers; enable `MEDIASCRIBE_LLM_ENABLED=1` for optional
+> LLM punctuation/paragraph polishing. The newest transcript path is
+> always written to `output/LATEST.txt`.
 
 #### Batch Transcription (Creator's Archive)
 
 ```bash
-# From creator's profile URL
-python douyin_batch_v3.py --user "https://www.douyin.com/user/xxx" -n 20
+# Unified entry (v3.4.0)
+python -m mediascribe archive --user "https://www.douyin.com/user/xxx" -n 20
 
 # From a single video (auto-finds creator)
-python douyin_batch_v3.py --from-video "https://v.douyin.com/xxxxx/" -n 10
+python -m mediascribe archive --from-video "https://v.douyin.com/xxxxx/" -n 10
+
+# Legacy script entry still works
+python douyin_batch_v3.py --user "https://www.douyin.com/user/xxx" -n 20
 ```
 
 #### ASR Auto-Learning (`learn`)
@@ -408,18 +428,36 @@ python -m mediascribe transcribe "video.mp4" --language zh
 # 指定模型 / 设备（默认 small；中文推荐 large-v3）
 python -m mediascribe transcribe "video.mp4" --model large-v3 --device cuda
 
-# 全局选项也可前置（等价）
-python -m mediascribe --model large-v3 transcribe "video.mp4"
+# 模型按音频时长自动推荐
+python -m mediascribe transcribe "video.mp4" --model auto
+
+# 分段 + 每段 [mm:ss] 时间戳
+python -m mediascribe transcribe "video.mp4" --timestamps
+
+# 常用参数持久化到配置文件（CLI 显式参数优先）
+python -m mediascribe --config mediascribe.json transcribe "video.mp4"
+
+# 环境自检（ffmpeg / GPU / 引擎 / 模型缓存 / cookies）
+python -m mediascribe doctor
 ```
+
+> **输出质量（v3.4.0）。** 转录稿 H1 使用平台真实标题，「基本信息」
+> 聚合作者/时长/来源链接，正文沿 ASR 语音停顿自动分段（不再是无标点
+> 文字墙）。`--timestamps` 给每段加 `[mm:ss]` 标记；设置
+> `MEDIASCRIBE_LLM_ENABLED=1` 可选开启 LLM 标点/分段润色。
+> 最新一次输出的路径始终写入 `output/LATEST.txt`。
 
 #### 批量转录（作者往期内容）
 
 ```bash
-# 从作者主页 URL
-python douyin_batch_v3.py --user "https://www.douyin.com/user/xxx" -n 20
+# 统一入口（v3.4.0）
+python -m mediascribe archive --user "https://www.douyin.com/user/xxx" -n 20
 
 # 从单个视频（自动找到作者）
-python douyin_batch_v3.py --from-video "https://v.douyin.com/xxxxx/" -n 10
+python -m mediascribe archive --from-video "https://v.douyin.com/xxxxx/" -n 10
+
+# 旧脚本入口仍然可用
+python douyin_batch_v3.py --user "https://www.douyin.com/user/xxx" -n 20
 ```
 
 #### ASR 自动学习（learn）

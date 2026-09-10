@@ -1,6 +1,7 @@
 """
 配置管理 - 参考 bili2text 的 Settings 设计
 """
+
 from __future__ import annotations
 
 import logging
@@ -13,11 +14,20 @@ _logger = logging.getLogger(__name__)
 # 合法转录引擎（与 mediascribe/transcribers/factory.py、web 层校验一致）
 _VALID_ENGINES = ("whisper", "faster-whisper", "whisperx")
 # 合法模型名（与 CLI --model choices、web 层 TranscribeRequest 校验一致）
-_VALID_MODELS = frozenset({
-    "tiny", "base", "small", "medium", "large",
-    "large-v1", "large-v2", "large-v3",
-    "distil-large-v2", "distil-large-v3",
-})
+_VALID_MODELS = frozenset(
+    {
+        "tiny",
+        "base",
+        "small",
+        "medium",
+        "large",
+        "large-v1",
+        "large-v2",
+        "large-v3",
+        "distil-large-v2",
+        "distil-large-v3",
+    }
+)
 
 
 class Settings:
@@ -36,6 +46,7 @@ class Settings:
         wechat_cookies_file: Optional[Path] = None,
         cache_dir: Optional[Path] = None,
         llm_post_process: Optional[Dict[str, Any]] = None,
+        timestamps: bool = False,
     ):
         # workspace 根目录：显式参数 > MEDIASCRIBE_WORKSPACE 环境变量 > 默认 ./output
         # （Docker 镜像 ENV MEDIASCRIBE_WORKSPACE=/workspace 指向挂载卷；web 层读取
@@ -44,18 +55,16 @@ class Settings:
             self.workspace_root = Path(workspace_root)
         else:
             env_workspace = os.environ.get("MEDIASCRIBE_WORKSPACE", "").strip()
-            self.workspace_root = (
-                Path(env_workspace) if env_workspace else Path.cwd() / "output"
-            )
+            self.workspace_root = Path(env_workspace) if env_workspace else Path.cwd() / "output"
 
         # 引擎 / 模型尽早校验：非法值立即 ValueError，避免转录中途才失败
         if engine not in _VALID_ENGINES:
+            raise ValueError(f"Unknown engine {engine!r}. Allowed: {', '.join(_VALID_ENGINES)}.")
+        # "auto" = 按音频时长自动选模型（v3.4.0，CLI --model auto），
+        # 由 Pipeline._AutoModelTranscriber 拿到真实音频时长后惰性解析。
+        if model != "auto" and model not in _VALID_MODELS:
             raise ValueError(
-                f"Unknown engine {engine!r}. Allowed: {', '.join(_VALID_ENGINES)}."
-            )
-        if model not in _VALID_MODELS:
-            raise ValueError(
-                f"Unknown model {model!r}. Allowed: {', '.join(sorted(_VALID_MODELS))}."
+                f"Unknown model {model!r}. Allowed: auto, {', '.join(sorted(_VALID_MODELS))}."
             )
 
         # 目录配置
@@ -78,6 +87,9 @@ class Settings:
         # 高级功能
         self.hf_token = hf_token or os.environ.get("HF_TOKEN")
         self.diarization = diarization
+
+        # v3.4.0: Markdown 正文段落带 [mm:ss] 时间戳前缀（CLI --timestamps）
+        self.timestamps = bool(timestamps)
 
         # 微信公众号 cookies：dict 优先，文件兜底
         self.wechat_cookies: Dict[str, str] = dict(wechat_cookies or {})

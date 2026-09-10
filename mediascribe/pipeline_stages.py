@@ -40,6 +40,7 @@ v3.1.0 / v3.2.0a 的公共契约全部保持:
 * 任何调用方通过 ``Pipeline(...).transcribe(...)`` 拿到的
   :class:`TranscriptResult` 与 v3.2.0a 完全一致。
 """
+
 from __future__ import annotations
 
 import logging
@@ -152,6 +153,8 @@ class PipelineContext:
     ocr_lang: Optional[str] = None
     save_images: bool = False
     bilingual: bool = False
+    # v3.4.0: Markdown 正文段落是否带 [mm:ss] 时间戳前缀 (CLI --timestamps)
+    timestamps: bool = False
 
     # 阶段累加
     source: Optional[SourceRef] = None
@@ -227,9 +230,7 @@ class Stage(ABC):
         """执行 stage,返回更新后的 ctx(便于链式调用)。"""
         raise NotImplementedError
 
-    def run_with_progress(
-        self, ctx: PipelineContext
-    ) -> PipelineContext:
+    def run_with_progress(self, ctx: PipelineContext) -> PipelineContext:
         """包一层进度上报,确保每个 stage 至少 emit 一次 100%。
 
         v3.2.0a 的 WebSocket 进度条依赖 ``stage`` 字段,这里保证
@@ -262,8 +263,7 @@ class Stage(ABC):
 # 具体 stage
 # ---------------------------------------------------------------------------
 class ParseSourceStage(Stage):
-    """``parse_source(source_input)`` — 把字符串解析成 :class:`SourceRef`。
-    """
+    """``parse_source(source_input)`` — 把字符串解析成 :class:`SourceRef`。"""
 
     name = "parse"
 
@@ -318,9 +318,7 @@ class DownloadStage(Stage):
     def run(self, ctx: PipelineContext) -> PipelineContext:
         # P2-11: 跨 stage 边界校验改 RuntimeError(assert 会被 -O 剥掉)
         if ctx.source is None:
-            raise RuntimeError(
-                "DownloadStage requires ctx.source (run ParseSourceStage first)"
-            )
+            raise RuntimeError("DownloadStage requires ctx.source (run ParseSourceStage first)")
         ctx.raise_if_cancelled()  # 网络下载前
         # 本地视频文件: 直接把 source.path 视作 video_path
         if ctx.source.kind == "video" and ctx.source.path is not None:
@@ -356,9 +354,7 @@ class DownloadStage(Stage):
                     suffix=downloaded.video_path.suffix,
                 )
             except Exception as exc:  # 缓存写失败不影响本次结果
-                logger.warning(
-                    "PersistentDownloadCache.put failed for %s: %r", url, exc
-                )
+                logger.warning("PersistentDownloadCache.put failed for %s: %r", url, exc)
         ctx.downloaded = downloaded
         ctx.video_path = downloaded.video_path
         ctx.base_name = downloaded.title or ctx.source.display_name
@@ -424,9 +420,7 @@ class ExtractAudioStage(Stage):
 
     def run(self, ctx: PipelineContext) -> PipelineContext:
         if ctx.source is None:  # P2-11: 边界校验,-O 下 assert 会被剥掉
-            raise RuntimeError(
-                "ExtractAudioStage requires ctx.source (run ParseSourceStage first)"
-            )
+            raise RuntimeError("ExtractAudioStage requires ctx.source (run ParseSourceStage first)")
         ctx.raise_if_cancelled()  # ffmpeg 前
         if ctx.source.kind == "audio":
             assert ctx.source.path is not None
@@ -440,9 +434,7 @@ class ExtractAudioStage(Stage):
             )
         if ctx.base_name is None:
             ctx.base_name = ctx.source.display_name
-        audio = extract_audio(
-            ctx.video_path, ctx.settings.audio_dir, safe_stem(ctx.base_name)
-        )
+        audio = extract_audio(ctx.video_path, ctx.settings.audio_dir, safe_stem(ctx.base_name))
         if audio is None:
             raise RuntimeError("音频提取失败")
         ctx.raise_if_cancelled()  # ffmpeg 后
@@ -468,8 +460,7 @@ class TranscribeStage(Stage):
     def run(self, ctx: PipelineContext) -> PipelineContext:
         if ctx.audio_path is None:  # P2-11: 边界校验,-O 下 assert 会被剥掉
             raise RuntimeError(
-                "TranscribeStage requires ctx.audio_path "
-                "(run ExtractAudioStage first)"
+                "TranscribeStage requires ctx.audio_path (run ExtractAudioStage first)"
             )
         ctx.raise_if_cancelled()  # ASR 前(最长阻塞,通常数分钟)
         lang = ctx.language or ctx.settings.language
@@ -554,6 +545,18 @@ class AssembleStage(Stage):
         self._resolve_output_path = resolve_output_path
         self._resolve_metadata_path = resolve_metadata_path
         self._build_markdown = build_markdown
+        # v3.4.0: 签名探测 — 注入的 build_markdown 带 ``ctx`` 形参或
+        # ``**kwargs`` 时才透传 PipelineContext (时间戳/来源),旧的
+        # 4 参可调用(测试 lambda *a: ...) 保持不传,契约不破。
+        import inspect
+
+        try:
+            params = inspect.signature(build_markdown).parameters
+            self._accepts_ctx = "ctx" in params or any(
+                p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()
+            )
+        except (TypeError, ValueError):
+            self._accepts_ctx = False
 
     def should_run(self, ctx: PipelineContext) -> bool:
         return bool(ctx.text)
@@ -562,17 +565,12 @@ class AssembleStage(Stage):
         # P2-11: 跨 stage 边界的关键校验改 RuntimeError(-O 下 assert
         # 会被剥掉,ctx 不完整时会带着 None 一路炸到更深处)。
         if ctx.source is None:
-            raise RuntimeError(
-                "AssembleStage requires ctx.source (run ParseSourceStage first)"
-            )
+            raise RuntimeError("AssembleStage requires ctx.source (run ParseSourceStage first)")
         if ctx.text is None:
-            raise RuntimeError(
-                "AssembleStage requires ctx.text (run TranscribeStage first)"
-            )
+            raise RuntimeError("AssembleStage requires ctx.text (run TranscribeStage first)")
         if ctx.transcription is None:
             raise RuntimeError(
-                "AssembleStage requires ctx.transcription "
-                "(run TranscribeStage first)"
+                "AssembleStage requires ctx.transcription (run TranscribeStage first)"
             )
         ctx.raise_if_cancelled()  # 落盘前(LLM 后处理可能阻塞)
         base_name = ctx.base_name or ctx.source.display_name
@@ -589,12 +587,14 @@ class AssembleStage(Stage):
         metadata_path = self._resolve_metadata_path(transcript_path)
         transcript_path.parent.mkdir(parents=True, exist_ok=True)
 
-        markdown = self._build_markdown(
-            base_name,
-            text,
-            ctx.transcription,
-            ctx.downloaded,
-        )
+        # v3.4.0: 注入 ctx 供 build_markdown 读 timestamps / source
+        # (仅当注入的可调用签名接受时,见 __init__ 签名探测)
+        if self._accepts_ctx:
+            markdown = self._build_markdown(
+                base_name, text, ctx.transcription, ctx.downloaded, ctx=ctx
+            )
+        else:
+            markdown = self._build_markdown(base_name, text, ctx.transcription, ctx.downloaded)
         # 在 markdown 头部插入后处理状态 banner
         markdown = self._inject_status_banner(markdown, llm_status, llm_model)
         # v3.2.0e+: 原子写避免半写污染（markdown 通常 5-200KB）
@@ -614,9 +614,7 @@ class AssembleStage(Stage):
             "video_path": str(ctx.video_path) if ctx.video_path else None,
             "download_metadata": ctx.downloaded.metadata if ctx.downloaded else None,
             "language": ctx.transcription.get("language"),
-            "speaker_diarization": ctx.transcription.get(
-                "speaker_diarization", False
-            ),
+            "speaker_diarization": ctx.transcription.get("speaker_diarization", False),
             "llm_post_process": {
                 "status": llm_status,
                 "model": llm_model,
@@ -640,9 +638,7 @@ class AssembleStage(Stage):
             metadata=metadata,
             segments=ctx.transcription.get("segments"),
             language=ctx.transcription.get("language"),
-            speaker_diarization=ctx.transcription.get(
-                "speaker_diarization", False
-            ),
+            speaker_diarization=ctx.transcription.get("speaker_diarization", False),
         )
         return ctx
 
@@ -656,14 +652,13 @@ class AssembleStage(Stage):
         """自动术语校正 (含学习术语)。"""
         try:
             from .post_process import post_process_transcript
+
             return post_process_transcript(text)
         except Exception:
             return text
 
     @staticmethod
-    def _llm_post_process(
-        text: str, ctx: PipelineContext
-    ) -> tuple[str, str, str]:
+    def _llm_post_process(text: str, ctx: PipelineContext) -> tuple[str, str, str]:
         """LLM 后处理 (专有名词 / 同音字 / 标点 / 分段)。
 
         Returns
@@ -689,15 +684,12 @@ class AssembleStage(Stage):
             return processed, status, processor.model
         except Exception as exc:
             import logging
-            logging.getLogger(__name__).warning(
-                "LLM post-process pipeline stage failed: %r", exc
-            )
+
+            logging.getLogger(__name__).warning("LLM post-process pipeline stage failed: %r", exc)
             return text, "llm-failed", ""
 
     @staticmethod
-    def _inject_status_banner(
-        markdown: str, status: str, model: str
-    ) -> str:
+    def _inject_status_banner(markdown: str, status: str, model: str) -> str:
         """在 markdown 头部插入后处理状态 HTML 注释。
 
         Banner 形如::
@@ -708,6 +700,7 @@ class AssembleStage(Stage):
         """
         try:
             from .llm_post_process import build_status_banner
+
             banner = build_status_banner(status, model)
         except Exception:
             banner = f"<!-- post-process: {status} -->"
@@ -760,9 +753,7 @@ def _atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> Non
     足够；若未来需强持久性可在 settings 加 ``fsync=True`` 选项。
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.parent / (
-        f".{path.stem}.{os.getpid()}.{uuid.uuid4().hex[:8]}{path.suffix}.tmp"
-    )
+    tmp_path = path.parent / (f".{path.stem}.{os.getpid()}.{uuid.uuid4().hex[:8]}{path.suffix}.tmp")
     try:
         tmp_path.write_text(content, encoding=encoding)
         os.replace(tmp_path, path)
