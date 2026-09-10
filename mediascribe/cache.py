@@ -200,6 +200,7 @@ class PersistentDownloadCache:
         self._index = _load_index(self._base, self._name)
         self._hits = 0
         self._misses = 0
+        self._lru_seq = 0  # LRU 单调序号 — time.time() 在 Windows ~15ms 粒度下会打平
         self._stores = 0
         self._evictions = 0
         # P2-2: get() 命中只更新内存 last_access(消灭每次命中的
@@ -256,7 +257,9 @@ class PersistentDownloadCache:
             self._dirty[0] = True
             self._misses += 1
             return None
+        self._lru_seq += 1
         entry["last_access"] = time.time()
+        entry["lru_seq"] = self._lru_seq  # 同毫秒触点用序号决胜
         self._dirty[0] = True
         self._hits += 1
         return path
@@ -283,7 +286,9 @@ class PersistentDownloadCache:
             "size": dst.stat().st_size,
             "created": time.time(),
             "last_access": time.time(),
+            "lru_seq": self._lru_seq + 1,
         }
+        self._lru_seq += 1
         self._persist_index()
         self._stores += 1
         self._enforce_cap()
@@ -322,7 +327,10 @@ class PersistentDownloadCache:
         # Sort by last_access ascending; oldest first.
         ordered = sorted(
             self._index.items(),
-            key=lambda kv: kv[1].get("last_access", 0),
+            key=lambda kv: (
+                kv[1].get("last_access", 0),
+                kv[1].get("lru_seq", 0),
+            ),
         )
         total = sum(v["size"] for v in self._index.values())
         victims: list[str] = []
@@ -411,6 +419,7 @@ class PersistentChunkCache:
         self._index = _load_index(self._base, self._name)
         self._hits = 0
         self._misses = 0
+        self._lru_seq = 0  # LRU 单调序号 — time.time() 在 Windows ~15ms 粒度下会打平
         self._dirty = [False]
         self._finalizer = weakref.finalize(
             self,
@@ -456,7 +465,9 @@ class PersistentChunkCache:
             self._misses += 1
             return None
         # P2-4: LRU 触点只写内存,落盘时机收敛到 put/_evict/close
+        self._lru_seq += 1
         entry["last_access"] = time.time()
+        entry["lru_seq"] = self._lru_seq  # 同毫秒触点用序号决胜
         self._dirty[0] = True
         self._hits += 1
         return self._base / entry["filename"]
@@ -481,7 +492,9 @@ class PersistentChunkCache:
             "params": params,
             "created": time.time(),
             "last_access": time.time(),
+            "lru_seq": self._lru_seq + 1,
         }
+        self._lru_seq += 1
         self._persist_index()
         self._enforce_cap()
         return target
@@ -503,7 +516,10 @@ class PersistentChunkCache:
             return
         ordered = sorted(
             self._index.items(),
-            key=lambda kv: kv[1].get("last_access", 0),
+            key=lambda kv: (
+                kv[1].get("last_access", 0),
+                kv[1].get("lru_seq", 0),
+            ),
         )
         victims = [k for k, _ in ordered[:excess]]
         self._evict(victims)
