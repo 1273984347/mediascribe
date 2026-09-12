@@ -195,6 +195,48 @@ class TestWikiWebApi(unittest.TestCase):
         r = self.client.get("/api/wiki/note", params={"name": "raw/不存在.md"})
         self.assertEqual(r.status_code, 404)
 
+    def test_delete_raw_note_cleans_derived_views(self):
+        # setUp 已归档 1 篇带概念的转写
+        r = self.client.delete("/api/wiki/note", params={"name": "raw/2026-09-11 键盘实测.md"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["deleted"], "raw/2026-09-11 键盘实测.md")
+        vault = self.client.app.state.wiki_vault
+        # raw 已删; 概念账本已清, 派生概念笔记不再存在; HOME 同步
+        self.assertEqual(list(vault.raw_dir.glob("*.md")), [])
+        self.assertFalse((vault.wiki_dir / "概念 - 卫星轴.md").exists())
+        ledger = (vault.ledger_dir / "index.json").read_text(encoding="utf-8")
+        self.assertNotIn("卫星轴", ledger)
+        home = (vault.root / "HOME.md").read_text(encoding="utf-8")
+        self.assertNotIn("键盘实测", home)
+        data = self.client.get("/api/wiki").json()
+        self.assertEqual(data["raw_count"], 0)
+
+    def test_delete_raw_keeps_concept_shared_by_other_videos(self):
+        vault = self.client.app.state.wiki_vault
+        md = Path(self._tmp.name) / "b.md"
+        md.write_text("# 第二期\n\n**[01:00]** 又聊了卫星轴。\n", encoding="utf-8")
+        meta2 = {**FAKE_METADATA, "download_metadata": {"title": "第二期", "uploader": "影视飓风"}}
+        vault.archive_transcript(md, meta2, extractor=_fake_extractor())
+        r = self.client.delete("/api/wiki/note", params={"name": "raw/2026-09-11 键盘实测.md"})
+        self.assertEqual(r.status_code, 200)
+        note = (vault.wiki_dir / "概念 - 卫星轴.md").read_text(encoding="utf-8")
+        self.assertIn("[[2026-09-11 第二期]]", note)
+        self.assertNotIn("[[2026-09-11 键盘实测]]", note)
+
+    def test_delete_concept_note_persists(self):
+        r = self.client.delete("/api/wiki/note", params={"name": "wiki/概念 - 卫星轴.md"})
+        self.assertEqual(r.status_code, 200)
+        vault = self.client.app.state.wiki_vault
+        self.assertFalse((vault.wiki_dir / "概念 - 卫星轴.md").exists())
+        ledger = (vault.ledger_dir / "index.json").read_text(encoding="utf-8")
+        self.assertNotIn("卫星轴", ledger)
+
+    def test_delete_rejects_traversal_and_missing(self):
+        r = self.client.delete("/api/wiki/note", params={"name": "../secret.md"})
+        self.assertIn(r.status_code, (400, 404))
+        r = self.client.delete("/api/wiki/note", params={"name": "raw/不存在.md"})
+        self.assertEqual(r.status_code, 404)
+
 
 if __name__ == "__main__":
     unittest.main()

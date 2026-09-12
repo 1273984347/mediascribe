@@ -501,13 +501,7 @@ class WikiVault:
 
         调用方须持锁。按 ``(raw, ts, quote)`` 去重。
         """
-        ledger_path = self.ledger_dir / self.LEDGER_NAME
-        ledger: Dict[str, Any] = {"concepts": {}}
-        if ledger_path.exists():
-            try:
-                ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                ledger = {"concepts": {}}
+        ledger = self._load_ledger()
         bucket = ledger.setdefault("concepts", {})
         for c in concepts:
             entries = bucket.setdefault(c["name"], [])
@@ -525,7 +519,85 @@ class WikiVault:
                         "quote": m.get("quote", ""),
                     }
                 )
-        ledger_path.write_text(json.dumps(ledger, ensure_ascii=False, indent=1), encoding="utf-8")
+        self._save_ledger(ledger)
+
+    def _load_ledger(self) -> Dict[str, Any]:
+        ledger_path = self.ledger_dir / self.LEDGER_NAME
+        if ledger_path.exists():
+            try:
+                return json.loads(ledger_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                logger.warning("wiki 账本损坏, 以空账本重建")
+        return {"concepts": {}}
+
+    def _save_ledger(self, ledger: Dict[str, Any]) -> None:
+        self.ledger_dir.mkdir(parents=True, exist_ok=True)
+        (self.ledger_dir / self.LEDGER_NAME).write_text(
+            json.dumps(ledger, ensure_ascii=False, indent=1), encoding="utf-8"
+        )
+
+    def delete_note(self, rel_path: str) -> str:
+        """删除一篇笔记, 并同步派生视图。返回被删的相对路径。
+
+        * ``raw/`` 笔记: 清理账本提及, 重建概念/作者/平台聚合与 HOME;
+          归属该笔记的作者/平台聚合若因此变空则一并删除。
+        * ``wiki/概念 - X.md``: 同时从账本移除该概念(删除持续生效)。
+        * 其他 ``wiki/`` 聚合笔记: 直接删除(下次归档会按数据重建)。
+
+        非法路径抛 :class:`ValueError`; 不存在抛 :class:`FileNotFoundError`。
+        """
+        rel = Path(rel_path)
+        if rel.is_absolute() or ".." in rel.parts or rel.suffix != ".md":
+            raise ValueError(f"invalid note path: {rel_path}")
+        target = (self.root / rel).resolve()
+        try:
+            contained = target.is_relative_to(self.root.resolve())
+        except OSError:  # pragma: no cover - defensive
+            contained = False
+        if not contained:
+            raise ValueError(f"invalid note path: {rel_path}")
+        if not target.is_file():
+            raise FileNotFoundError(rel_path)
+
+        with self._lock:
+            filename = target.name
+            parts = rel.parts
+            target.unlink()
+
+            if parts[0] == "raw":
+                # 清理账本中该笔记的概念提及
+                ledger = self._load_ledger()
+                for entries in ledger.get("concepts", {}).values():
+                    entries[:] = [m for m in entries if m.get("raw") != filename]
+                ledger["concepts"] = {k: v for k, v in ledger.get("concepts", {}).items() if v}
+                self._save_ledger(ledger)
+                # 重建剩余聚合与索引; 变空的作者/平台聚合一并删除
+                records = self._scan_raw()
+                self._prune_group_notes(records, "作者", lambda r: r.get("author") or "")
+                self._prune_group_notes(records, "平台", lambda r: r.get("platform") or "")
+                for author in {r.get("author") or "" for r in records} - {""}:
+                    self._write_group_note("作者", author, records, lambda r: r.get("author") or "")
+                for platform in {r.get("platform") or "" for r in records} - {""}:
+                    self._write_group_note(
+                        "平台", platform, records, lambda r: r.get("platform") or ""
+                    )
+                for p in self.wiki_dir.glob("概念 - *.md"):
+                    p.unlink()  # 清掉旧概念文件, 只重建账本中剩余的概念
+                self._write_concept_notes()
+                self._write_home(records)
+            elif len(parts) >= 2 and parts[0] == "wiki" and filename.startswith("概念 - "):
+                concept_name = filename[len("概念 - ") : -len(".md")]
+                ledger = self._load_ledger()
+                ledger.get("concepts", {}).pop(concept_name, None)
+                self._save_ledger(ledger)
+        return rel_path
+
+    def _prune_group_notes(self, records: List[Dict[str, str]], kind: str, key_of) -> None:
+        """删除记录数已为 0 的 ``{kind} - *.md`` 聚合笔记。调用方须持锁。"""
+        valid = {f"{kind} - {sanitize_note_name(key_of(r))}.md" for r in records if key_of(r)}
+        for p in self.wiki_dir.glob(f"{kind} - *.md"):
+            if p.name not in valid:
+                p.unlink()
 
     def index(self) -> Dict[str, Any]:
         """知识库视图数据: 笔记清单 + HOME 内容(供 Web API 使用)。"""

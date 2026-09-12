@@ -1069,7 +1069,7 @@ def create_app(
         allow_origins=cors_origins,
         allow_origin_regex=cors_regex,
         allow_credentials=False,
-        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type"],
     )
     # Persist the active token on app.state for tests / introspection.
@@ -1425,6 +1425,20 @@ def create_app(
             content=target.read_text(encoding="utf-8"),
             media_type="text/markdown; charset=utf-8",
         )
+
+    @app.delete("/api/wiki/note", dependencies=[Depends(_require_api_token)])
+    def wiki_note_delete(name: str) -> Dict[str, Any]:
+        """删除单篇笔记并同步派生视图(概念账本 / 聚合 / HOME)。"""
+        vault = app.state.wiki_vault
+        if vault is None:
+            raise HTTPException(status_code=404, detail="wiki disabled")
+        try:
+            removed = vault.delete_note(name)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="note not found")
+        return {"deleted": removed}
 
     @app.post(
         "/api/transcribe",
