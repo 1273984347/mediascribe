@@ -234,6 +234,9 @@
     }
     .run:hover:not(:disabled) { background: var(--primary-bg-hover); }
     .run:disabled { opacity: 0.4; cursor: not-allowed; }
+    .run .run-arrow { display: inline-block; transition: transform 0.18s ease; }
+    .run:hover .run-arrow { transform: translateX(3px); }
+    .run:active:not(:disabled) .run-arrow { transform: translateX(0) scale(0.9); }
     .run kbd {
       font-family: var(--mono); font-size: 11px;
       background: var(--run-kbd-bg); color: var(--run-kbd-fg);
@@ -358,6 +361,7 @@
       transition: background 0.15s;
     }
     .toolbar button:hover { background: var(--fill-hover); }
+    .toolbar button:active, .ghost:active, .icon-btn:active { transform: scale(0.95); }
     .toolbar button.danger { color: var(--red); }
     .toolbar button.danger:hover { background: rgba(255, 71, 86, 0.08); }
 
@@ -517,7 +521,7 @@ https://www.youtube.com/watch?v=…" required></textarea>
         </div>
       </div>
 
-      <button class="run" id="submit" type="submit">运行转写 <kbd>Ctrl + ⏎</kbd></button>
+      <button class="run" id="submit" type="submit"><span class="run-arrow">▶</span> 运行转写 <kbd>Ctrl + ⏎</kbd></button>
       <p class="status" id="status" aria-live="polite">就绪,等待输入。</p>
     </form>
 
