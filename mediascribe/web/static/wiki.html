@@ -95,12 +95,29 @@
       width: 28px; height: 28px; border: 1px solid transparent; border-radius: 8px;
       background: var(--fill); color: var(--fg-2);
       display: inline-grid; place-items: center;
-      cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.12s;
     }
     .grp .act svg { display: block; }
-    .grp .act:hover { background: var(--fill-hover); color: var(--fg); }
+    .grp .act:hover { background: var(--fill-hover); color: var(--fg); transform: translateY(-1px); }
+    .grp .act:active { transform: scale(0.92); }
     .grp .act.armed { background: rgba(255, 71, 86, 0.1); border-color: rgba(255, 71, 86, 0.4); color: #ff4756; }
     .grp .act.done { color: var(--green); }
+    /* 复制成功的对勾: 描边画入 */
+    .grp .act.done svg path {
+      stroke-dasharray: 26;
+      stroke-dashoffset: 26;
+      animation: drawCheck 0.35s ease-out forwards;
+    }
+    @keyframes drawCheck { to { stroke-dashoffset: 0; } }
+    /* 删除待确认: 垃圾桶轻微摇晃 */
+    .grp .act.armed svg { transform-origin: center; animation: trashShake 0.4s ease-in-out; }
+    @keyframes trashShake {
+      0%, 100% { transform: rotate(0); }
+      25% { transform: rotate(-12deg); }
+      55% { transform: rotate(10deg); }
+      80% { transform: rotate(-5deg); }
+    }
     :focus-visible { outline: 2px solid rgba(127,127,127,.5); outline-offset: 2px; }
     @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
     @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
