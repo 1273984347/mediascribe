@@ -90,6 +90,15 @@
     .viewer .title { font-size: 12px; color: var(--fg-2); border-bottom: 1px solid var(--line); padding-bottom: 9px; margin-bottom: 10px;
       display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
     .viewer .title .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); font-weight: 500; }
+    .grp { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+    .grp .act {
+      width: 26px; height: 26px; border: none; border-radius: 6px;
+      background: var(--fill); color: var(--fg-2);
+      font-family: var(--sans); font-size: 12px; line-height: 1;
+      cursor: pointer; transition: background 0.15s, color 0.15s;
+    }
+    .grp .act:hover { background: var(--fill-hover); color: var(--fg); }
+    .grp .act.armed { background: rgba(255, 71, 86, 0.12); color: #ff4756; }
     :focus-visible { outline: 2px solid rgba(127,127,127,.5); outline-offset: 2px; }
     @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
     @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
@@ -136,6 +145,8 @@
       return btn;
     }
 
+    let current = null; // { note, text }
+
     async function openNote(note, btn) {
       document.querySelectorAll(".note-item.active").forEach((el) => el.classList.remove("active"));
       if (btn) btn.classList.add("active");
@@ -144,13 +155,64 @@
         const r = await fetch(`/api/wiki/note?name=${encodeURIComponent(note.path)}`, { headers: authHeaders() });
         if (!r.ok) throw new Error(r.statusText);
         const text = await r.text();
+        current = { note, text };
         $("viewer").innerHTML = `
-          <div class="title"><span class="name"></span><span>${note.type === "raw" ? "RAW" : "WIKI"}</span></div>
+          <div class="title">
+            <span class="name"></span>
+            <span class="grp">
+              <span class="kind">${note.type === "raw" ? "RAW" : "WIKI"}</span>
+              <button type="button" class="act" data-copy title="复制全文">⧉</button>
+              <button type="button" class="act" data-del title="删除这篇笔记">✕</button>
+            </span>
+          </div>
           <pre></pre>`;
         $("viewer").querySelector(".name").textContent = note.name;
         $("viewer").querySelector("pre").textContent = text;
+        $("viewer").querySelector("[data-copy]").addEventListener("click", copyNote);
+        $("viewer").querySelector("[data-del]").addEventListener("click", deleteNote);
       } catch (err) {
+        current = null;
         $("viewer").innerHTML = `<div class="empty">加载失败:${err.message}</div>`;
+      }
+    }
+
+    async function copyNote(ev) {
+      if (!current) return;
+      const b = ev.currentTarget;
+      try {
+        await navigator.clipboard.writeText(current.text);
+        b.textContent = "✓";
+        b.title = "已复制";
+        setTimeout(() => { b.textContent = "⧉"; b.title = "复制全文"; }, 1500);
+      } catch (_) {
+        b.title = "复制失败:浏览器拒绝了剪贴板访问";
+      }
+    }
+
+    async function deleteNote(ev) {
+      const b = ev.currentTarget;
+      // 两步确认: 第一次点变红, 3 秒内再点才真正删除
+      if (!b.classList.contains("armed")) {
+        b.classList.add("armed");
+        b.title = "再点一次确认删除";
+        setTimeout(() => { b.classList.remove("armed"); b.title = "删除这篇笔记"; }, 3000);
+        return;
+      }
+      b.classList.remove("armed");
+      try {
+        const r = await fetch(`/api/wiki/note?name=${encodeURIComponent(current.note.path)}`, {
+          method: "DELETE",
+          headers: authHeaders(),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(err.detail || r.statusText);
+        }
+        current = null;
+        $("viewer").innerHTML = '<div class="empty">已删除。</div>';
+        load();
+      } catch (err) {
+        b.title = "删除失败:" + err.message;
       }
     }
 
