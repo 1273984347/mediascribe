@@ -427,7 +427,10 @@
         <span class="dot"></span>
         <span id="gpu-label">GPU …</span>
       </span>
-      <button type="button" id="theme-toggle" class="icon-btn" title="切换主题">☀ 亮面</button>
+      <button type="button" id="theme-toggle" class="icon-btn" title="切换主题">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+        <span>亮面</span>
+      </button>
     </div>
   </header>
 
@@ -521,7 +524,7 @@ https://www.youtube.com/watch?v=…" required></textarea>
         </div>
       </div>
 
-      <button class="run" id="submit" type="submit"><span class="run-arrow">▶</span> 运行转写 <kbd>Ctrl + ⏎</kbd></button>
+      <button class="run" id="submit" type="submit"><span class="run-arrow"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.54.84l10-6.5a1 1 0 0 0 0-1.68l-10-6.5A1 1 0 0 0 8 5.5Z"/></svg></span> 运行转写 <kbd>Ctrl + ⏎</kbd></button>
       <p class="status" id="status" aria-live="polite">就绪,等待输入。</p>
     </form>
 
@@ -548,9 +551,18 @@ https://www.youtube.com/watch?v=…" required></textarea>
     // 主题: 月之暗面 (dark) / 月之亮面 (light) — head 内脚本已设初始值
     // ---------------------------------------------------------------------
     const themeBtn = $("theme-toggle");
+    const ICONS = {
+      sun:
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>',
+      moon:
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>',
+      play:
+        '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.54.84l10-6.5a1 1 0 0 0 0-1.68l-10-6.5A1 1 0 0 0 8 5.5Z"/></svg>',
+    };
     function applyTheme(t) {
       document.documentElement.dataset.theme = t;
-      themeBtn.textContent = t === "light" ? "☾ 暗面" : "☀ 亮面";
+      themeBtn.innerHTML =
+        t === "light" ? ICONS.moon + "<span>暗面</span>" : ICONS.sun + "<span>亮面</span>";
       themeBtn.title = t === "light" ? "切换到月之暗面" : "切换到月之亮面";
     }
     let theme = null;
@@ -792,7 +804,7 @@ https://www.youtube.com/watch?v=…" required></textarea>
         if (idx < 0) return;
         STAGES.forEach((s, i) => {
           if (i < idx || (i === idx && done)) { nodes[s].className = "node done"; nodes[s].textContent = "✓"; }
-          else if (i === idx) { nodes[s].className = "node active"; nodes[s].textContent = "▶"; }
+          else if (i === idx) { nodes[s].className = "node active"; nodes[s].innerHTML = ICONS.play; }
           else resetNode(s);
         });
         STAGES.forEach((s, j) => {
