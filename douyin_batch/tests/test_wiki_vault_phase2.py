@@ -145,9 +145,8 @@ class TestWikiWebApi(unittest.TestCase):
 
     def setUp(self):
         try:
-            from fastapi.testclient import TestClient
-
             import app as app_module
+            from fastapi.testclient import TestClient
         except Exception:
             self.skipTest("fastapi not installed")
         self._tmp = tempfile.TemporaryDirectory()
