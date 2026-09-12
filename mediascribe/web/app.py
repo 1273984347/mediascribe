@@ -49,6 +49,9 @@ Security:
     * Misc env knobs: ``MEDIASCRIBE_PUBLIC_BASE_URL`` (origin rendered
       into INSTALL.md), ``MEDIASCRIBE_WORKSPACE`` (data root),
       ``MEDIASCRIBE_LOG_LEVEL`` (root log level),
+      ``MEDIASCRIBE_WIKI`` (set ``0`` to disable the knowledge vault —
+      ``mediascribe.wiki`` archives every finished transcript into
+      ``<workspace>/vault/``, an Obsidian-compatible wiki),
       ``MEDIASCRIBE_WS_MAX_SESSION_SECONDS`` /
       ``MEDIASCRIBE_WS_IDLE_TIMEOUT_SECONDS`` (WebSocket lifetime caps).
 """
@@ -797,6 +800,7 @@ def _store_job_result(
     results_store: Dict[str, Dict[str, Any]],
     results_lock: "threading.Lock",
     registry: Any,
+    vault: Any = None,
 ) -> None:
     """执行 ``runner()`` 并把结果安全写入 ``results_store``。
 
@@ -829,6 +833,14 @@ def _store_job_result(
         engine = getattr(result, "engine", None)
         meta = getattr(result, "metadata", None) or {}
         title = meta.get("title")
+        # Karpathy 式知识库归档 (Phase 1) — 失败绝不影响任务结果,
+        # 只记服务端日志并继续无 wiki 信息的结果写回。
+        wiki_info = None
+        if vault is not None and out_path.exists():
+            try:
+                wiki_info = vault.archive_transcript(out_path, meta)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("wiki 归档失败 (job=%s): %r", job_id, exc)
         # P3-1 + R6-fix: registry check is INSIDE the lock so a
         # concurrent /api/health purge (which also holds this lock,
         # see /api/health) cannot mutate the registry between the
@@ -843,6 +855,7 @@ def _store_job_result(
                 "engine": engine,
                 "title": title,
                 "url": url,
+                "wiki": wiki_info,
             }
     except Exception as exc:  # pragma: no cover - defensive
         # ``with_progress`` already marks the job as failed via
@@ -872,13 +885,14 @@ def _run_job_safely(
     results_store: Dict[str, Dict[str, Any]],
     results_lock: "threading.Lock",
     registry: Any,
+    vault: Any = None,
 ) -> None:
     """遗留单任务提交路径的薄封装 — 委托 :func:`_store_job_result`。
 
     v3.2.0e:批量提交已改走 :func:`_run_batch_job`(``AsyncPipeline.run_batch``),
     此处保留以兼容单 URL 直接 ``ThreadPoolExecutor.submit`` 的调用方。
     """
-    _store_job_result(runner, job_id, out_path, url, results_store, results_lock, registry)
+    _store_job_result(runner, job_id, out_path, url, results_store, results_lock, registry, vault=vault)
 
 
 def _run_batch_job(
@@ -1113,6 +1127,12 @@ def create_app(
     if workspace is None:
         env_ws = os.environ.get("MEDIASCRIBE_WORKSPACE", "").strip()
         workspace = Path(env_ws) if env_ws else Path.cwd() / "web-workspace"
+
+    # Karpathy 式知识库 vault (Phase 1, mediascribe.wiki) — 每次任务成功后
+    # 把转写稿归档进 <workspace>/vault/; MEDIASCRIBE_WIKI=0 停用。
+    from mediascribe.wiki import vault_for_workspace
+
+    app.state.wiki_vault = vault_for_workspace(workspace)
 
     @app.get("/api/health")
     def health() -> Dict[str, Any]:
@@ -1676,6 +1696,7 @@ def create_app(
                 app.state.job_results,
                 app.state.jobs_state_lock,
                 registry,
+                vault=app.state.wiki_vault,
             )
             jobs_out.append(
                 {
@@ -1734,6 +1755,7 @@ def create_app(
             "markdown": (stored or {}).get("markdown") if stored else None,
             "engine": (stored or {}).get("engine") if stored else None,
             "title": (stored or {}).get("title") if stored else None,
+            "wiki": (stored or {}).get("wiki") if stored else None,
             "stage": job.stage,
             "stage_current": job.stage_current,
             "stage_total": job.stage_total,
