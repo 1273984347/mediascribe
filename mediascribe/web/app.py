@@ -684,7 +684,12 @@ class _RateLimiter:
             while bucket and bucket[0] <= cutoff:
                 bucket.popleft()
             if len(bucket) >= self.max_requests:
-                retry_after = max(0.0, bucket[0] + self.window_seconds - now)
+                # 收敛到 [0, window]: 浮点加减可能产生 60.00000000000006
+                # 这类越界值(Windows 计时打平), 语义上重试等待也不会超窗。
+                retry_after = min(
+                    max(0.0, bucket[0] + self.window_seconds - now),
+                    self.window_seconds,
+                )
                 return False, 0, retry_after
             bucket.append(now)
             return True, self.max_requests - len(bucket), 0.0
