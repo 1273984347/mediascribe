@@ -1130,11 +1130,12 @@ def create_app(
         env_ws = os.environ.get("MEDIASCRIBE_WORKSPACE", "").strip()
         workspace = Path(env_ws) if env_ws else Path.cwd() / "web-workspace"
 
-    # Karpathy 式知识库 vault (Phase 1, mediascribe.wiki) — 每次任务成功后
+    # Karpathy 式知识库 vault (mediascribe.wiki) — 每次任务成功后
     # 把转写稿归档进 <workspace>/vault/; MEDIASCRIBE_WIKI=0 停用。
-    from mediascribe.wiki import vault_for_workspace
+    # 配置了 MEDIASCRIBE_LLM_* 时, 概念提取自动生成 wiki/概念 - X.md。
+    from mediascribe.wiki import ConceptExtractor, vault_for_workspace
 
-    app.state.wiki_vault = vault_for_workspace(workspace)
+    app.state.wiki_vault = vault_for_workspace(workspace, extractor=ConceptExtractor.from_env())
 
     @app.get("/api/health")
     def health() -> Dict[str, Any]:
@@ -1380,6 +1381,50 @@ def create_app(
     def index() -> HTMLResponse:
         html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
         return HTMLResponse(content=html)
+
+    # -------------------------------------------------------------------
+    # 知识库视图 (Karpathy 式 vault 的 Web 浏览层)
+    # -------------------------------------------------------------------
+    @app.get("/wiki", response_class=HTMLResponse)
+    def wiki_page() -> HTMLResponse:
+        html = (STATIC_DIR / "wiki.html").read_text(encoding="utf-8")
+        return HTMLResponse(content=html)
+
+    @app.get("/api/wiki", dependencies=[Depends(_require_api_token)])
+    def wiki_index() -> Dict[str, Any]:
+        """知识库索引: 笔记清单 + HOME 内容 + vault 路径。"""
+        vault = app.state.wiki_vault
+        if vault is None:
+            return {"enabled": False, "notes": [], "home": "", "raw_count": 0}
+        data = vault.index()
+        data["enabled"] = True
+        data["path"] = str(vault.root)
+        return data
+
+    @app.get("/api/wiki/note", dependencies=[Depends(_require_api_token)])
+    def wiki_note(name: str) -> Any:
+        """返回单篇笔记原文。只接受 vault 内的 ``.md`` 相对路径。"""
+        from fastapi.responses import Response
+
+        vault = app.state.wiki_vault
+        if vault is None:
+            raise HTTPException(status_code=404, detail="wiki disabled")
+        rel = Path(name)
+        if rel.is_absolute() or ".." in rel.parts or rel.suffix != ".md":
+            raise HTTPException(status_code=400, detail="invalid note path")
+        target = (vault.root / rel).resolve()
+        try:
+            contained = target.is_relative_to(vault.root.resolve())
+        except OSError:  # pragma: no cover - defensive
+            contained = False
+        if not contained:
+            raise HTTPException(status_code=400, detail="invalid note path")
+        if not target.is_file():
+            raise HTTPException(status_code=404, detail="note not found")
+        return Response(
+            content=target.read_text(encoding="utf-8"),
+            media_type="text/markdown; charset=utf-8",
+        )
 
     @app.post(
         "/api/transcribe",

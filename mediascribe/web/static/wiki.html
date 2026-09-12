@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark light">
+  <title>MediaScribe · 知识库</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23181817'/%3E%3Cg fill='%23ffffff'%3E%3Crect x='7' y='13' width='3' height='6' rx='1.2'/%3E%3Crect x='12.5' y='9' width='3' height='14' rx='1.2'/%3E%3Crect x='18' y='5' width='3' height='22' rx='1.2'/%3E%3Crect x='23.5' y='11' width='3' height='10' rx='1.2'/%3E%3C/g%3E%3C/svg%3E">
+  <script>
+    (function () {
+      var t = "dark";
+      try {
+        t = localStorage.getItem("ms_theme")
+          || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+      } catch (_) { /* storage 不可用 */ }
+      document.documentElement.dataset.theme = t;
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #181817;
+      --surface: #121212;
+      --raised: #1f1f1f;
+      --fg: rgba(255, 255, 255, 0.84);
+      --fg-2: rgba(255, 255, 255, 0.56);
+      --fg-3: rgba(255, 255, 255, 0.26);
+      --line: rgba(255, 255, 255, 0.12);
+      --fill: rgba(255, 255, 255, 0.05);
+      --fill-hover: rgba(255, 255, 255, 0.09);
+      --blue: #007cff;
+      --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, "PingFang SC", "Microsoft YaHei", "Noto Sans", sans-serif;
+      --mono: "Geist Mono", ui-monospace, "SF Mono", "Cascadia Code", Consolas, "PingFang SC", "Microsoft YaHei", monospace;
+    }
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --bg: #fbfaf9;
+      --surface: #ffffff;
+      --raised: #ffffff;
+      --fg: rgba(0, 0, 0, 0.9);
+      --fg-2: rgba(0, 0, 0, 0.56);
+      --fg-3: rgba(0, 0, 0, 0.38);
+      --line: rgba(0, 0, 0, 0.12);
+      --fill: rgba(0, 0, 0, 0.04);
+      --fill-hover: rgba(0, 0, 0, 0.07);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: var(--sans); font-size: 14px;
+      background: var(--bg); color: var(--fg); min-height: 100vh;
+    }
+    ::selection { background: rgba(127, 127, 127, 0.25); }
+    header {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+      padding: 14px 24px; border-bottom: 1px solid var(--line);
+    }
+    .brand { display: flex; align-items: baseline; gap: 10px; }
+    .wordmark { font-size: 15px; font-weight: 600; }
+    .path { font-family: var(--mono); font-size: 11px; color: var(--fg-3); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    a.back { color: var(--fg-2); font-size: 13px; text-decoration: none; }
+    a.back:hover { color: var(--blue); }
+    main { max-width: 1080px; margin: 0 auto; padding: 24px 20px 60px; }
+    .grid { display: grid; grid-template-columns: 340px 1fr; gap: 20px; align-items: start; }
+    .panel { background: var(--raised); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+    h2.sec { font-size: 12px; font-weight: 500; color: var(--fg-2); margin: 18px 0 8px; }
+    h2.sec:first-child { margin-top: 0; }
+    .note-list { display: grid; gap: 2px; }
+    .note-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 10px; border-radius: 8px; cursor: pointer;
+      color: var(--fg); font-size: 13px;
+      border: none; background: transparent; text-align: left; width: 100%;
+      font-family: var(--sans);
+    }
+    .note-item:hover { background: var(--fill-hover); }
+    .note-item.active { background: var(--fill); }
+    .note-item .kind { flex: none; font-size: 10px; color: var(--fg-3); font-family: var(--mono); }
+    .note-item .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .empty { color: var(--fg-3); font-size: 13px; padding: 30px; text-align: center; }
+    .viewer pre {
+      margin: 0; white-space: pre-wrap; word-break: break-word;
+      font-family: var(--mono); font-size: 12.5px; line-height: 1.75; color: var(--fg);
+      max-height: 72vh; overflow: auto; padding-right: 8px;
+    }
+    .viewer .title { font-size: 12px; color: var(--fg-2); border-bottom: 1px solid var(--line); padding-bottom: 9px; margin-bottom: 10px;
+      display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .viewer .title .name { color: var(--fg); font-weight: 500; }
+    :focus-visible { outline: 2px solid rgba(127,127,127,.5); outline-offset: 2px; }
+    @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <a class="back" href="/">← 转写台</a>
+      <span class="wordmark">知识库</span>
+    </div>
+    <span class="path" id="vault-path" title="vault 目录 — 可用 Obsidian 直接打开"></span>
+  </header>
+
+  <main>
+    <div class="grid">
+      <nav class="panel" id="note-list" aria-label="笔记列表"></nav>
+      <section class="panel viewer" id="viewer" aria-label="笔记内容">
+        <div class="empty">← 从左侧选择一篇笔记查看原文</div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    "use strict";
+    const $ = (id) => document.getElementById(id);
+
+    function authHeaders() {
+      let t = "";
+      try { t = (localStorage.getItem("v2t_api_token") || "").trim(); } catch (_) { /* storage 不可用 */ }
+      return t ? { "Authorization": "Bearer " + t } : {};
+    }
+
+    const KIND_LABEL = { raw: "转写", wiki: "聚合" };
+    const TYPE_ORDER = ["raw", "wiki"];
+
+    function noteItem(n) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "note-item";
+      btn.innerHTML = `<span class="kind">${n.type === "raw" ? "RAW" : "WIKI"}</span><span class="n"></span>`;
+      btn.querySelector(".n").textContent = n.name;
+      btn.addEventListener("click", () => openNote(n, btn));
+      return btn;
+    }
+
+    async function openNote(note, btn) {
+      document.querySelectorAll(".note-item.active").forEach((el) => el.classList.remove("active"));
+      if (btn) btn.classList.add("active");
+      $("viewer").innerHTML = '<div class="empty">加载中…</div>';
+      try {
+        const r = await fetch(`/api/wiki/note?name=${encodeURIComponent(note.path)}`, { headers: authHeaders() });
+        if (!r.ok) throw new Error(r.statusText);
+        const text = await r.text();
+        $("viewer").innerHTML = `
+          <div class="title"><span class="name"></span><span>${note.type === "raw" ? "RAW" : "WIKI"}</span></div>
+          <pre></pre>`;
+        $("viewer").querySelector(".name").textContent = note.name;
+        $("viewer").querySelector("pre").textContent = text;
+      } catch (err) {
+        $("viewer").innerHTML = `<div class="empty">加载失败:${err.message}</div>`;
+      }
+    }
+
+    async function load() {
+      const list = $("note-list");
+      list.innerHTML = '<div class="empty">加载中…</div>';
+      try {
+        const r = await fetch("/api/wiki", { headers: authHeaders() });
+        if (!r.ok) throw new Error(r.statusText);
+        const data = await r.json();
+        if (!data.enabled) {
+          list.innerHTML = '<div class="empty">知识库未启用(设置 MEDIASCRIBE_WIKI=1)</div>';
+          return;
+        }
+        $("vault-path").textContent = data.path || "";
+        list.innerHTML = "";
+        const notes = data.notes || [];
+        if (notes.length === 0) {
+          list.innerHTML = '<div class="empty">还没有归档笔记 — 提交一次转写后这里就会出现内容</div>';
+          return;
+        }
+        for (const type of TYPE_ORDER) {
+          const group = notes.filter((n) => n.type === type);
+          if (group.length === 0) continue;
+          const h = document.createElement("h2");
+          h.className = "sec";
+          h.textContent = type === "raw" ? `转写笔记 (${group.length})` : `聚合笔记 (${group.length})`;
+          list.appendChild(h);
+          const box = document.createElement("div");
+          box.className = "note-list";
+          group.forEach((n) => box.appendChild(noteItem(n)));
+          list.appendChild(box);
+        }
+      } catch (err) {
+        list.innerHTML = `<div class="empty">加载失败:${err.message}</div>`;
+      }
+    }
+    load();
+  </script>
+</body>
+</html>
