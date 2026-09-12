@@ -88,17 +88,19 @@
       max-height: 72vh; overflow: auto; padding-right: 8px;
     }
     .viewer .title { font-size: 12px; color: var(--fg-2); border-bottom: 1px solid var(--line); padding-bottom: 9px; margin-bottom: 10px;
-      display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+      display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
     .viewer .title .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); font-weight: 500; }
-    .grp { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+    /* RAW/WIKI 标签在上, 复制/删除图标在正下方 */
+    .side { flex: none; display: inline-flex; flex-direction: column; align-items: flex-end; gap: 7px; }
+    .grp { display: inline-flex; align-items: center; gap: 6px; }
     .grp .act {
-      width: 26px; height: 26px; border: none; border-radius: 6px;
+      width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 8px;
       background: var(--fill); color: var(--fg-2);
-      font-family: var(--sans); font-size: 12px; line-height: 1;
+      font-family: var(--sans); font-size: 13px; line-height: 1;
       cursor: pointer; transition: background 0.15s, color 0.15s;
     }
     .grp .act:hover { background: var(--fill-hover); color: var(--fg); }
-    .grp .act.armed { background: rgba(255, 71, 86, 0.12); color: #ff4756; }
+    .grp .act.armed { background: rgba(255, 71, 86, 0.12); color: #ff4756; border-color: rgba(255, 71, 86, 0.4); }
     :focus-visible { outline: 2px solid rgba(127,127,127,.5); outline-offset: 2px; }
     @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
     @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
@@ -159,10 +161,12 @@
         $("viewer").innerHTML = `
           <div class="title">
             <span class="name"></span>
-            <span class="grp">
+            <span class="side">
               <span class="kind">${note.type === "raw" ? "RAW" : "WIKI"}</span>
-              <button type="button" class="act" data-copy title="复制全文">⧉</button>
-              <button type="button" class="act" data-del title="删除这篇笔记">✕</button>
+              <span class="grp">
+                <button type="button" class="act" data-copy title="复制全文">⧉</button>
+                <button type="button" class="act" data-del title="删除这篇笔记">✕</button>
+              </span>
             </span>
           </div>
           <pre></pre>`;
