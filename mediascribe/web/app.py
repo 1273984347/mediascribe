@@ -892,7 +892,9 @@ def _run_job_safely(
     v3.2.0e:批量提交已改走 :func:`_run_batch_job`(``AsyncPipeline.run_batch``),
     此处保留以兼容单 URL 直接 ``ThreadPoolExecutor.submit`` 的调用方。
     """
-    _store_job_result(runner, job_id, out_path, url, results_store, results_lock, registry, vault=vault)
+    _store_job_result(
+        runner, job_id, out_path, url, results_store, results_lock, registry, vault=vault
+    )
 
 
 def _run_batch_job(

@@ -51,7 +51,10 @@ _FM_FIELD_TMPL = "^{key}:[ \\t]*(.*)$"
 def wiki_enabled() -> bool:
     """环境开关 — ``MEDIASCRIBE_WIKI=0/false/no/off`` 时停用归档。"""
     return os.environ.get("MEDIASCRIBE_WIKI", "1").strip().lower() not in {
-        "0", "false", "no", "off",
+        "0",
+        "false",
+        "no",
+        "off",
     }
 
 
@@ -93,9 +96,12 @@ def _platform_label(kind: Any, url: str = "") -> str:
         return PLATFORM_LABELS[kind]
     lowered = (url or "").lower()
     for host, label in (
-        ("bilibili.com", "Bilibili"), ("douyin.com", "抖音"),
-        ("youtube.com", "YouTube"), ("youtu.be", "YouTube"),
-        ("xiaohongshu.com", "小红书"), ("mp.weixin.qq.com", "微信公众号"),
+        ("bilibili.com", "Bilibili"),
+        ("douyin.com", "抖音"),
+        ("youtube.com", "YouTube"),
+        ("youtu.be", "YouTube"),
+        ("xiaohongshu.com", "小红书"),
+        ("mp.weixin.qq.com", "微信公众号"),
         ("tiktok.com", "TikTok"),
     ):
         if host in lowered:
@@ -123,7 +129,9 @@ class WikiVault:
     # ------------------------------------------------------------------
     # 公开入口
     # ------------------------------------------------------------------
-    def archive_transcript(self, md_path: Path | str, metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    def archive_transcript(
+        self, md_path: Path | str, metadata: Optional[Dict[str, Any]]
+    ) -> Dict[str, Any]:
         """把一篇转写稿归档进 vault, 并重建聚合笔记与 HOME。
 
         Returns
@@ -158,17 +166,30 @@ class WikiVault:
             self.wiki_dir.mkdir(parents=True, exist_ok=True)
 
             raw_name = self._write_raw(
-                title=title, content=content, url=url, author=author,
-                platform=platform, created=created, created_str=created_str,
+                title=title,
+                content=content,
+                url=url,
+                author=author,
+                platform=platform,
+                created=created,
+                created_str=created_str,
                 meta=meta,
             )
             records = self._scan_raw()
-            author_note = self._write_group_note(
-                "作者", author, records,
-                lambda r: r.get("author") or "",
-            ) if author else None
+            author_note = (
+                self._write_group_note(
+                    "作者",
+                    author,
+                    records,
+                    lambda r: r.get("author") or "",
+                )
+                if author
+                else None
+            )
             platform_note = self._write_group_note(
-                "平台", platform, records,
+                "平台",
+                platform,
+                records,
                 lambda r: r.get("platform") or "",
             )
             self._write_home(records)
@@ -184,8 +205,15 @@ class WikiVault:
     # 内部: 各笔记写入(调用方须持锁)
     # ------------------------------------------------------------------
     def _write_raw(
-        self, *, title: str, content: str, url: str, author: Optional[str],
-        platform: str, created: datetime, created_str: str,
+        self,
+        *,
+        title: str,
+        content: str,
+        url: str,
+        author: Optional[str],
+        platform: str,
+        created: datetime,
+        created_str: str,
         meta: Dict[str, Any],
     ) -> str:
         """写入 raw 文献笔记, 返回文件名。同 URL 幂等。"""
@@ -206,7 +234,7 @@ class WikiVault:
         fm_lines = [
             "---",
             f"title: {_yaml_str(title)}",
-            f'url: {_yaml_str(url)}',
+            f"url: {_yaml_str(url)}",
             f"platform: {_yaml_str(platform)}",
         ]
         if author:
@@ -226,11 +254,13 @@ class WikiVault:
         fm_lines.append("---")
 
         attribution = " · ".join(
-            part for part in (
+            part
+            for part in (
                 f"[[作者 - {author}]]" if author else None,
                 f"[[平台 - {platform}]]",
                 f"[原始链接]({url})" if url else None,
-            ) if part
+            )
+            if part
         )
         body = "\n".join([*fm_lines, "", f"> {attribution}", "", content.rstrip(), ""])
         (self.raw_dir / candidate).write_text(body, encoding="utf-8")
@@ -271,7 +301,10 @@ class WikiVault:
         return value or None
 
     def _write_group_note(
-        self, kind: str, value: str, records: List[Dict[str, str]],
+        self,
+        kind: str,
+        value: str,
+        records: List[Dict[str, str]],
         key_of,  # callable: record -> str
     ) -> str:
         """重建 ``wiki/{kind} - {value}.md`` 聚合笔记, 返回文件名。"""
@@ -321,10 +354,13 @@ class WikiVault:
         ]
         for r in records[:20]:
             bits = " · ".join(
-                part for part in (
-                    r.get("platform"), (r.get("author") or None),
+                part
+                for part in (
+                    r.get("platform"),
+                    (r.get("author") or None),
                     (r.get("created") or "")[:10],
-                ) if part
+                )
+                if part
             )
             lines.append(f"- [[{r['name']}]] — {bits}")
         lines.append("")
