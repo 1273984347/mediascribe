@@ -380,6 +380,7 @@
       color: var(--fg); font-weight: 500;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
+    .result-archived { color: var(--fg-3); font-size: 11px; flex: none; }
     .result-body {
       font-family: var(--mono); font-size: 12.5px; line-height: 1.75;
       color: var(--fg);
@@ -888,12 +889,16 @@ https://www.youtube.com/watch?v=…" required></textarea>
         const data = await r.json();
         if (!data.markdown) return;
         const dateStr = new Date().toLocaleDateString("zh-CN");
+        const archived = data.wiki && data.wiki.raw
+          ? `<span class="result-archived" title="已归档到知识库: ${escapeHtml(data.wiki.raw)}">已归档知识库</span>`
+          : "";
         const wrap = document.createElement("div");
         wrap.className = "result";
         wrap.innerHTML = `
           <div class="result-head">
             <span>转写文稿</span>
             <span class="result-title">${escapeHtml(data.title || "未命名文稿")}</span>
+            ${archived}
             <span>${escapeHtml(dateStr)}</span>
           </div>
           <div class="result-body"></div>`;
