@@ -15,7 +15,11 @@ from mediascribe.wiki import (
 )
 
 FAKE_METADATA = {
-    "source": {"raw_input": "https://www.bilibili.com/video/BV1xx", "kind": "bilibili", "url": "https://www.bilibili.com/video/BV1xx"},
+    "source": {
+        "raw_input": "https://www.bilibili.com/video/BV1xx",
+        "kind": "bilibili",
+        "url": "https://www.bilibili.com/video/BV1xx",
+    },
     "engine": "faster-whisper",
     "model": "large-v3",
     "language": "zh",
@@ -37,7 +41,9 @@ class TestWikiVault(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.vault = WikiVault(Path(self._tmp.name) / "vault")
 
-    def _archive(self, metadata=None, markdown=FAKE_MARKDOWN, url="https://www.bilibili.com/video/BV1xx"):
+    def _archive(
+        self, metadata=None, markdown=FAKE_MARKDOWN, url="https://www.bilibili.com/video/BV1xx"
+    ):
         src_md = Path(self._tmp.name) / "out.md"
         src_md.write_text(markdown, encoding="utf-8")
         meta = dict(FAKE_METADATA)
@@ -60,7 +66,7 @@ class TestWikiVault(unittest.TestCase):
             'url: "https://www.bilibili.com/video/BV1xx"',
             'platform: "哔哩哔哩"',
             'author: "影视飓风"',
-            "duration: \"8分24秒\"",
+            'duration: "8分24秒"',
             'engine: "faster-whisper"',
             'model: "large-v3"',
             'language: "zh"',
