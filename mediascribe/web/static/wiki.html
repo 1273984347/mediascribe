@@ -92,13 +92,15 @@
     .viewer .title .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); font-weight: 500; }
     .grp { display: inline-flex; align-items: center; gap: 6px; flex: none; }
     .grp .act {
-      width: 26px; height: 26px; border: none; border-radius: 6px;
+      width: 28px; height: 28px; border: 1px solid transparent; border-radius: 8px;
       background: var(--fill); color: var(--fg-2);
-      font-family: var(--sans); font-size: 12px; line-height: 1;
-      cursor: pointer; transition: background 0.15s, color 0.15s;
+      display: inline-grid; place-items: center;
+      cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s;
     }
+    .grp .act svg { display: block; }
     .grp .act:hover { background: var(--fill-hover); color: var(--fg); }
-    .grp .act.armed { background: rgba(255, 71, 86, 0.12); color: #ff4756; }
+    .grp .act.armed { background: rgba(255, 71, 86, 0.1); border-color: rgba(255, 71, 86, 0.4); color: #ff4756; }
+    .grp .act.done { color: var(--green); }
     :focus-visible { outline: 2px solid rgba(127,127,127,.5); outline-offset: 2px; }
     @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
     @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
@@ -147,6 +149,18 @@
 
     let current = null; // { note, text }
 
+    // 线性 SVG 图标(1.5 描边 / 圆角, 跟随主题色) — 与 KIMI 图标语言一致
+    const ICONS = {
+      copy:
+        '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<rect x="9" y="9" width="12" height="12" rx="2.5"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+      check:
+        '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>',
+      trash:
+        '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>',
+    };
+
     async function openNote(note, btn) {
       document.querySelectorAll(".note-item.active").forEach((el) => el.classList.remove("active"));
       if (btn) btn.classList.add("active");
@@ -161,8 +175,8 @@
             <span class="name"></span>
             <span class="grp">
               <span class="kind">${note.type === "raw" ? "RAW" : "WIKI"}</span>
-              <button type="button" class="act" data-copy title="复制全文">⧉</button>
-              <button type="button" class="act" data-del title="删除这篇笔记">✕</button>
+              <button type="button" class="act" data-copy title="复制全文">${ICONS.copy}</button>
+              <button type="button" class="act" data-del title="删除这篇笔记">${ICONS.trash}</button>
             </span>
           </div>
           <pre></pre>`;
@@ -181,9 +195,14 @@
       const b = ev.currentTarget;
       try {
         await navigator.clipboard.writeText(current.text);
-        b.textContent = "✓";
+        b.innerHTML = ICONS.check;
+        b.classList.add("done");
         b.title = "已复制";
-        setTimeout(() => { b.textContent = "⧉"; b.title = "复制全文"; }, 1500);
+        setTimeout(() => {
+          b.innerHTML = ICONS.copy;
+          b.classList.remove("done");
+          b.title = "复制全文";
+        }, 1500);
       } catch (_) {
         b.title = "复制失败:浏览器拒绝了剪贴板访问";
       }
