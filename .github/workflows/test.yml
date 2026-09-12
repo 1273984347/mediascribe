@@ -50,11 +50,11 @@ jobs:
             pyproject.toml
             requirements-dev.txt
       - name: Install ruff
-        # 锁定版本: 新版 ruff 移除了 `--output-format=github --statistics`
-        # 组合支持, 未锁版本会在上游发版时突然红 CI(与本地开发版一致)。
+        # 上游 ruff 0.17 起不再支持 `--statistics` + 非文本输出格式组合,
+        # 保险起见锁到与本地开发一致的版本。
         run: pip install "ruff==0.16.6"
       - name: ruff check
-        run: ruff check . --output-format=github --statistics
+        run: ruff check . --output-format=github
       - name: ruff format (check only)
         run: ruff format --check --diff .
 
