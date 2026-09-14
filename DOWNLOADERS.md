@@ -29,9 +29,19 @@ Source detection happens in [`mediascribe/inputs.py::parse_source`](../mediascri
   requires a `SESSDATA` cookie (not bundled).
 - **Headers**: Sends `Referer: https://www.bilibili.com/` so `412 Precondition
   Failed` is avoided. UA impersonates a modern Chrome.
+- **P2P CDN fallback**: Bilibili now schedules audio streams onto P2P CDN
+  nodes (`*.mcdn.bilivideo.cn:8082`) which time out on many networks. When
+  the yt-dlp download fails for a Bilibili source, the downloader
+  automatically falls back to the `playurl` API and pulls the audio track
+  from its signed `base_url` / `backup_url` list (regular upos mirrors).
+  Only audio is fetched — all a transcript needs — and the DASH `.m4s` is
+  remuxed to `.m4a` via ffmpeg when available. Recorded in metadata as
+  `downloader: bilibili-api-audio-fallback`.
 - **Failures**:
   - `geetest` captcha → re-run from a residential IP, or supply cookies.
   - 404 → the BV id is invalid or the video was removed.
+  - Chargeable / members-only parts expose no DASH audio → fallback returns
+    the original yt-dlp error.
 
 ## Douyin — `DouyinDownloader`
 
