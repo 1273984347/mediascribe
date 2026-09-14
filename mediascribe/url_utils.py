@@ -120,6 +120,18 @@ def extract_bvid(url: str) -> Optional[str]:
     return None
 
 
+_PAGE_QS_RE = re.compile(r"[?&]p=(\d+)")
+
+
+def _extract_page(url: str) -> Optional[int]:
+    """提取多 P 选择参数 ``p=N``；不存在或为 P1 返回 None（P1 即默认页）。"""
+    match = _PAGE_QS_RE.search(url or "")
+    if not match:
+        return None
+    page = int(match.group(1))
+    return page if page > 1 else None
+
+
 def is_short_url(url: str) -> bool:
     """
     判断是否是短链接（按主机名精确匹配，含子域）
@@ -154,6 +166,10 @@ def normalize_bilibili_url(url: str) -> tuple[Optional[str], Optional[str]]:
     # 如果有 BV 号，构建标准 URL
     if bvid:
         standard_url = f"https://www.bilibili.com/video/{bvid}"
+        # 保留多 P 选择参数，否则 ?p=N 一律落到 P1
+        page = _extract_page(real_url)
+        if page:
+            standard_url += f"?p={page}"
         return standard_url, bvid
 
     return real_url, None
@@ -178,6 +194,10 @@ def normalize_url(url: str) -> Optional[str]:
     if _host_matches(real_url, ("bilibili.com", "b23.tv")):
         bvid = extract_bvid(real_url)
         if bvid:
-            return f"https://www.bilibili.com/video/{bvid}"
+            standard = f"https://www.bilibili.com/video/{bvid}"
+            page = _extract_page(real_url)
+            if page:
+                standard += f"?p={page}"
+            return standard
 
     return real_url
