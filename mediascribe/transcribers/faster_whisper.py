@@ -300,7 +300,11 @@ class FasterWhisperTranscriber(Transcriber):
             duration,
             audio_path.name,
         )
-        tmp_name = Path(tempfile.mktemp(suffix=".wav"))
+        fd, tmp = tempfile.mkstemp(suffix=".wav")
+        import os
+
+        os.close(fd)
+        tmp_name = Path(tmp)
         try:
             if not _extract_tail_wav(audio_path, slice_start, tmp_name):
                 logger.warning("尾部补录: 切片失败, 放弃补录")
