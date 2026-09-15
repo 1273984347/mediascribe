@@ -67,6 +67,70 @@ DEFAULT_TERMS: dict[str, str] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# 幻觉重复收敛 — ASR 解码循环的确定性自愈
+# ---------------------------------------------------------------------------
+# large-v3 实测偶发同一句连续 3-40 次的解码循环(45 集徐涛课程出现
+# 30+ 处)。>= MIN_REPEAT 连相同句判为循环收敛为 1; 2 连保留(老师
+# 口语强调)。逐行处理, 不跨段, 不改动非重复内容。
+HALLUCINATION_MIN_REPEAT = 3
+_SENT_SPLIT_RE = None  # 延迟编译见 _split_sentence_units
+
+
+def _split_sentence_units(line: str) -> list:
+    """把一行按中英文标点切成 (句子, 尾分隔符) 单元, 保留原文所有字符。"""
+    import re as _re
+
+    parts = _re.split(r"([,。?!;;,.;?!])", line)
+    units, cur = [], ""
+    for tok in parts:
+        cur += tok
+        if _re.fullmatch(r"[,。?!;;,.;?!]", tok or ""):
+            units.append(cur)
+            cur = ""
+    if cur:
+        units.append(cur)
+    return units
+
+
+def _normalize_sentence(unit: str) -> str:
+    import re as _re
+
+    return _re.sub(r"[\s,。?!;;,.;?!]", "", unit)
+
+
+def collapse_hallucination_repeats(text: str, min_repeat: int = HALLUCINATION_MIN_REPEAT) -> tuple:
+    """收敛 ASR 解码循环产生的连续重复句。
+
+    逐行处理: 行内按标点切句后, 连续 ``min_repeat`` 次以上完全相同
+    (忽略空白与标点差异)的句子收敛为 1 句。返回 ``(新文本, 删除句数)``。
+
+    长度 <4 的"句子"(如单字语气词)不参与判定, 避免误伤口语。
+    """
+    if not text:
+        return text, 0
+    removed_total = 0
+    out_lines = []
+    for line in text.splitlines():
+        units = _split_sentence_units(line)
+        out, i = [], 0
+        while i < len(units):
+            j = i
+            core = _normalize_sentence(units[i])
+            if len(core) >= 4:
+                while j + 1 < len(units) and _normalize_sentence(units[j + 1]) == core:
+                    j += 1
+                if j - i + 1 >= min_repeat:
+                    removed_total += j - i
+                    out.append(units[i])
+                    i = j + 1
+                    continue
+            out.append(units[i])
+            i += 1
+        out_lines.append("".join(out))
+    return "\n".join(out_lines), removed_total
+
+
 def post_process_transcript(
     text: str,
     custom_terms: Optional[dict[str, str]] = None,

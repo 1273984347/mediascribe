@@ -8,6 +8,11 @@ v3.2.0e 优化：
   ``WhisperModel`` 实例，Web 多请求场景模型加载 5s→0ms。
 - ``vad_filter=True`` 默认开启，过滤长静音段，错字率降 20-30%，速度提升 15%。
 
+v3.4.2 尾部覆盖守卫：
+- 实测偶发非确定性尾部截断（末段结束比音频末尾早 60-170s，同代码同
+  模型同音频不可复现）。转录完成后探测尾部缺口，超过阈值即对尾部
+  切片无 VAD 重转并按时间线合并（``_rescue_tail``），并记录 warning。
+
 缓存为 LRU（容量 ``_MODEL_CACHE_MAX``），多模型轮换时自动淘汰最久未用的
 实例，避免显存只增不减。
 """
@@ -15,6 +20,7 @@ v3.2.0e 优化：
 from __future__ import annotations
 
 import logging
+import tempfile
 import threading
 from collections import OrderedDict
 from pathlib import Path
@@ -23,6 +29,90 @@ from typing import Any, Optional, Tuple
 from .base import Transcriber
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# 尾部覆盖守卫 — 自愈式缺口补录
+# ---------------------------------------------------------------------------
+_TAIL_GAP_THRESHOLD = 30.0  # 末段结束距音频末尾超过该秒数视为尾部缺失
+_TAIL_REWIND_SECONDS = 10.0  # 补录切片向前回退量, 保证衔接处有上下文
+
+
+def _probe_duration_seconds(path: Path) -> Optional[float]:
+    """ffprobe 探测媒体时长(秒); 不可用时返回 None, 守卫静默跳过。"""
+    import shutil
+    import subprocess
+
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return None
+    try:
+        out = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "quiet",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "csv=p=0",
+                str(path),
+            ],
+            capture_output=True,
+            timeout=30,
+        )
+        return float(out.stdout.decode("utf-8", errors="replace").strip())
+    except Exception:
+        return None
+
+
+def _extract_tail_wav(src: Path, start: float, dst: Path) -> bool:
+    """从 ``src`` 的 ``start`` 秒起切出 16k mono wav; 成功返回 True。"""
+    import shutil
+    import subprocess
+
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return False
+    try:
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-loglevel",
+                "error",
+                "-ss",
+                f"{start:.3f}",
+                "-i",
+                str(src),
+                "-vn",
+                "-acodec",
+                "pcm_s16le",
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                str(dst),
+            ],
+            check=True,
+            timeout=300,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def tail_rescue_needed(
+    seg_list: list, duration: Optional[float], threshold: float = _TAIL_GAP_THRESHOLD
+) -> bool:
+    """末段结束距音频末尾超过 ``threshold`` 即认为尾部缺失。"""
+    if not duration or not seg_list:
+        return False
+    try:
+        last_end = float(seg_list[-1]["end"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return duration - last_end > threshold
+
 
 # ---------------------------------------------------------------------------
 # 模型缓存 — LRU，按 (model_name, device, compute_type) 复用 WhisperModel 实例
@@ -164,9 +254,84 @@ class FasterWhisperTranscriber(Transcriber):
             seg_list.append(seg_dict)
             text_parts.append(seg.text)
 
+        rescued = self._rescue_tail_if_truncated(
+            audio_path,
+            seg_list,
+            text_parts,
+            language=language,
+            initial_prompt=initial_prompt,
+        )
+        if rescued:
+            text_parts.extend(rescued)
+
         return {
             "text": " ".join(text_parts).strip(),
             "segments": seg_list,
             "language": info.language,
             "model": self.model_name,
         }
+
+    def _rescue_tail_if_truncated(
+        self,
+        audio_path: Path,
+        seg_list: list,
+        text_parts: list,
+        *,
+        language: Optional[str],
+        initial_prompt: Optional[str],
+    ) -> list:
+        """尾部覆盖守卫: 缺口超阈值时对尾部切片无 VAD 重转并合并。
+
+        返回追加进 ``text_parts`` 的补录文本(无缺口/补录失败返回空表);
+        新段直接追加进 ``seg_list``。任何失败都不影响主转录结果。
+        """
+        if not seg_list:
+            return []
+        audio_path = Path(audio_path)
+        duration = _probe_duration_seconds(audio_path)
+        if not tail_rescue_needed(seg_list, duration):
+            return []
+        last_end = float(seg_list[-1]["end"])
+        slice_start = max(0.0, last_end - _TAIL_REWIND_SECONDS)
+        logger.warning(
+            "检测到尾部覆盖缺口 %.1fs(末段 %.1fs / 总长 %.1fs), 无 VAD 重转尾部补录: %s",
+            duration - last_end,
+            last_end,
+            duration,
+            audio_path.name,
+        )
+        tmp_name = Path(tempfile.mktemp(suffix=".wav"))
+        try:
+            if not _extract_tail_wav(audio_path, slice_start, tmp_name):
+                logger.warning("尾部补录: 切片失败, 放弃补录")
+                return []
+            tail_segments, _ = self._ensure_model().transcribe(
+                str(tmp_name),
+                language=language,
+                initial_prompt=initial_prompt,
+                vad_filter=False,  # 无 VAD: 兜住 VAD 漏检的收尾语音
+            )
+            appended_text = []
+            for seg in tail_segments:
+                seg_dict = {
+                    "text": seg.text,
+                    "start": seg.start + slice_start,
+                    "end": seg.end + slice_start,
+                }
+                if float(seg_dict["start"]) < last_end - 0.5:
+                    continue  # 与已有段重叠(回退区), 跳过
+                seg_list.append(seg_dict)
+                appended_text.append(seg.text)
+            if appended_text:
+                logger.info(
+                    "尾部补录: 追加 %d 段(至 %.1fs)", len(appended_text), seg_list[-1]["end"]
+                )
+            return appended_text
+        except Exception as e:  # noqa: BLE001 — 守卫绝不能破坏主转录结果
+            logger.warning("尾部补录失败(不影响主转录): %s", e)
+            return []
+        finally:
+            try:
+                tmp_name.unlink()
+            except OSError:
+                pass

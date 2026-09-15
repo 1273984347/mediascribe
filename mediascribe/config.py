@@ -47,6 +47,7 @@ class Settings:
         cache_dir: Optional[Path] = None,
         llm_post_process: Optional[Dict[str, Any]] = None,
         timestamps: bool = False,
+        audio_only: bool = False,
     ):
         # workspace 根目录：显式参数 > MEDIASCRIBE_WORKSPACE 环境变量 > 默认 ./output
         # （Docker 镜像 ENV MEDIASCRIBE_WORKSPACE=/workspace 指向挂载卷；web 层读取
@@ -90,6 +91,11 @@ class Settings:
 
         # v3.4.0: Markdown 正文段落带 [mm:ss] 时间戳前缀（CLI --timestamps）
         self.timestamps = bool(timestamps)
+
+        # v3.4.2: 只拉音轨(转录场景够用, 省 ~70% 带宽; B 站直走 API 音轨)
+        self.audio_only = bool(audio_only) or os.environ.get(
+            "MEDIASCRIBE_AUDIO_ONLY", ""
+        ).lower() in ("1", "true")
 
         # 微信公众号 cookies：dict 优先，文件兜底
         self.wechat_cookies: Dict[str, str] = dict(wechat_cookies or {})

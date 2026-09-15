@@ -578,6 +578,9 @@ class AssembleStage(Stage):
         # v3.2.0b: 自动后处理 (术语校正,含学习术语)
         text = self._post_process(ctx.text)
 
+        # v3.4.2: 幻觉重复收敛 (ASR 解码循环 >=3 连相同句收敛为 1)
+        text, halluc_removed = self._collapse_repeats(text)
+
         # v3.2.0d: LLM 后处理 (专有名词 / 同音字 / 标点 / 分段)
         # 失败时回退到原文,不阻塞 pipeline
         text, llm_status, llm_model = self._llm_post_process(text, ctx)
@@ -596,7 +599,8 @@ class AssembleStage(Stage):
         else:
             markdown = self._build_markdown(base_name, text, ctx.transcription, ctx.downloaded)
         # 在 markdown 头部插入后处理状态 banner
-        markdown = self._inject_status_banner(markdown, llm_status, llm_model)
+        extra = f"; 幻觉重复收敛 {halluc_removed} 句" if halluc_removed else ""
+        markdown = self._inject_status_banner(markdown, llm_status, llm_model, extra_note=extra)
         # v3.2.0e+: 原子写避免半写污染（markdown 通常 5-200KB）
         _atomic_write_text(transcript_path, markdown, encoding="utf-8")
 
@@ -619,6 +623,7 @@ class AssembleStage(Stage):
                 "status": llm_status,
                 "model": llm_model,
             },
+            "hallucination_repeats_removed": halluc_removed,
             "generated_at": datetime.now().isoformat(),
         }
         _atomic_write_text(metadata_path, _json_dump(metadata), encoding="utf-8")
@@ -658,6 +663,21 @@ class AssembleStage(Stage):
             return text
 
     @staticmethod
+    def _collapse_repeats(text: str) -> tuple:
+        """幻觉重复收敛: >=3 连相同句收敛为 1, 返回 (新文本, 删除句数)。"""
+        if not text:
+            return text, 0
+        try:
+            from .post_process import collapse_hallucination_repeats
+
+            new_text, removed = collapse_hallucination_repeats(text)
+            if removed:
+                logger.warning("幻觉重复收敛: 删除 %d 句解码循环", removed)
+            return new_text, removed
+        except Exception:
+            return text, 0
+
+    @staticmethod
     def _llm_post_process(text: str, ctx: PipelineContext) -> tuple[str, str, str]:
         """LLM 后处理 (专有名词 / 同音字 / 标点 / 分段)。
 
@@ -689,13 +709,14 @@ class AssembleStage(Stage):
             return text, "llm-failed", ""
 
     @staticmethod
-    def _inject_status_banner(markdown: str, status: str, model: str) -> str:
+    def _inject_status_banner(markdown: str, status: str, model: str, extra_note: str = "") -> str:
         """在 markdown 头部插入后处理状态 HTML 注释。
 
         Banner 形如::
 
             <!-- post-process: llm-reviewed (model=deepseek-chat) -->
 
+        ``extra_note`` 非空时追加进注释括号内(如 "; 幻觉重复收敛 3 句")。
         原有 markdown 内容保持不变。
         """
         try:
@@ -704,6 +725,8 @@ class AssembleStage(Stage):
             banner = build_status_banner(status, model)
         except Exception:
             banner = f"<!-- post-process: {status} -->"
+        if extra_note and banner.rstrip().endswith("-->"):
+            banner = banner.rstrip()[: -len("-->")].rstrip() + extra_note + " -->"
         return f"{banner}\n\n{markdown}"
 
 

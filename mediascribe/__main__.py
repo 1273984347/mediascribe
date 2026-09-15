@@ -99,6 +99,12 @@ _common_transcribe_opts.add_argument(
     default=argparse.SUPPRESS,
     help="Markdown 正文按 ASR 分段并给每段加 [mm:ss] 时间戳前缀",
 )
+_common_transcribe_opts.add_argument(
+    "--audio-only",
+    action="store_true",
+    default=argparse.SUPPRESS,
+    help="下载只拉音轨（转录场景够用; B 站直走 playurl API 音轨, 更快更稳; 环境变量 MEDIASCRIBE_AUDIO_ONLY=1 同效）",
+)
 
 
 def _write_latest_pointer(settings, result) -> None:
@@ -309,6 +315,8 @@ def _run_legacy(argv: Optional[List[str]]) -> int:
         diarization=getattr(args, "diarization", False) or bool(file_cfg.get("diarization", False)),
         timestamps=bool(getattr(args, "timestamps", False))
         or bool(file_cfg.get("timestamps", False)),
+        audio_only=bool(getattr(args, "audio_only", False))
+        or bool(file_cfg.get("audio_only", False)),
         wechat_cookies=wechat_cookies_dict or None,
         wechat_cookies_file=getattr(args, "wechat_cookie_file", None),
     )
