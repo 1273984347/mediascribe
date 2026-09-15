@@ -35,8 +35,12 @@ def save_state(state_path: Path, state: dict) -> None:
     state_path.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
-def fetch_part_ids(bv: str) -> list:
-    """拉取全部分 P 的 yt-dlp id(形如 BVxxxx_pN), 用于防呆断言。"""
+def fetch_part_titles(bv: str) -> list:
+    """拉取全部分 P 的 (playlist_index, title)。
+
+    注意: flat-playlist 模式下 B 站不返回 entry 的 title(为 "NA"),
+    ``%(id)s`` 也不含 ``_pN`` 后缀; 分 P 身份只能靠 playlist_index。
+    """
     result = subprocess.run(
         [
             sys.executable,
@@ -44,32 +48,36 @@ def fetch_part_ids(bv: str) -> list:
             "yt_dlp",
             "--flat-playlist",
             "--print",
-            "%(id)s",
+            "%(playlist_index)s|%(title)s",
             f"https://www.bilibili.com/video/{bv}/",
         ],
         capture_output=True,
         text=True,
         encoding="utf-8",
     )
-    return [x.strip() for x in (result.stdout or "").splitlines() if x.strip()]
+    parts = []
+    for line in (result.stdout or "").splitlines():
+        if "|" not in line:
+            continue
+        idx, title = line.split("|", 1)
+        if idx.strip().isdigit():
+            parts.append((int(idx), title.strip()))
+    return parts
 
 
 def preflight(bv: str, total: int) -> int:
-    """防呆断言: 数量/唯一性/序号对应。返回实际可转集数。"""
-    ids = fetch_part_ids(bv)
-    if not ids:
+    """防呆断言: 序号连续且有序(防多 P 元数据/URL 解析异常)。返回实际可转集数。"""
+    parts = fetch_part_titles(bv)
+    if not parts:
         raise RuntimeError(f"未能拉取分 P 列表: {bv}")
-    if len(set(ids)) != len(ids):
-        raise RuntimeError(f"分 P id 存在重复, 多 P 识别可能失效: {ids[:5]}...")
-    for p, vid in enumerate(ids[:total], start=1):
-        if not vid.endswith(f"_p{p}"):
-            raise RuntimeError(
-                f"分 P 序号错位: 第 {p} 个 id={vid}, 预期以 _p{p} 结尾。"
-                "多 P URL 解析可能有问题, 中止以防整批转成同一集。"
-            )
-    if len(ids) < total:
-        print(f"[warn] 预期 {total} 集, 实际只有 {len(ids)} 集, 按实际数执行", flush=True)
-        return len(ids)
+    indexes = [i for i, _ in parts]
+    if indexes != list(range(1, len(indexes) + 1)):
+        raise RuntimeError(
+            f"分 P 序号异常(应连续 1..N): {indexes[:10]}... 多 P 识别可能有问题, 中止"
+        )
+    if len(parts) < total:
+        print(f"[warn] 预期 {total} 集, 实际只有 {len(parts)} 集, 按实际数执行", flush=True)
+        return len(parts)
     return total
 
 

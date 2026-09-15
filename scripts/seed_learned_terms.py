@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mediascribe.learn import LearnedTermsDB, learned_terms_path  # noqa: E402
+from mediascribe.learn import _load_db, _save_db, get_prompt_terms, learned_terms_path  # noqa: E402
 
 # 人工核定 (2026-09-15, 徐涛考研政治 45 集两门课程实测)
 # (wrong, right)
@@ -74,11 +74,7 @@ def main() -> int:
         print(f"术语库已存在: {store}\n如需追加/确认请加 --force")
         return 0
 
-    db = LearnedTermsDB()
-    if store.exists():
-        import json
-
-        db = LearnedTermsDB(**json.loads(store.read_text(encoding="utf-8")))
+    db = _load_db()  # 复用 learn 的反序列化(dict -> Correction), 避免 --force 时 dict 崩溃
 
     added = 0
     for wrong, right in SAFE_TERMS:
@@ -88,12 +84,8 @@ def main() -> int:
         db.confirm(wrong, right)  # 人工核定, 直接确认
         added += 1
 
-    from mediascribe.learn import _save_db
-
     _save_db(db)
     print(f"已灌入 {added} 条确认术语 -> {store}")
-
-    from mediascribe.learn import get_prompt_terms
 
     preview = get_prompt_terms()
     print(f"\nprompt 注入预览:\n  {preview[:180]}...")
