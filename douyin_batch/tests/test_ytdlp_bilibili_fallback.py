@@ -16,7 +16,7 @@ from mediascribe.downloaders.ytdlp import (
     _parse_bilibili,
     _pick_best_audio,
 )
-from mediascribe.models import SourceRef
+from mediascribe.models import DownloadResult, SourceRef
 
 _AUDIO_BYTES = b"\x00" * (64 * 1024 + 1)  # 恰好超过最小有效阈值
 
@@ -161,6 +161,44 @@ class TestBilibiliAudioFallback(unittest.TestCase):
                 result = YtDlpDownloader().download(_make_source(), _make_settings(tmp))
             self.assertTrue(result.video_path.exists())
             self.assertEqual(session.get.call_count, 4)
+
+    def test_audio_only_bilibili_goes_straight_to_api(self):
+        """audio_only 模式下 B 站直走 API 音轨, 不再尝试 yt-dlp 下载"""
+        session = _fake_session()
+        with TemporaryDirectory() as tmp:
+            with _force_ytdlp_failure(), mock.patch(
+                "requests.Session", return_value=session
+            ), mock.patch("shutil.which", return_value=None):
+                tr = YtDlpDownloader()
+                with mock.patch.object(
+                    tr, "_download_bilibili_audio", wraps=tr._download_bilibili_audio
+                ) as api:
+                    result = tr.download(
+                        _make_source(),
+                        Settings(workspace_root=Path(tmp), audio_only=True),
+                    )
+            api.assert_called_once()
+            self.assertEqual(result.metadata["downloader"], "bilibili-api-audio-fallback")
+
+    def test_audio_only_api_failure_falls_back_to_ytdlp(self):
+        """audio_only 下 API 失败(如充电专属)落回常规 yt-dlp 路径"""
+        src = _make_source()
+        with TemporaryDirectory() as tmp:
+            settings = Settings(workspace_root=Path(tmp), audio_only=True)
+            dl = YtDlpDownloader()
+            sentinel = DownloadResult(source=src, video_path=Path(tmp) / "v.mp4")
+            with mock.patch.object(dl, "_download_bilibili_audio", return_value=None),                  mock.patch("yt_dlp.YoutubeDL") as ydl_cls:
+                ydl_inst = ydl_cls.return_value.__enter__.return_value
+                ydl_inst.extract_info.return_value = {
+                    "id": "BV15ocBzQEJJ_p1", "title": "t", "duration": 1,
+                    "webpage_url": src.url,
+                }
+                ydl_inst.sanitize_info.side_effect = lambda x: x
+                with mock.patch.object(
+                    dl, "_resolve_video_path", return_value=Path(tmp) / "v.mp4"
+                ), mock.patch.object(Path, "exists", return_value=True):
+                    result = dl.download(src, settings)
+            self.assertEqual(result.metadata["id"], "BV15ocBzQEJJ_p1")
 
     def test_original_error_raised_when_fallback_also_fails(self):
         """API 也挂时，保留 yt-dlp 原始异常"""
