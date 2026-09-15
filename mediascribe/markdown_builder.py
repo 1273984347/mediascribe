@@ -256,6 +256,21 @@ def build_markdown(
         duration_sec = int(duration % 60)
         lines.append(f"- **时长**: {duration_min}分{duration_sec}秒")
 
+    # v3.4.2: 覆盖范围自检 — 末段结束远小于总长说明尾部可能缺失
+    _segments_all = (transcription or {}).get("segments") or []
+    if _segments_all:
+        try:
+            covered_to = float(_segments_all[-1].get("end") or 0)
+        except (TypeError, ValueError, AttributeError):
+            covered_to = 0.0
+        if covered_to > 0:
+            cm, cs = divmod(int(covered_to), 60)
+            if isinstance(duration, (int, float)) and duration > 0:
+                tm, tsec = divmod(int(duration), 60)
+                lines.append(f"- **覆盖范围**: [{cm:02d}:{cs:02d}] – [{tm:02d}:{tsec:02d}]")
+            else:
+                lines.append(f"- **覆盖范围**: 至 [{cm:02d}:{cs:02d}]")
+
     source_url = meta.get("webpage_url") or meta.get("url") or getattr(source, "url", None)
     if source_url:
         lines.append(f"- **来源**: {source_url}")

@@ -101,7 +101,26 @@ class YtDlpDownloader(Downloader):
 
         logger.info("使用链接: %s", url)
 
+        # v3.4.2: audio_only 模式下 B 站直走 playurl API 拉音轨。
+        # 转录只需音轨; 常规路径会先白等 mcdn P2P 节点超时再触发兜底,
+        # 还多下载整条视频 (~10 倍体积)。API 失败(如充电专属)时落回
+        # 常规路径, 保持兜底语义。
+        if getattr(settings, "audio_only", False) and _parse_bilibili(url)[0] is not None:
+            logger.info("audio_only 模式: B 站直走 playurl API 拉音轨")
+            try:
+                result = self._download_bilibili_audio(url, settings)
+            except Exception as fb_err:  # noqa: BLE001
+                logger.warning("API 音轨失败(%s), 落回 yt-dlp 路径", fb_err)
+            else:
+                if result is not None:
+                    logger.info("API 音轨下载成功: %s", result.video_path.name)
+                    return result
+                logger.warning("API 无可用音轨, 落回 yt-dlp 路径")
+
         ydl_opts = self._build_ydl_opts(source, settings)
+        if getattr(settings, "audio_only", False):
+            # 非 B 站源 audio_only: 只选音频流
+            ydl_opts["format"] = "ba/b"
 
         # 进度钩子 - 按 5% 分桶节流（与 douyin 下载进度同一策略）
         if progress:
@@ -150,6 +169,8 @@ class YtDlpDownloader(Downloader):
 
                 if not video_path or not Path(video_path).exists():
                     raise RuntimeError(f"下载失败: 找不到视频文件 {video_path}")
+
+                self._cleanup_format_intermediates(settings.downloads_dir, info.get("id"))
 
                 logger.info("下载成功: %s", Path(video_path).name)
 
@@ -267,6 +288,21 @@ class YtDlpDownloader(Downloader):
                 "downloader": "bilibili-api-audio-fallback",
             },
         )
+
+    def _cleanup_format_intermediates(self, downloads_dir: Path, video_id: Optional[str]) -> None:
+        """清理 yt-dlp 合并残留的中间格式文件(``<id>.f<fmt>.<ext>``)。
+
+        合并失败/中断时会留下无音轨的视频流中间件, 既占磁盘又可能被
+        后续流程误当媒体源。仅删本视频 id 匹配的残留, 静默容错。
+        """
+        if not video_id:
+            return
+        try:
+            for leftover in Path(downloads_dir).glob(f"{video_id}.f*.*"):
+                leftover.unlink()
+                logger.info("清理合并残留: %s", leftover.name)
+        except OSError as e:
+            logger.warning("清理合并残留失败: %s", e)
 
     def _remux_m4a(self, raw_path: Path) -> Path:
         """DASH 音轨（fMP4）重封装为 .m4a；无 ffmpeg 时直接改名（字节兼容）。"""
