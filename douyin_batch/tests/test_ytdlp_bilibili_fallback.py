@@ -187,10 +187,14 @@ class TestBilibiliAudioFallback(unittest.TestCase):
             settings = Settings(workspace_root=Path(tmp), audio_only=True)
             dl = YtDlpDownloader()
             sentinel = DownloadResult(source=src, video_path=Path(tmp) / "v.mp4")
-            with mock.patch.object(dl, "_download_bilibili_audio", return_value=None),                  mock.patch("yt_dlp.YoutubeDL") as ydl_cls:
+            with mock.patch.object(dl, "_download_bilibili_audio", return_value=None), mock.patch(
+                "yt_dlp.YoutubeDL"
+            ) as ydl_cls:
                 ydl_inst = ydl_cls.return_value.__enter__.return_value
                 ydl_inst.extract_info.return_value = {
-                    "id": "BV15ocBzQEJJ_p1", "title": "t", "duration": 1,
+                    "id": "BV15ocBzQEJJ_p1",
+                    "title": "t",
+                    "duration": 1,
                     "webpage_url": src.url,
                 }
                 ydl_inst.sanitize_info.side_effect = lambda x: x
