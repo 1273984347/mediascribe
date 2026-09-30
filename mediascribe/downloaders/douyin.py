@@ -16,6 +16,7 @@ wechat_mp / xiaohongshu 共享同一实现：.part 临时文件 + 失败清理 +
 from __future__ import annotations
 
 import logging
+import re
 import time
 import uuid
 from pathlib import Path
@@ -103,13 +104,31 @@ class DouyinDownloader(Downloader):
         return DownloadResult(
             source=source,
             video_path=video_path,
-            title=f"douyin_{video_path.stem}",
+            title=self._derive_title(url, video_path),
             webpage_url=url,
             metadata={
                 "url": url,
                 "media_url": media_url,
             },
         )
+
+    @staticmethod
+    def _derive_title(url: str, video_path: Path) -> str:
+        """转录稿/元数据的基础名。
+
+        优先从解析后的 URL 提取数字视频 ID（对齐 bilibili 的 BV 命名
+        惯例，文件名可直接回溯来源）；拿不到 ID 再回退下载文件名。
+        历史版本在这里再拼一层 ``douyin_`` 前缀，而下载文件名本身已带
+        前缀且含 ``_merged`` 后缀，产出 ``douyin_douyin_<hash>_merged``
+        这种重复前缀名（2026-10-01 复盘修复）。
+        """
+        match = re.search(r"/video/(\d+)", url)
+        if match:
+            return f"douyin_{match.group(1)}"
+        stem = video_path.stem
+        if stem.startswith("douyin_"):
+            return stem
+        return f"douyin_{stem}"
 
     def _extract_media_url_with_browser(self, url: str) -> tuple[Optional[str], Optional[str]]:
         """使用 Playwright 浏览器自动化提取真实媒体 URL。
