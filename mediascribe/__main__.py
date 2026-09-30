@@ -126,6 +126,21 @@ def _write_latest_pointer(settings, result, output=None) -> None:
         pass
 
 
+def _run_cross_check(pipeline, result, model) -> None:
+    """``--cross-check MODEL``: 双模型交叉校对, 生成分歧复核清单。
+
+    辅助功能, 失败降级为警告, 不影响主稿交付。
+    """
+    if not model:
+        return
+    try:
+        from .cross_check import run_cross_check
+
+        run_cross_check(pipeline, result, model)
+    except Exception as e:
+        print(f"⚠️ 交叉校对失败(不影响主稿): {type(e).__name__}: {e}")
+
+
 def _print_next_steps(result) -> None:
     """转录完成后打印输出位置与可选的下一步操作提示。"""
     try:
@@ -213,6 +228,15 @@ def _run_legacy(argv: Optional[List[str]]) -> int:
         "-o",
         type=Path,
         help="输出文件路径",
+    )
+    transcribe_parser.add_argument(
+        "--cross-check",
+        metavar="MODEL",
+        default=None,
+        help=(
+            "交叉校对: 主稿完成后用另一模型(如 small)重转同一条音频,"
+            " diff 两稿生成分歧清单 <转录稿>.crosscheck.md, 人工只需复核清单位置"
+        ),
     )
     transcribe_parser.add_argument(
         "--hf-token",
@@ -338,6 +362,7 @@ def _run_legacy(argv: Optional[List[str]]) -> int:
                 timestamps=bool(getattr(args, "timestamps", False)),
             )
             _write_latest_pointer(settings, result, output=args.output)
+            _run_cross_check(pipeline, result, getattr(args, "cross_check", None))
             _print_next_steps(result)
         elif args.command == "batch":
             inputs = list(args.inputs)

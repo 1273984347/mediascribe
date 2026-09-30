@@ -39,6 +39,32 @@ def test_pick_best_urls_no_audio_returns_none():
     assert audio is None
 
 
+def test_derive_title_prefers_video_id_from_url():
+    # 回归(2026-10-01): 旧实现 title=f"douyin_{stem}" 在下载文件名已带
+    # 前缀时产出 douyin_douyin_<hash>_merged; 现优先取 URL 数字 ID。
+    title = DouyinDownloader._derive_title(
+        "https://www.douyin.com/video/7691255314397646080?previous_page=web_code_link",
+        Path("downloads/douyin_90635b90_merged.mp4"),
+    )
+    assert title == "douyin_7691255314397646080"
+
+
+def test_derive_title_falls_back_to_download_stem():
+    # 无 ID 的直链: 复用已带前缀的文件名, 不再叠加 douyin_
+    assert (
+        DouyinDownloader._derive_title(
+            "https://v3-dy.douyinvod.com/x/v.mp4?a=1", Path("downloads/douyin_90635b90_merged.mp4")
+        )
+        == "douyin_90635b90_merged"
+    )
+    assert (
+        DouyinDownloader._derive_title(
+            "https://x.douyinvod.com/v.mp4", Path("downloads/raw_media.mp4")
+        )
+        == "douyin_raw_media"
+    )
+
+
 class _StubDownloader(DouyinDownloader):
     """Avoid real network: drop a fake audio file on disk."""
 

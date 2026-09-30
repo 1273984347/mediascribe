@@ -135,20 +135,20 @@ mediascribe/
 ├── examples/            # Usage examples
 ├── scripts/             # Helper scripts
 └── output/              # Transcription working dir (git-ignored)
-    └── video_transcripts/
-        └── douyin_<video_id>/
-            ├── downloads/        # source media (mp4)
-            ├── audio/            # extracted wav
-            ├── metadata/         # platform metadata (json)
-            ├── <id>.md           # raw transcript
-            └── <id>.reviewed.md  # human-reviewed transcript
+    ├── downloads/       # source media, reused across runs (dedup by cache)
+    ├── audio/           # extracted audio
+    ├── transcripts/     # <base>-<timestamp>.md transcripts
+    ├── metadata/        # run metadata (json, one per transcript)
+    ├── LATEST.txt       # pointer to the newest transcript
+    └── wiki/            # human-reviewed deliverables (审校稿)
 ```
 
-> **Transcription output.** Local runs write per-video artifacts under
-> `output/video_transcripts/douyin_<video_id>/`: the source media in
-> `downloads/`, extracted audio in `audio/`, platform metadata in `metadata/`,
-> the raw transcript `<id>.md`, and the human-reviewed transcript
-> `<id>.reviewed.md`. Each video is fully isolated in its own folder.
+> **Transcription output.** Local runs write flat, per-type artifacts under
+> `output/`: source media in `downloads/` (reused across runs), extracted
+> audio in `audio/`, the transcript in `transcripts/` — named after the
+> source (e.g. `douyin_<video_id>-<timestamp>.md`) — run metadata in
+> `metadata/`, and `LATEST.txt` pointing at the newest transcript.
+> Human-reviewed deliverables (审校稿) live in `output/wiki/`.
 
 ### 🧪 Testing
 
