@@ -107,14 +107,18 @@ _common_transcribe_opts.add_argument(
 )
 
 
-def _write_latest_pointer(settings, result) -> None:
+def _write_latest_pointer(settings, result, output=None) -> None:
     """转录成功后写 ``<workspace>/LATEST.txt`` — 内容为最新转录稿路径。
 
-    让"刚才是输出到哪个带时间戳的文件来着"不再靠滚屏找。任何失败
-    都吞掉：指针只是便利功能，绝不影响转录主流程（测试 mock 场景
+    让"刚才是输出到哪个带时间戳的文件来着"不再靠滚屏找。``output``
+    为用户自定义 ``--output`` 时不写：用户明确知道文件在哪，且临时
+    跑（如双模型对照稿）不该劫持"最新默认输出"指针。任何失败都吞
+    掉：指针只是便利功能，绝不影响转录主流程（测试 mock 场景
     ``result``/``settings`` 属性不可用也应静默跳过）。
     """
     try:
+        if output is not None:
+            return
         ws = Path(settings.workspace_root)
         transcript = Path(result.transcript_path)
         (ws / "LATEST.txt").write_text(str(transcript), encoding="utf-8")
@@ -333,7 +337,7 @@ def _run_legacy(argv: Optional[List[str]]) -> int:
                 language=getattr(args, "language", None),
                 timestamps=bool(getattr(args, "timestamps", False)),
             )
-            _write_latest_pointer(settings, result)
+            _write_latest_pointer(settings, result, output=args.output)
             _print_next_steps(result)
         elif args.command == "batch":
             inputs = list(args.inputs)

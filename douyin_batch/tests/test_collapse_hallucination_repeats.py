@@ -40,6 +40,24 @@ class TestCollapseHallucinationRepeats(unittest.TestCase):
         new, n = collapse_hallucination_repeats(text)
         self.assertEqual(n, 0)
 
+    def test_comma_containing_sentence_loop(self):
+        # 回归(2026-10-01): 带内部逗号的循环句按短语切是 A,B,A,B 交替,
+        # 短语级连续相同比对漏检; 整句级归一化后应收敛。
+        text = "他好像说的就是,面对巨大的幸福就需要很大很大的内力。" * 11
+        new, n = collapse_hallucination_repeats(text)
+        self.assertEqual(n, 10)
+        self.assertEqual(new, "他好像说的就是,面对巨大的幸福就需要很大很大的内力。")
+
+    def test_comma_loop_with_prefix_and_tail(self):
+        prefix = "因为你会发现,他说人在面对巨大的幸福的时候会胆怯,因为我们没有勇气。"
+        tail = "我们总以为抓住巨大的幸福需要的是那一刻的勇气。"
+        text = prefix + "他好像说的就是,面对巨大的幸福就需要很大很大的内力。" * 11 + tail
+        new, n = collapse_hallucination_repeats(text)
+        self.assertEqual(n, 10)
+        self.assertTrue(new.startswith(prefix))
+        self.assertTrue(new.endswith(tail))
+        self.assertEqual(new.count("内力"), 1)
+
     def test_empty_text(self):
         self.assertEqual(collapse_hallucination_repeats(""), ("", 0))
 
