@@ -135,6 +135,56 @@ def _resolve_compute_type(device: str) -> str:
     return "int8"
 
 
+def _is_network_error(exc: BaseException) -> bool:
+    """判断异常是否为网络类错误（SSL/连接/超时/DNS）。"""
+    try:
+        import requests
+
+        if isinstance(exc, requests.exceptions.RequestException):
+            return True
+    except ImportError:
+        pass
+    text = f"{type(exc).__name__}: {exc}".lower()
+    return any(
+        sig in text
+        for sig in (
+            "ssl",
+            "certificate",
+            "connection",
+            "max retries",
+            "timed out",
+            "name or service not known",
+        )
+    )
+
+
+def _load_whisper_model(model_name: str, device: str, compute_type: str) -> Any:
+    """新建 ``WhisperModel``；联网校验失败时回退本地缓存。
+
+    模型已缓存时 faster-whisper 仍会请求 HuggingFace 校验 repo，网络
+    受限环境（SSL 拦截/离线）会整轮失败。此时以 ``local_files_only``
+    重试走本地缓存；若本地也没有，重试自身会抛出明确的缓存缺失错误。
+    """
+    from faster_whisper import WhisperModel
+
+    try:
+        return WhisperModel(model_name, device=device, compute_type=compute_type)
+    except Exception as exc:
+        if not _is_network_error(exc):
+            raise
+        logger.warning(
+            "在线加载模型失败(%s: %s)，改用本地缓存重试 local_files_only=True",
+            type(exc).__name__,
+            exc,
+        )
+        return WhisperModel(
+            model_name,
+            device=device,
+            compute_type=compute_type,
+            local_files_only=True,
+        )
+
+
 def _get_cached_model(model_name: str, device: str, compute_type: str) -> Any:
     """从 ``_MODEL_CACHE`` 取或新建 ``WhisperModel``（LRU，容量 2）。
 
@@ -149,7 +199,7 @@ def _get_cached_model(model_name: str, device: str, compute_type: str) -> Any:
             _MODEL_CACHE.move_to_end(key)
             return cached
         try:
-            from faster_whisper import WhisperModel
+            from faster_whisper import WhisperModel  # noqa: F401 -- 探测依赖, 报错给友好提示
         except ImportError as e:
             raise RuntimeError("faster-whisper 未安装，请运行: pip install faster-whisper") from e
         logger.info(
@@ -158,11 +208,7 @@ def _get_cached_model(model_name: str, device: str, compute_type: str) -> Any:
             device,
             compute_type,
         )
-        model = WhisperModel(
-            model_name,
-            device=device,
-            compute_type=compute_type,
-        )
+        model = _load_whisper_model(model_name, device, compute_type)
         _MODEL_CACHE[key] = model
         while len(_MODEL_CACHE) > _MODEL_CACHE_MAX:
             _evicted_key, evicted_model = _MODEL_CACHE.popitem(last=False)

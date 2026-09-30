@@ -73,19 +73,44 @@ DEFAULT_TERMS: dict[str, str] = {
 # large-v3 实测偶发同一句连续 3-40 次的解码循环(45 集徐涛课程出现
 # 30+ 处)。>= MIN_REPEAT 连相同句判为循环收敛为 1; 2 连保留(老师
 # 口语强调)。逐行处理, 不跨段, 不改动非重复内容。
+#
+# 两层检测(2026-10-01): 带内部逗号的循环句按短语切后会形成
+# A,B,A,B 交替, 短语级"连续相同"比对失效, 故先做整句级(只按句末
+# 标点切, 归一化抹掉内部标点)收敛, 再跑短语级兜底截断尾/无句末
+# 标点的短语循环。
 HALLUCINATION_MIN_REPEAT = 3
 _SENT_SPLIT_RE = None  # 延迟编译见 _split_sentence_units
+_SENT_END_SPLIT_RE = None  # 延迟编译见 _split_full_sentences
+
+_UNIT_PUNCT = r"[,。?!;;,.;?!]"
+_SENT_END_PUNCT = r"[。?!;;?!]"  # 句末标点(不含逗号)
 
 
 def _split_sentence_units(line: str) -> list:
     """把一行按中英文标点切成 (句子, 尾分隔符) 单元, 保留原文所有字符。"""
     import re as _re
 
-    parts = _re.split(r"([,。?!;;,.;?!])", line)
+    parts = _re.split(r"(" + _UNIT_PUNCT + r")", line)
     units, cur = [], ""
     for tok in parts:
         cur += tok
-        if _re.fullmatch(r"[,。?!;;,.;?!]", tok or ""):
+        if _re.fullmatch(_UNIT_PUNCT, tok or ""):
+            units.append(cur)
+            cur = ""
+    if cur:
+        units.append(cur)
+    return units
+
+
+def _split_full_sentences(line: str) -> list:
+    """把一行只按句末标点切成单元, 保留原文所有字符(内部逗号随句保留)。"""
+    import re as _re
+
+    parts = _re.split(r"(" + _SENT_END_PUNCT + r")", line)
+    units, cur = [], ""
+    for tok in parts:
+        cur += tok
+        if _re.fullmatch(_SENT_END_PUNCT, tok or ""):
             units.append(cur)
             cur = ""
     if cur:
@@ -96,14 +121,37 @@ def _split_sentence_units(line: str) -> list:
 def _normalize_sentence(unit: str) -> str:
     import re as _re
 
-    return _re.sub(r"[\s,。?!;;,.;?!]", "", unit)
+    return _re.sub(r"[\s" + _UNIT_PUNCT[1:-1] + r"]", "", unit)
+
+
+def _collapse_identical_runs(units: list, min_repeat: int) -> tuple:
+    """单元列表内连续 ``min_repeat`` 次以上归一化相同的收敛为 1。"""
+    out, i, removed = [], 0, 0
+    while i < len(units):
+        j = i
+        core = _normalize_sentence(units[i])
+        if len(core) >= 4:
+            while j + 1 < len(units) and _normalize_sentence(units[j + 1]) == core:
+                j += 1
+            if j - i + 1 >= min_repeat:
+                removed += j - i
+                out.append(units[i])
+                i = j + 1
+                continue
+        out.append(units[i])
+        i += 1
+    return out, removed
 
 
 def collapse_hallucination_repeats(text: str, min_repeat: int = HALLUCINATION_MIN_REPEAT) -> tuple:
     """收敛 ASR 解码循环产生的连续重复句。
 
-    逐行处理: 行内按标点切句后, 连续 ``min_repeat`` 次以上完全相同
-    (忽略空白与标点差异)的句子收敛为 1 句。返回 ``(新文本, 删除句数)``。
+    逐行处理, 两层收敛, 返回 ``(新文本, 删除句数)``:
+
+    1. 整句级: 行内只按句末标点切句, 连续 ``min_repeat`` 次以上完全
+       相同(忽略空白与全部标点差异)的整句收敛为 1 句 — 覆盖带内部
+       逗号的循环句(A,B,A,B 交替模式)。
+    2. 短语级: 再按全部标点切分, 收敛无句末标点的短语循环与截断尾。
 
     长度 <4 的"句子"(如单字语气词)不参与判定, 避免误伤口语。
     """
@@ -112,22 +160,13 @@ def collapse_hallucination_repeats(text: str, min_repeat: int = HALLUCINATION_MI
     removed_total = 0
     out_lines = []
     for line in text.splitlines():
-        units = _split_sentence_units(line)
-        out, i = [], 0
-        while i < len(units):
-            j = i
-            core = _normalize_sentence(units[i])
-            if len(core) >= 4:
-                while j + 1 < len(units) and _normalize_sentence(units[j + 1]) == core:
-                    j += 1
-                if j - i + 1 >= min_repeat:
-                    removed_total += j - i
-                    out.append(units[i])
-                    i = j + 1
-                    continue
-            out.append(units[i])
-            i += 1
-        out_lines.append("".join(out))
+        sentences, removed = _collapse_identical_runs(_split_full_sentences(line), min_repeat)
+        removed_total += removed
+        units, removed = _collapse_identical_runs(
+            _split_sentence_units("".join(sentences)), min_repeat
+        )
+        removed_total += removed
+        out_lines.append("".join(units))
     return "\n".join(out_lines), removed_total
 
 
