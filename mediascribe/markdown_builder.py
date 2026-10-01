@@ -288,8 +288,15 @@ def build_markdown(
     lines.append("## 转录内容")
     lines.append("")
 
+    # v3.4.3 修复(2026-10-02): segments 分支只在 --timestamps 下启用。
+    # 此前只要 ASR 返回 segments(faster-whisper 恒有),正文就用
+    # group["text"] 原始分段拼装,把传入的 ``text``(已过术语校正/
+    # 幻觉收敛/LLM 润色的全文)整个丢弃 — 后处理链在默认路径上从未
+    # 进入成稿。默认路径现在始终使用后处理后的全文;timestamps 模式
+    # 仍按 ASR 分段(段落级时间戳必须锚定原始 segments,其文本为
+    # raw ASR,属已知取舍)。
     segments = (transcription or {}).get("segments")
-    groups = group_segments_into_paragraphs(segments) if segments else []
+    groups = group_segments_into_paragraphs(segments) if (segments and timestamps) else []
     if groups:
         for group in groups:
             prefix = ""
