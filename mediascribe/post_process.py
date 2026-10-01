@@ -171,22 +171,41 @@ def collapse_hallucination_repeats(text: str, min_repeat: int = HALLUCINATION_MI
     return "\n".join(out_lines), removed_total
 
 
-def detect_repeated_pairs(text: str, min_len: int = 6) -> list:
-    """检测收敛后仍存在的"恰好 2 连"重复单元(不修改文本, 供审校提示)。
+def _common_suffix_len(a: str, b: str) -> int:
+    """两串公共后缀长度。"""
+    n = 0
+    while n < len(a) and n < len(b) and a[-1 - n] == b[-1 - n]:
+        n += 1
+    return n
 
-    与 :func:`collapse_hallucination_repeats` 同一套切分/归一化逻辑,
-    在短语级(全部标点切分)扫描连续恰好 2 次相同的单元 — ≥3 连已被
-    自动收敛, 剩下的 2 连要么是 ASR 伪影(需人工合并, 2026-10-02 批
-    三集连续出现), 要么是口语强调(应保留), 因此只告警不修改。
+
+def detect_repeated_pairs(text: str, min_len: int = 6, suffix_len: int = 8) -> list:
+    """检测收敛后仍存在的可疑重复(不修改文本, 供审校提示)。两类:
+
+    1. **相邻恰好 2 连**的相同单元 — ≥3 连已被自动收敛, 剩下的 2 连
+       要么是 ASR 伪影(需人工合并, 2026-10-02 批三集连续出现), 要么
+       是口语强调(应保留), 如"考北大"句;
+    2. **共享后缀的部分重复** — 相邻两单元尾部重叠 ≥ ``suffix_len``
+       字, 后者是前者的冗余复述(如"…在终点的地方被定义的, 而是在
+       终点的地方被定义的", 2026-10-02"人的寿命"一集实锤)。
+
+    与 :func:`collapse_hallucination_repeats` 同一套切分/归一化逻辑;
     归一化长度 < ``min_len`` 的短语(如"活在当下"式口语强调)忽略,
-    避免告警噪音。
+    避免告警噪音; 只告警不修改。
     """
     if not text:
         return []
     suspects: list = []
     seen: set = set()
+
+    def _report(unit: str, key: str) -> None:
+        if key not in seen:
+            seen.add(key)
+            suspects.append(unit.strip())
+
     for line in text.splitlines():
         units = _split_sentence_units(line)
+        # 1) 相邻恰好 2 连
         i = 0
         while i < len(units):
             core = _normalize_sentence(units[i])
@@ -194,12 +213,19 @@ def detect_repeated_pairs(text: str, min_len: int = 6) -> list:
                 j = i
                 while j + 1 < len(units) and _normalize_sentence(units[j + 1]) == core:
                     j += 1
-                if j - i + 1 == 2 and core not in seen:
-                    seen.add(core)
-                    suspects.append(units[i].strip())
+                if j - i + 1 == 2:
+                    _report(units[i], core)
                 i = j + 1
                 continue
             i += 1
+        # 2) 共享后缀的部分重复(完全相同的对归上面的 2 连检测, 跳过)
+        for k in range(len(units) - 1):
+            c1 = _normalize_sentence(units[k])
+            c2 = _normalize_sentence(units[k + 1])
+            if c1 == c2 or min(len(c1), len(c2)) < min_len:
+                continue
+            if _common_suffix_len(c1, c2) >= suffix_len:
+                _report(units[k + 1], "sfx:" + c2)
     return suspects
 
 
