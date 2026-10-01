@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`--cleanup-media`: auto-delete intermediates after successful
+  transcription** (v3.4.3). New `CleanupStage` at the tail of the stage
+  chain removes the task's downloaded video (`downloads/`) and extracted
+  audio (`audio/`) once the transcript + metadata are written —
+  transcripts, metadata and wiki outputs are never touched. Safety
+  rails: only files inside the managed `audio_dir` / `downloads_dir`
+  are deleted (user-supplied local media and the persistent download
+  cache are exempt), failures to delete are logged and ignored, and
+  nothing is deleted when any earlier stage fails. With
+  `--cross-check`, cleanup is deferred until the second-pass model has
+  re-transcribed the same audio. Also applied to the WeChat-MP video
+  article path (which bypasses the stage chain). Enable via CLI flag,
+  `--config` JSON key `cleanup_media`, or `MEDIASCRIBE_CLEANUP_MEDIA=1`.
+- Fixed `TestPackageMain.test_no_args` reading unmocked `sys.argv` —
+  it passed in CI only by accident (pytest's path argument was treated
+  as an unknown mediascribe command) and crashed with `SystemExit(2)`
+  under `python -m pytest -q`.
+
 ### Changed
 - **Project renamed: Video2Text → MediaScribe** (breaking). The Python
   package, distribution name, CLI commands, and environment-variable prefix

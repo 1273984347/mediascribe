@@ -343,7 +343,14 @@ class TestDefaultChain(unittest.TestCase):
         names = [s.name for s in chain]
         self.assertEqual(
             names,
-            ["parse", "download", "extract_audio", "transcribe", "assemble"],
+            [
+                "parse",
+                "download",
+                "extract_audio",
+                "transcribe",
+                "assemble",
+                "cleanup",
+            ],
         )
         # 每个都是 Stage 子类
         for s in chain:

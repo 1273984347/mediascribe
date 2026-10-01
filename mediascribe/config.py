@@ -48,6 +48,7 @@ class Settings:
         llm_post_process: Optional[Dict[str, Any]] = None,
         timestamps: bool = False,
         audio_only: bool = False,
+        cleanup_media: bool = False,
     ):
         # workspace 根目录：显式参数 > MEDIASCRIBE_WORKSPACE 环境变量 > 默认 ./output
         # （Docker 镜像 ENV MEDIASCRIBE_WORKSPACE=/workspace 指向挂载卷；web 层读取
@@ -96,6 +97,14 @@ class Settings:
         self.audio_only = bool(audio_only) or os.environ.get(
             "MEDIASCRIBE_AUDIO_ONLY", ""
         ).lower() in ("1", "true")
+
+        # v3.4.3: 转录成功后自动清理中间媒体(downloads/ 视频与 audio/ 音频)。
+        # 只删托管目录内本任务产生的文件, 用户自备的本地视频/音频永不删除;
+        # transcripts/ metadata/ wiki 产物不受影响。CLI --cleanup-media 或
+        # 环境变量 MEDIASCRIBE_CLEANUP_MEDIA 同效。
+        self.cleanup_media = bool(cleanup_media) or os.environ.get(
+            "MEDIASCRIBE_CLEANUP_MEDIA", ""
+        ).lower() in ("1", "true", "yes", "on")
 
         # 微信公众号 cookies：dict 优先，文件兜底
         self.wechat_cookies: Dict[str, str] = dict(wechat_cookies or {})
