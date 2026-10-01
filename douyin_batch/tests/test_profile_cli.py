@@ -330,9 +330,13 @@ class TestPackageMain(unittest.TestCase):
     def test_no_args(self):
         from mediascribe.__main__ import main
 
-        with mock.patch("sys.stderr", io.StringIO()):
+        # 回归(2026-10-01): main() 无参时读 sys.argv[1:], 此前未隔离 —
+        # 本地 `python -m pytest -q` 会把 "-q" 当 mediascribe 参数抛
+        # SystemExit(2);CI 里则靠 "tests 目录被当未知命令 rc=1" 巧合通过。
+        # 现按文档行为断言: 无参打印快速开始引导并返回 0。
+        with mock.patch("sys.stderr", io.StringIO()), mock.patch("sys.argv", ["mediascribe"]):
             rc = main()
-        self.assertEqual(rc, 1)
+        self.assertEqual(rc, 0)
 
     def test_help(self):
         from mediascribe.__main__ import main

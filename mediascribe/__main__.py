@@ -105,6 +105,17 @@ _common_transcribe_opts.add_argument(
     default=argparse.SUPPRESS,
     help="下载只拉音轨（转录场景够用; B 站直走 playurl API 音轨, 更快更稳; 环境变量 MEDIASCRIBE_AUDIO_ONLY=1 同效）",
 )
+_common_transcribe_opts.add_argument(
+    "--cleanup-media",
+    action="store_true",
+    default=argparse.SUPPRESS,
+    help=(
+        "转录成功后自动删除本次任务的中间媒体（downloads/ 视频 + audio/ 音频）。"
+        "只删托管目录内的文件, 本地自备视频/音频不受影响; transcripts/ 与 metadata/ 保留。"
+        "与 --cross-check 同用时清理自动推迟到交叉校对完成之后。"
+        "环境变量 MEDIASCRIBE_CLEANUP_MEDIA=1 同效"
+    ),
+)
 
 
 def _write_latest_pointer(settings, result, output=None) -> None:
@@ -345,6 +356,8 @@ def _run_legacy(argv: Optional[List[str]]) -> int:
         or bool(file_cfg.get("timestamps", False)),
         audio_only=bool(getattr(args, "audio_only", False))
         or bool(file_cfg.get("audio_only", False)),
+        cleanup_media=bool(getattr(args, "cleanup_media", False))
+        or bool(file_cfg.get("cleanup_media", False)),
         wechat_cookies=wechat_cookies_dict or None,
         wechat_cookies_file=getattr(args, "wechat_cookie_file", None),
     )
@@ -355,6 +368,13 @@ def _run_legacy(argv: Optional[List[str]]) -> int:
     # 执行命令
     try:
         if args.command in ["transcribe", "t"]:
+            # v3.4.3: --cross-check 要用同一条音频重转第二遍, 若开了
+            # cleanup_media 则先在 Settings 上临时关闭(清理推迟到校对
+            # 之后手动补做), 否则交叉校对会拿不到音频。
+            cross_check_model = getattr(args, "cross_check", None)
+            deferred_cleanup = bool(settings.cleanup_media) and bool(cross_check_model)
+            if deferred_cleanup:
+                settings.cleanup_media = False
             result = pipeline.transcribe(
                 args.input,
                 output=args.output,
@@ -362,7 +382,13 @@ def _run_legacy(argv: Optional[List[str]]) -> int:
                 timestamps=bool(getattr(args, "timestamps", False)),
             )
             _write_latest_pointer(settings, result, output=args.output)
-            _run_cross_check(pipeline, result, getattr(args, "cross_check", None))
+            _run_cross_check(pipeline, result, cross_check_model)
+            if deferred_cleanup:
+                from .pipeline_stages import cleanup_intermediate_media
+
+                deleted = cleanup_intermediate_media(settings, result.audio_path, result.video_path)
+                if deleted:
+                    print(f"🧹 已清理中间媒体 {len(deleted)} 个文件(转录稿与元数据不受影响)")
             _print_next_steps(result)
         elif args.command == "batch":
             inputs = list(args.inputs)

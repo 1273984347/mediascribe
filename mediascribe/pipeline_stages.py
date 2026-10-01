@@ -216,6 +216,10 @@ class Stage(ABC):
 
     name: ClassVar[str] = "stage"
 
+    # v3.4.3: result 写入后仍应执行的收尾 stage(如 CleanupStage)置 True —
+    # stage chain 循环遇到 result 非空即 break,但这类 stage 必须轮到。
+    runs_after_result: ClassVar[bool] = False
+
     @abstractmethod
     def should_run(self, ctx: PipelineContext) -> bool:
         """是否在当前 ctx 上执行 :meth:`run`。
@@ -747,6 +751,59 @@ def _build_llm_context(ctx: PipelineContext) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# v3.4.3: 中间媒体清理(转录成功后, settings.cleanup_media 开关)
+# ---------------------------------------------------------------------------
+def cleanup_intermediate_media(settings: Settings, *paths: Optional[Path]) -> List[Path]:
+    """删除托管目录内的中间媒体文件, 返回成功删除的路径列表。
+
+    安全边界: 只删 ``settings.audio_dir`` / ``settings.downloads_dir``
+    下的文件 — 用户自备的本地视频/音频(kind=video/audio, 路径在托管
+    目录之外)与持久化下载缓存目录内的文件一律不动。单个文件删除失败
+    (Windows 文件占用等)只警告不抛, 绝不影响已交付的转录结果。
+    """
+    managed = (settings.audio_dir.resolve(), settings.downloads_dir.resolve())
+    deleted: List[Path] = []
+    for p in paths:
+        if p is None:
+            continue
+        try:
+            path = Path(p)
+            if not path.is_file():
+                continue
+            if not any(path.resolve().is_relative_to(d) for d in managed):
+                continue
+            size_mb = path.stat().st_size / 1048576
+            path.unlink()
+            deleted.append(path)
+            logger.info("已清理中间媒体: %s (%.1f MB)", path.name, size_mb)
+        except Exception as exc:
+            logger.warning("清理中间媒体失败(忽略): %s: %r", p, exc)
+    return deleted
+
+
+class CleanupStage(Stage):
+    """转录成功后删除本任务的中间媒体(settings.cleanup_media=True 时)。
+
+    链上最后一个 stage:``should_run`` 要求 ``ctx.result is not None`` —
+    任一前置 stage 失败都到不了这里, 中间文件保留供断点续跑排查。
+    用户自备的本地文件不在托管目录, :func:`cleanup_intermediate_media`
+    的目录白名单保证其永不删除。
+    """
+
+    name = "cleanup"
+    runs_after_result = True
+
+    def should_run(self, ctx: PipelineContext) -> bool:
+        return bool(getattr(ctx.settings, "cleanup_media", False)) and ctx.result is not None
+
+    def run(self, ctx: PipelineContext) -> PipelineContext:
+        deleted = cleanup_intermediate_media(ctx.settings, ctx.audio_path, ctx.video_path)
+        if deleted:
+            print(f"🧹 已清理中间媒体 {len(deleted)} 个文件(转录稿与元数据不受影响)")
+        return ctx
+
+
+# ---------------------------------------------------------------------------
 # 工具函数
 # ---------------------------------------------------------------------------
 def _json_dump(obj: Any) -> str:
@@ -816,6 +873,7 @@ def default_chain(
             resolve_metadata_path=resolve_metadata_path,
             build_markdown=build_markdown,
         ),
+        CleanupStage(),
     ]
 
 
@@ -828,6 +886,8 @@ __all__ = [
     "ExtractAudioStage",
     "TranscribeStage",
     "AssembleStage",
+    "CleanupStage",
+    "cleanup_intermediate_media",
     "default_chain",
     "URL_KINDS",
     "VIDEO_KINDS",

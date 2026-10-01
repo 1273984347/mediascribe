@@ -34,6 +34,7 @@ from .pipeline_stages import (
     Stage,
     _atomic_write_text,
     _smart_pick_downloader,
+    cleanup_intermediate_media,
     default_chain,
 )
 from .transcribers import (
@@ -427,9 +428,11 @@ class Pipeline:
                 ctx = runner(ctx)
             else:
                 ctx = stage.run_with_progress(ctx)
-            if ctx.result is not None:
+            if ctx.result is not None and not getattr(stage, "runs_after_result", False):
                 # 微信公众号文本型文章等场景:assemble 提前写入 result 后
-                # chain 也应停止,避免后续 stage 在不完整 ctx 上出错
+                # chain 也应停止,避免后续 stage 在不完整 ctx 上出错;
+                # runs_after_result 的收尾 stage(如 cleanup)除外,必须在
+                # result 交付后执行。
                 break
         if ctx.result is None:
             # P2-11: 跨 stage 边界的关键校验不用 assert —
@@ -727,6 +730,12 @@ class Pipeline:
         print("\n✅ 完成！")
         print(f"📝 转录文件: {transcript_path}")
         print(f"📋 元数据: {metadata_path}")
+        # v3.4.3: 公众号视频文章不走 stage chain,清理在这里补齐
+        # (目录白名单保证只删托管目录内的文件)
+        if getattr(self.settings, "cleanup_media", False):
+            deleted = cleanup_intermediate_media(self.settings, audio_path, video_path)
+            if deleted:
+                print(f"🧹 已清理中间媒体 {len(deleted)} 个文件(转录稿与元数据不受影响)")
         return TranscriptResult(
             source=source,
             engine=self.transcriber.name,
