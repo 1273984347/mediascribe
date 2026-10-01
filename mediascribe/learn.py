@@ -414,12 +414,28 @@ def get_prompt_terms(path: Optional[Path] = None) -> str:
 
     把已确认的正确词融入自然语言句子,而非术语堆砌,
     因为 Whisper 对自然语言 prompt 效果更好。
+
+    注入优先级 (2026-10-02): 按 **学习频次降序** — learn/复核命中
+    越多的词越靠前; 同频时 **后播种的优先** (更贴近当前在录的系列)。
+    上限 30 条 — Whisper prompt 过长反而稀释识别效果; 未注入的术语
+    仍由 ``post_process_transcript`` 事后替换兜底。
     """
-    active = _load_db(path).get_active_terms()
+    db = _load_db(path)
+    active = db.get_active_terms()
     if not active:
         return ""
-    terms = list(set(active.values()))[:30]
-    return "视频中可能涉及以下专有名词：" + "、".join(terms)
+    entries = [c for c in db.terms.values() if c.should_apply()]
+    order = sorted(range(len(entries)), key=lambda i: (-entries[i].count, -i))
+    rights: list[str] = []
+    seen: set[str] = set()
+    for i in order:
+        right = entries[i].right
+        if right and right not in seen:
+            seen.add(right)
+            rights.append(right)
+        if len(rights) >= 30:
+            break
+    return "视频中可能涉及以下专有名词：" + "、".join(rights)
 
 
 def confirm_term(wrong: str, right: str, path: Optional[Path] = None) -> bool:

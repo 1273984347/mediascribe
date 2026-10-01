@@ -243,6 +243,27 @@ class TestPromptTerms:
         assert "霍去病" in prompt
         assert "专有名词" in prompt
 
+    def test_high_frequency_terms_rank_first(self, tmp_path: Path):
+        # v3.4.3: 按学习频次降序注入(高频 > 低频), 同频后播种的优先
+        # 注意: 单次 learn count=1 未达 AUTO_CONFIRM_THRESHOLD(2), 双方都要学 ≥2 次
+        store = tmp_path / "learned_terms.json"
+        learn([("低频词甲", "低频词乙")], path=store)
+        learn([("低频词甲", "低频词乙")], path=store)  # count=2, 先插入
+        learn([("高频错", "高频对")], path=store)
+        learn([("高频错", "高频对")], path=store)
+        learn([("高频错", "高频对")], path=store)  # count=3, 后插入
+        prompt = get_prompt_terms(path=store)
+        assert prompt.index("高频对") < prompt.index("低频词乙")
+
+    def test_prompt_cap_at_30(self, tmp_path: Path):
+        store = tmp_path / "learned_terms.json"
+        pairs = [(f"错词{i:03d}", f"对词{i:03d}") for i in range(35)]
+        learn(pairs, path=store)
+        learn(pairs, path=store)
+        prompt = get_prompt_terms(path=store)
+        body = prompt.replace("视频中可能涉及以下专有名词：", "")
+        assert len(body.split("、")) == 30
+
 
 # ---------------------------------------------------------------------------
 # export / import

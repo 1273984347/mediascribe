@@ -57,6 +57,22 @@ class TestDetectRepeatedPairs:
         pairs = detect_repeated_pairs(text)
         assert len(pairs) == 1
 
+    def test_suffix_overlap_partial_repeat_flagged(self):
+        # 真实案例(人的寿命一集): 共享后缀的部分重复
+        text = (
+            "生命从来都不是在终点的地方被定义的,而是在终点的地方被定义的,"
+            "而是在每一个今天的日升月落之中被雕刻的。"
+        )
+        pairs = detect_repeated_pairs(text)
+        assert len(pairs) == 1
+        assert "被定义" in pairs[0]
+
+    def test_parallel_sentences_not_flagged_as_suffix_dup(self):
+        # 排比/正常接续不误报: 尾部重叠 < suffix_len(8) 或短于 min_len
+        assert detect_repeated_pairs("他昨天去了北京,我今天也去了北京。") == []
+        assert detect_repeated_pairs("我们要活在当下,活在当下,这才是最重要的。") == []
+        assert detect_repeated_pairs("我知道什么是对的,什么是对的。") == []
+
 
 class TestSeedTermsDataHygiene:
     """seed 脚本数据卫生: wrong/right 非空、不同、无重复对。"""
