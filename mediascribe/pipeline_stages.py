@@ -583,7 +583,7 @@ class AssembleStage(Stage):
         text = self._post_process(ctx.text)
 
         # v3.4.2: 幻觉重复收敛 (ASR 解码循环 >=3 连相同句收敛为 1)
-        text, halluc_removed = self._collapse_repeats(text)
+        text, halluc_removed, repeated_pairs = self._collapse_repeats(text)
 
         # v3.2.0d: LLM 后处理 (专有名词 / 同音字 / 标点 / 分段)
         # 失败时回退到原文,不阻塞 pipeline
@@ -628,6 +628,7 @@ class AssembleStage(Stage):
                 "model": llm_model,
             },
             "hallucination_repeats_removed": halluc_removed,
+            "repeated_pairs_suspect": repeated_pairs[:10],
             "generated_at": datetime.now().isoformat(),
         }
         _atomic_write_text(metadata_path, _json_dump(metadata), encoding="utf-8")
@@ -668,18 +669,31 @@ class AssembleStage(Stage):
 
     @staticmethod
     def _collapse_repeats(text: str) -> tuple:
-        """幻觉重复收敛: >=3 连相同句收敛为 1, 返回 (新文本, 删除句数)。"""
+        """幻觉重复收敛: >=3 连相同句收敛为 1。
+
+        返回 ``(新文本, 删除句数, 2 连可疑列表)`` — 2 连不足自动收敛
+        阈值(v3.4.3, 2026-10-02 复盘: 连续三集出现 2 连 ASR 伪影全靠
+        审校手工发现), 这里只告警不修改, 供审校重点定位; metadata
+        同步记录 ``repeated_pairs_suspect``。
+        """
         if not text:
-            return text, 0
+            return text, 0, []
         try:
-            from .post_process import collapse_hallucination_repeats
+            from .post_process import collapse_hallucination_repeats, detect_repeated_pairs
 
             new_text, removed = collapse_hallucination_repeats(text)
             if removed:
                 logger.warning("幻觉重复收敛: 删除 %d 句解码循环", removed)
-            return new_text, removed
+            pairs = detect_repeated_pairs(new_text)
+            if pairs:
+                logger.warning(
+                    "检测到 %d 处 2 连重复句(口语强调或 ASR 伪影, 未自动合并, 审校注意): %s",
+                    len(pairs),
+                    "、".join(f"「{p}」" for p in pairs[:5]),
+                )
+            return new_text, removed, pairs
         except Exception:
-            return text, 0
+            return text, 0, []
 
     @staticmethod
     def _llm_post_process(text: str, ctx: PipelineContext) -> tuple[str, str, str]:

@@ -45,6 +45,7 @@ _logger = logging.getLogger(__name__)
 
 __all__ = [
     "post_process_transcript",
+    "detect_repeated_pairs",
     "auto_select_model",
     "get_prompt_template",
     "setup_hf_mirror",
@@ -168,6 +169,38 @@ def collapse_hallucination_repeats(text: str, min_repeat: int = HALLUCINATION_MI
         removed_total += removed
         out_lines.append("".join(units))
     return "\n".join(out_lines), removed_total
+
+
+def detect_repeated_pairs(text: str, min_len: int = 6) -> list:
+    """检测收敛后仍存在的"恰好 2 连"重复单元(不修改文本, 供审校提示)。
+
+    与 :func:`collapse_hallucination_repeats` 同一套切分/归一化逻辑,
+    在短语级(全部标点切分)扫描连续恰好 2 次相同的单元 — ≥3 连已被
+    自动收敛, 剩下的 2 连要么是 ASR 伪影(需人工合并, 2026-10-02 批
+    三集连续出现), 要么是口语强调(应保留), 因此只告警不修改。
+    归一化长度 < ``min_len`` 的短语(如"活在当下"式口语强调)忽略,
+    避免告警噪音。
+    """
+    if not text:
+        return []
+    suspects: list = []
+    seen: set = set()
+    for line in text.splitlines():
+        units = _split_sentence_units(line)
+        i = 0
+        while i < len(units):
+            core = _normalize_sentence(units[i])
+            if len(core) >= min_len:
+                j = i
+                while j + 1 < len(units) and _normalize_sentence(units[j + 1]) == core:
+                    j += 1
+                if j - i + 1 == 2 and core not in seen:
+                    seen.add(core)
+                    suspects.append(units[i].strip())
+                i = j + 1
+                continue
+            i += 1
+    return suspects
 
 
 def post_process_transcript(
