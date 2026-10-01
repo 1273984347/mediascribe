@@ -177,7 +177,9 @@ class WechatMpDownloader(Downloader):
             status = "partial"
             logger.warning("OCR 部分失败: %d/%d，标记为 partial", ocr_success, ocr_total)
 
-        text_placeholder = self._write_text_stub(text, settings.audio_dir, meta)
+        # 文本占位写 workspace/tmp — 不进 audio_dir(避免混入转录中间媒体;
+        # 也不在托管清理目录内, 文本文章里它就是内容载体)
+        text_placeholder = self._write_text_stub(text, settings.workspace_root / "tmp", meta)
         return DownloadResult(
             source=source,
             video_path=text_placeholder,
@@ -576,7 +578,7 @@ class WechatMpDownloader(Downloader):
 
         设计理由
         - pipeline 当前统一要求 `video_path` 或 `audio_path` 存在。
-        - 我们把这个占位文件存到 `audio_dir` 下，扩展名 `.txt`，
+        - 调用方传 workspace 下的 `tmp/`(不进 audio_dir)，扩展名 `.txt`，
           metadata 中 `wechat_mp_text=True` 触发 pipeline 跳过 ASR。
         """
         save_dir.mkdir(parents=True, exist_ok=True)
