@@ -333,7 +333,7 @@ class TestWechatMpDownloadWithOcr(unittest.TestCase):
             d,
             "_write_text_stub",
             return_value=s.audio_dir / "stub.txt",
-        ):
+        ) as stub_mock:
             (s.audio_dir / "stub.txt").parent.mkdir(parents=True, exist_ok=True)
             result = d.download(
                 SourceRef(
@@ -344,6 +344,8 @@ class TestWechatMpDownloadWithOcr(unittest.TestCase):
                 s,
             )
 
+        # v3.4.3: 文本占位写 workspace/tmp, 不再混入 audio_dir 转录中间媒体
+        assert stub_mock.call_args.args[1] == s.workspace_root / "tmp"
         meta = result.metadata
         self.assertEqual(meta["wechat_mp_status"], "partial")
         self.assertEqual(meta["ocr_total"], 1)

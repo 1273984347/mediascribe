@@ -58,6 +58,40 @@ def test_build_report_empty_divergences():
     assert "无需人工比对" in report
 
 
+def test_report_grades_noise_only_as_counts():
+    # 纯虚词/语气词差异(的↔地)只计数不逐条 — 人工复核清单不被噪音淹没
+    divs = diff_transcripts("我们不断的相逢", "我们不断地相逢")
+    assert len(divs) == 1  # 单字 replace 进 diff, 但分级为噪音
+    report = build_report(divs, main_model="large-v3", cross_model="small")
+    assert "虚词/语气词差异 1 处只计数" in report
+    assert "无实词分歧" in report
+
+
+def test_report_lists_content_and_counts_noise_together():
+    main = "冯骥才说的对他走了"
+    cross = "冯继才说对她走了"
+    divs = diff_transcripts(main, cross)
+    report = build_report(divs, main_model="large-v3", cross_model="small")
+    assert "骥" in report and "继" in report  # 实词分歧详列
+    assert "虚词/语气词差异" in report  # 的↔地/他↔她 只计数
+    assert "实词分歧(1 处" in report
+
+
+def test_third_person_pronoun_is_noise():
+    # 他↔它 ASR 无法区分性别, 归噪音
+    divs = diff_transcripts("说他很好", "说它很好")
+    report = build_report(divs, main_model="m", cross_model="c")
+    assert "只计数" in report
+
+
+def test_homophone_content_chars_stay_listed():
+    # 在↔再 是同音实字(改语义), 保守起见不在噪音集合, 仍逐条列出
+    divs = diff_transcripts("此在的意义", "此再的意义")
+    report = build_report(divs, main_model="m", cross_model="c")
+    assert "实词分歧(1 处, 逐条复核)" in report
+    assert "在" in report and "再" in report
+
+
 class _StubTranscriber:
     name = "faster-whisper"
 

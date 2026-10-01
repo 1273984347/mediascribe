@@ -20,13 +20,18 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-# 报告最多列出的分歧点数, 超出截断(长视频口水段噪音可能很多)
-MAX_DIVERGENCES = 50
+# 报告最多列出的实词分歧点数, 超出截断(长视频 100+ 分歧仍可能超)
+MAX_DIVERGENCES = 100
 _CONTEXT_CHARS = 20
 
 _TIMESTAMP_RE = re.compile(r"\*{0,2}\[\d{1,2}:\d{2}(?::\d{2})?\]\*{0,2}")
 _WS_RE = re.compile(r"\s+")
 _PUNCT_RE = re.compile(r"[\s,。?!;;,.;?!、;:'\"“”‘’()()《》<>·—…\-]")
+
+# 虚词/语气词/第三人称代词 — 单字差异大概率不改变语义(的地得/吗呢啊吧/他她它),
+# 报告只计数不逐条列(2026-10-02 复盘: 188 处分歧里这类噪音约占 2/3,
+# 逐条列出会淹没真正需要人工裁决的实词分歧)
+_NOISE_CHARS = frozenset("的地得吗呢啊吧呀哦嘛啦咯喔噢嗯了他她它")
 
 
 @dataclass
@@ -47,6 +52,20 @@ def _normalize_for_diff(text: str) -> str:
 def _norm_punct(s: str) -> str:
     """抹掉标点后比较 — 仅标点/空格差异不算分歧。"""
     return _PUNCT_RE.sub("", s)
+
+
+def _strip_noise_chars(s: str) -> str:
+    """抹掉虚词/语气词/第三人称代词单字。"""
+    return "".join(ch for ch in s if ch not in _NOISE_CHARS)
+
+
+def is_noise_divergence(d: Divergence) -> bool:
+    """纯虚词/语气词/代词性别差异 → True(如 的↔地、他↔它、尾缀"了"增删)。
+
+    保守起见噪音集合只收语气词/结构助词/他她它 — 在↔再、终↔中等
+    同音实字不在集合内, 仍按实词分歧逐条列出。
+    """
+    return _strip_noise_chars(_norm_punct(d.main)) == _strip_noise_chars(_norm_punct(d.cross))
 
 
 def diff_transcripts(main_text: str, cross_text: str) -> list[Divergence]:
@@ -82,7 +101,9 @@ def build_report(
     cross_model: str,
     audio_path: Optional[Path] = None,
 ) -> str:
-    """把分歧列表渲染成 markdown 复核清单。"""
+    """把分歧列表渲染成 markdown 复核清单(实词详列, 虚词/语气词只计数)。"""
+    content = [d for d in divergences if not is_noise_divergence(d)]
+    noise_count = len(divergences) - len(content)
     lines = [
         "# 交叉校对报告",
         "",
@@ -91,24 +112,41 @@ def build_report(
     ]
     if audio_path is not None:
         lines.append(f"- **音频**: `{audio_path}`")
-    lines.append(f"- **分歧点**: {len(divergences)} 处")
+    summary = f"- **分歧点**: {len(divergences)} 处(实词 {len(content)} 处"
+    if noise_count:
+        summary += f"; 虚词/语气词差异 {noise_count} 处只计数"
+    summary += ")"
     lines += [
+        summary,
         "",
         "> 分歧 ≠ 主稿有错: 对照稿只是另一个模型的独立识别结果。",
         "> 逐条听原视频裁决; 术语/专名以可查证来源为准。",
         "",
     ]
-    if not divergences:
-        lines.append("两稿实质内容一致(仅标点/分段差异), 无需人工比对。")
+    if not content:
+        if noise_count:
+            lines.append(f"无实词分歧(仅虚词/语气词差异 {noise_count} 处), 无需人工比对。")
+        else:
+            lines.append("两稿实质内容一致(仅标点/分段差异), 无需人工比对。")
         return "\n".join(lines) + "\n"
-    shown = divergences[:MAX_DIVERGENCES]
+    lines.append(f"## 实词分歧({len(content)} 处, 逐条复核)")
+    lines.append("")
+    shown = content[:MAX_DIVERGENCES]
     for i, d in enumerate(shown, 1):
         lines.append(f"### {i}. 主稿「{d.main}」↔ 对照稿「{d.cross}」")
         lines.append("")
         lines.append(f"> …{d.context}…")
         lines.append("")
-    if len(divergences) > MAX_DIVERGENCES:
-        lines.append(f"(其余 {len(divergences) - MAX_DIVERGENCES} 处略 — 噪音居多, 建议先处理上方)")
+    if len(content) > MAX_DIVERGENCES:
+        lines.append(f"(其余 {len(content) - MAX_DIVERGENCES} 处实词分歧略)")
+        lines.append("")
+    if noise_count:
+        lines.append(f"## 虚词/语气词差异({noise_count} 处, 只计数不逐条)")
+        lines.append("")
+        lines.append(
+            "的地得/吗呢啊吧/他她它 等单字差异大概率不改变语义, 无需逐条复核;"
+            " 如需逐字原貌见 raw ASR 文件。"
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -173,5 +211,8 @@ def run_cross_check(pipeline: Any, result: Any, model: str) -> Optional[Path]:
     )
     report_path = Path(result.transcript_path).with_suffix(".crosscheck.md")
     report_path.write_text(report, encoding="utf-8")
-    print(f"🔍 交叉校对完成: {len(divergences)} 处分歧 -> {report_path.name}")
+    content_count = sum(1 for d in divergences if not is_noise_divergence(d))
+    noise_count = len(divergences) - content_count
+    note = f"(虚词/语气词差异 {noise_count} 处只计数)" if noise_count else ""
+    print(f"🔍 交叉校对完成: 实词分歧 {content_count} 处{note} -> {report_path.name}")
     return report_path
