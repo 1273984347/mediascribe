@@ -197,28 +197,46 @@ def detect_repeated_pairs(text: str, min_len: int = 6, suffix_len: int = 8) -> l
         return []
     suspects: list = []
     seen: set = set()
+    sent_carry: list = [None]  # 跨行承接上一行末句(段落间 2 连)
+    unit_carry: list = [None]
 
     def _report(unit: str, key: str) -> None:
         if key not in seen:
             seen.add(key)
             suspects.append(unit.strip())
 
-    for line in text.splitlines():
-        units = _split_sentence_units(line)
-        # 1) 相邻恰好 2 连
+    def _scan_run(units: list, seen: set, suspects: list, carry: list) -> None:
+        """单元序列内恰好 2 连扫描; ``carry=[prev_unit]`` 承接跨行边界。"""
+        seq = ([carry[0]] if carry and carry[0] else []) + units
         i = 0
-        while i < len(units):
-            core = _normalize_sentence(units[i])
+        while i < len(seq):
+            core = _normalize_sentence(seq[i])
             if len(core) >= min_len:
                 j = i
-                while j + 1 < len(units) and _normalize_sentence(units[j + 1]) == core:
+                while j + 1 < len(seq) and _normalize_sentence(seq[j + 1]) == core:
                     j += 1
                 if j - i + 1 == 2:
-                    _report(units[i], core)
+                    key = core
+                    if key not in seen:
+                        seen.add(key)
+                        suspects.append(seq[i].strip())
                 i = j + 1
                 continue
             i += 1
-        # 2) 共享后缀的部分重复(完全相同的对归上面的 2 连检测, 跳过)
+        carry.clear()
+        carry.append(seq[-1] if seq else None)
+
+    for line in text.splitlines():
+        # 1) 句级恰好 2 连(仅按句末标点切分) — 复读句常含逗号, 只在
+        #    短语级扫描会被逗号切碎而漏检(2026-10-02"刻舟求剑"一集
+        #    实锤: "所以,在最后的升华点的时候,我们一定能够找到它。"
+        #    句级 A,A,B 模式漏报); 跨段落(空行分隔)的 2 连由 carry 承接
+        sentences = _split_full_sentences(line)
+        _scan_run(sentences, seen, suspects, sent_carry)
+        # 2) 短语级恰好 2 连(全部标点切分, 覆盖无句末标点的短语循环)
+        units = _split_sentence_units(line)
+        _scan_run(units, seen, suspects, unit_carry)
+        # 3) 共享后缀的部分重复(完全相同的对归上面两级, 跳过)
         for k in range(len(units) - 1):
             c1 = _normalize_sentence(units[k])
             c2 = _normalize_sentence(units[k + 1])

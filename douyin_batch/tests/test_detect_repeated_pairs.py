@@ -48,6 +48,32 @@ class TestDetectRepeatedPairs:
         assert len(pairs) == 1
         assert "没有办法去考北大" in pairs[0]
 
+    def test_sentence_level_dup_with_commas(self):
+        # 回归(2026-10-02 刻舟求剑一集): 句级 A,A,B 且复读句含逗号 —
+        # 只在短语级扫描会被逗号切碎而漏检; 须两级扫描
+        text = (
+            "所以,在最后的升华点的时候,我们一定能够找到它。"
+            "所以,在最后的升华点的时候,我们一定能够找到它。"
+            "所以,在最后的升华点的时候,我们一定要强调。"
+        )
+        pairs = detect_repeated_pairs(text)
+        assert len(pairs) == 1
+        assert "升华点" in pairs[0]
+
+    def test_real_full_transcript_both_dups(self):
+        # 真实案例(刻舟求剑一集 raw): 句级 2 连 + 尾段整句 2 连各一处
+        text = (
+            "所以,在最后的升华点的时候,我们一定能够找到它。"
+            "所以,在最后的升华点的时候,我们一定能够找到它。"
+            "所以,在最后的升华点的时候,我们一定要强调。\n"
+            "正因为如此,我们才能够更加诚实地去分辨,这些改变究竟让我们更有担当,"
+            "还是让我们越来越善于为冷漠寻找理由。\n"
+            "正因为如此,我们才能够更加诚实地去分辨,这些改变究竟让我们更有担当,"
+            "还是让我们越来越善于为冷漠寻找理由。"
+        )
+        pairs = detect_repeated_pairs(text)
+        assert len(pairs) == 2
+
     def test_empty_and_single(self):
         assert detect_repeated_pairs("") == []
         assert detect_repeated_pairs("只有一句话。") == []
