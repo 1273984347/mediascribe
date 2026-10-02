@@ -5,6 +5,7 @@ Unit tests for the MCP server.
 import json
 import os
 import sys
+import tempfile
 import threading
 import unittest
 from pathlib import Path
@@ -610,6 +611,93 @@ class TestMCPBatchMaxVideosClamp(unittest.TestCase):
         self.assertFalse(r["result"]["isError"])
         cmd = captured["cmd"]
         self.assertEqual(cmd[cmd.index("-n") + 1], "10")
+
+
+class TestMCPWikiTools(unittest.TestCase):
+    """wiki Phase 4 — wiki_list / wiki_read_note (2026-10-03 拍板落地)."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.vault = Path(self._tmp.name) / "vault"
+        (self.vault / "raw").mkdir(parents=True)
+        (self.vault / "wiki").mkdir()
+        (self.vault / "raw" / "ep1.md").write_text("# 第一集\n\n正文", encoding="utf-8")
+        (self.vault / "wiki" / "概念 - 矛盾.md").write_text("# 矛盾\n\n聚合", encoding="utf-8")
+        (self.vault / "HOME.md").write_text("# HOME\n\n- [[ep1]]", encoding="utf-8")
+        self._env = {
+            k: os.environ.pop(k, None)
+            for k in ("MEDIASCRIBE_VAULT_DIR", "MEDIASCRIBE_WIKI", "MEDIASCRIBE_WORKSPACE")
+        }
+        os.environ["MEDIASCRIBE_VAULT_DIR"] = str(self.vault)
+
+    def tearDown(self):
+        for k, v in self._env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        self._tmp.cleanup()
+
+    def _request(self, method, params=None):
+        from mediascribe.mcp_server import _handle_request
+
+        return _handle_request(
+            {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}
+        )
+
+    @staticmethod
+    def _payload(resp):
+        import json as _json
+
+        return _json.loads(resp["result"]["content"][0]["text"])
+
+    def test_wiki_list_returns_notes_and_home(self):
+        body = self._payload(self._request("tools/call", {"name": "wiki_list"}))
+        self.assertTrue(body["enabled"])
+        names = {n["name"] for n in body["notes"]}
+        self.assertIn("ep1", names)
+        self.assertIn("概念 - 矛盾", names)
+        self.assertIn("HOME", body["home"])
+
+    def test_wiki_read_note_returns_content(self):
+        body = self._payload(
+            self._request(
+                "tools/call", {"name": "wiki_read_note", "arguments": {"name": "raw/ep1"}}
+            )
+        )
+        self.assertTrue(body["exists"])
+        self.assertIn("第一集", body["content"])
+
+    def test_wiki_read_note_blocks_traversal(self):
+        body = self._payload(
+            self._request(
+                "tools/call",
+                {"name": "wiki_read_note", "arguments": {"name": "../outside"}},
+            )
+        )
+        self.assertIn("invalid note path", body.get("error", ""))
+
+    def test_wiki_read_note_missing(self):
+        body = self._payload(
+            self._request(
+                "tools/call", {"name": "wiki_read_note", "arguments": {"name": "raw/nope"}}
+            )
+        )
+        self.assertFalse(body["exists"])
+
+    def test_wiki_disabled_when_env_off(self):
+        os.environ["MEDIASCRIBE_WIKI"] = "0"
+        try:
+            body = self._payload(self._request("tools/call", {"name": "wiki_list"}))
+            self.assertFalse(body["enabled"])
+        finally:
+            os.environ.pop("MEDIASCRIBE_WIKI", None)
+
+    def test_tools_list_advertises_wiki_tools(self):
+        r = self._request("tools/list")
+        names = {t["name"] for t in r["result"]["tools"]}
+        self.assertIn("wiki_list", names)
+        self.assertIn("wiki_read_note", names)
 
 
 if __name__ == "__main__":
