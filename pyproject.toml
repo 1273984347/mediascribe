@@ -7,7 +7,7 @@ name = "mediascribe"
 version = "3.3.0"
 description = "Offline video transcription for Bilibili / Douyin / YouTube / Xiaohongshu / WeChat MP"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
     {name = "MediaScribe Contributors"},
@@ -41,11 +41,9 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Multimedia :: Video",
     "Topic :: Multimedia :: Sound/Audio :: Speech",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
@@ -58,7 +56,9 @@ classifiers = [
 ]
 
 dependencies = [
-    "openai-whisper>=20231117",
+    # 20250625 起修复 torch>=2.6 默认 weights_only=True 导致的
+    # .pt 模型 UnpicklingError；旧 whisper + 新 torch 是必崩组合。
+    "openai-whisper>=20250625",
     "yt-dlp>=2023.12.30",
     "ffmpeg-python>=0.2.0",
     "requests>=2.31.0",
@@ -103,16 +103,12 @@ ocr = [
 ]
 # MCP (Model Context Protocol) server support
 mcp = [
-    # mcp SDK 需要 py>=3.10 — 低版本安装本 extra 时静默跳过，避免解析失败
-    "mcp>=0.5.0; python_version >= '3.10'",
+    # 项目下限已是 3.11, 不再需要 python_version 标记
+    "mcp>=0.5.0",
 ]
 # LLM post-process (mediascribe.llm_post_process, OpenAI-compatible API)
 llm = [
     "openai>=1.0.0",
-]
-# OpenTelemetry export backend for mediascribe.observability
-otel = [
-    "opentelemetry-sdk>=1.20",
 ]
 # Web UI (FastAPI + uvicorn, served via ``uvicorn mediascribe.web.app:app``)
 web = [
@@ -128,8 +124,13 @@ all = [
 dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
-    "ruff>=0.1.0",
+    # 上游 ruff 0.17 起不再支持 `--statistics` + 非文本输出格式组合,
+    # 统一钉 0.16.x（CI 不再单独锁版本，这里是唯一事实源）。
+    "ruff>=0.16,<0.17",
     "mypy>=1.7.0",
+    # release.yml 的 lint job 经 `pip install -e ".[dev]"` 安装后直接跑
+    # bandit，必须随 dev extra 提供（此前缺失导致发布链 exit 127）。
+    "bandit>=1.7,<2.0",
     # 测试 mediascribe.llm_post_process 需要 openai 类型（CI 上 mock API 调用）
     "openai>=1.0.0",
     # learn.compare 的拼音相似度过滤依赖 pypinyin（缺失时降级为不过滤）
@@ -148,29 +149,29 @@ Changelog = "https://github.com/1273984347/mediascribe/blob/main/CHANGELOG.md"
 
 [project.scripts]
 mediascribe = "mediascribe.__main__:main"
-mediascribe-batch = "douyin_batch_v3:main"
+mediascribe-batch = "mediascribe.batch_cli:main"
 
 [tool.setuptools]
-# py-modules: top-level script modules shipped with the wheel
-# (``douyin_batch_v3`` backs the ``mediascribe-batch`` entry point).
-py-modules = ["douyin_batch_v3"]
+# 根级 douyin_batch_v3.py 已收编为包模块 mediascribe.batch_cli
+# (2026-10-03 审查), 不再需要 py-modules。
 packages = [
-    "mediascribe",
-    "mediascribe.downloaders",
-    "mediascribe.transcribers",
-    "mediascribe.web",
-    "mediascribe.plugins",
-    "douyin_batch",
-    "douyin_batch.tests",
-    "examples",
-    "examples.plugins",
-]
+        "mediascribe",
+        "mediascribe.downloaders",
+        "mediascribe.transcribers",
+        "mediascribe.web",
+        "mediascribe.plugins",
+        "douyin_batch",
+        "examples",
+        "examples.plugins",
+    ]
 
 [tool.setuptools.package-data]
 mediascribe = ["py.typed"]
 
 [tool.mypy]
-python_version = "3.8"
+# 3.8 已不是 mypy >=1.15 支持的检查目标（此前配置直接报错、被
+# continue-on-error 掩盖）；与 requires-python 下限保持一致。
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
@@ -178,7 +179,7 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-testpaths = ["douyin_batch/tests"]
+testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
@@ -194,10 +195,6 @@ source = ["mediascribe", "douyin_batch"]
 omit = [
     "*/tests/*",
     "*/test_*.py",
-    # 可选 extra 模块：CI 现已安装 faster-whisper/mcp 使其可导入，
-    # 但尚无专属测试覆盖，暂不计入覆盖率门禁（待补测试后移出）。
-    "mediascribe/transcribers/faster_whisper.py",
-    "mediascribe/mcp_server.py",
 ]
 
 [tool.coverage.report]
@@ -210,7 +207,7 @@ exclude_lines = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py38"
+target-version = "py311"
 extend-exclude = [
     "archive",
     "build",

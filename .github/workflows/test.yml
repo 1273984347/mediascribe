@@ -108,8 +108,8 @@ jobs:
         # YAML 折叠标量(>)把多行折成一行 — Windows pwsh 不认 ``\`` 续行,
         # 之前尾随的 ``\`` 被当成独立参数(= 盘根目录)让 pytest 扫全盘。
         run: >-
-          python -m pytest douyin_batch/tests/
-          --ignore=douyin_batch/tests/test_e2e_real_urls.py
+          python -m pytest tests/
+          --ignore=tests/test_e2e_real_urls.py
           -m "not integration and not network"
           -v --tb=short --maxfail=5
 
@@ -133,12 +133,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Wider matrix for nightly / release: 3 py versions × 2 OS
-        python-version: ["3.9", "3.11", "3.12"]
+        # 3.9/3.10 已 EOL 剔除; whisperx 对最新版支持滞后, 只测 3.11/3.12。
+        python-version: ["3.11", "3.12"]
         os: [ubuntu-latest, windows-latest]
-        # whisperx needs py>=3.9
-        exclude:
-          - { python-version: "3.9", os: "windows-latest" }
     env:
       MEDIASCRIBE_E2E: "1"
     steps:
@@ -179,7 +176,7 @@ jobs:
       - name: Run unit + integration tests
         # 折叠标量 — Windows pwsh 不认 ``\`` 续行(见 unit job 说明)。
         run: >-
-          python -m pytest douyin_batch/tests/
+          python -m pytest tests/
           -m "not network or integration"
           -v --tb=short --maxfail=3
         # NOTE: `network`-marked tests are intentionally excluded here
@@ -203,13 +200,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+        # 3.8/3.9/3.10 已 EOL(2024-10/2025-10/2026-10), 下限 3.11;
+        # 3.13 补上现役覆盖。
+        python-version: ["3.11", "3.12", "3.13"]
         os: [ubuntu-latest, macos-latest, windows-latest]
         exclude:
           # macOS runner is slow; only test 2 versions there
-          - { python-version: "3.8", os: "macos-latest" }
-          - { python-version: "3.10", os: "macos-latest" }
-          - { python-version: "3.12", os: "macos-latest" }
+          - { python-version: "3.13", os: "macos-latest" }
     env:
       MEDIASCRIBE_E2E: "0"
     steps:
@@ -246,8 +243,8 @@ jobs:
           pip install -e ".[dev,ocr,web,faster-whisper,mcp]"
       - name: Run unit tests
         run: >-
-          python -m pytest douyin_batch/tests/
-          --ignore=douyin_batch/tests/test_e2e_real_urls.py
+          python -m pytest tests/
+          --ignore=tests/test_e2e_real_urls.py
           -m "not integration and not network"
           -v --tb=short --maxfail=3
 
@@ -276,15 +273,23 @@ jobs:
         env:
           MEDIASCRIBE_E2E: "0"
         run: >-
-          python -m pytest douyin_batch/tests/
-          --ignore=douyin_batch/tests/test_e2e_real_urls.py
+          python -m pytest tests/
+          --ignore=tests/test_e2e_real_urls.py
           -m "not integration and not network"
           --cov=mediascribe --cov=douyin_batch --cov-report=term-missing
           --cov-report=xml --cov-fail-under=75
         # 阈值 75 与 README 覆盖率徽章一致（实测 ~79%）；
         # 之前的 90 从未达到过，只会让本 job 永远红着。
+      - name: Upload coverage.xml artifact
+        # Codecov 挂掉时报告不丢,可从 artifact 手动补传
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          retention-days: 14
       - name: Upload to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           files: ./coverage.xml
           flags: unittests
