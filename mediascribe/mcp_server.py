@@ -323,7 +323,7 @@ def _tool_detect_platform(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _tool_get_cache_stats(_: Dict[str, Any]) -> Dict[str, Any]:
-    from douyin_batch.cache import ProcessCache
+    from mediascribe.batch_cache import ProcessCache
 
     cache = ProcessCache()
     return cache.get_stats()

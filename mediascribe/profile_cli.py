@@ -86,9 +86,7 @@ def filter_records(
         try:
             cutoff = datetime.fromisoformat(since)
         except ValueError as exc:
-            raise ValueError(
-                f"profile: --since expects YYYY-MM-DD, got {since!r}"
-            ) from exc
+            raise ValueError(f"profile: --since expects YYYY-MM-DD, got {since!r}") from exc
         kept = []
         for r in out:
             ts = _parse_iso(r.get("ts", ""))

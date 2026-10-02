@@ -32,6 +32,8 @@ modules_to_test = [
     "douyin_batch.config",
     "douyin_batch.logger",
     "douyin_batch.cache",
+    "mediascribe.batch_cache",
+    "mediascribe.batch_config",
     "douyin_batch.retry",
     "douyin_batch.progress",
     "douyin_batch.report",
