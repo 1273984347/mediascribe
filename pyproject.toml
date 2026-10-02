@@ -62,10 +62,10 @@ dependencies = [
     "yt-dlp>=2023.12.30",
     "ffmpeg-python>=0.2.0",
     "requests>=2.31.0",
-    # 1.63.0 (2026-09-15) 破坏 py3.11 上 mock 驱动的 browser 测试
-    # (TestGetUserVideos::test_collects_multiple_videos, 见 CI run 35002197257),
-    # 锁定 <1.63 待适配后放开。
-    "playwright>=1.40.0,<1.63",
+    "playwright>=1.40.0",
+    # 1.63 上界已解除(2026-10-03): 当时 py3.11 CI 失败的根因是
+    # test_browser_module 的残留 print-mock + 环境 greenlet 解析,
+    # 产品 API 面稳定; 残留 mock 已删, 1.63 本地实测通过。
     "torch>=2.0.0",
     "torchaudio>=2.0.0",
     "tqdm>=4.66.0",

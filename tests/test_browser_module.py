@@ -197,10 +197,7 @@ class TestGetUserVideos(unittest.TestCase):
         html_no_new = '<html><body><a href="/video/100">v</a></body></html>'
         page = _make_mock_page([html_no_new] * 20)
         _fake_browser_manager(page)
-        with (
-            mock.patch("douyin_batch.browser.time.sleep"),
-            mock.patch("douyin_batch.browser.print") as mp,
-        ):
+        with mock.patch("douyin_batch.browser.time.sleep"):
             out = br_mod.get_user_videos("https://www.douyin.com/user/ABC", max_videos=5)
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["video_id"], "100")
@@ -219,10 +216,7 @@ class TestGetUserVideos(unittest.TestCase):
         )
         page = _make_mock_page([html] * 20)
         _fake_browser_manager(page)
-        with (
-            mock.patch("douyin_batch.browser.time.sleep"),
-            mock.patch("douyin_batch.browser.print"),
-        ):
+        with mock.patch("douyin_batch.browser.time.sleep"):
             out = br_mod.get_user_videos("https://www.douyin.com/user/ABC", max_videos=10)
         ids = sorted(v["video_id"] for v in out)
         self.assertEqual(ids, ["1", "2", "3"])
@@ -238,10 +232,7 @@ class TestGetUserVideos(unittest.TestCase):
         html = '<html><a href="/video/1">v</a></html>'
         page = _make_mock_page([html] * 10)
         _fake_browser_manager(page)
-        with (
-            mock.patch("douyin_batch.browser.time.sleep"),
-            mock.patch("douyin_batch.browser.print"),
-        ):
+        with mock.patch("douyin_batch.browser.time.sleep"):
             out = br_mod.get_user_videos("https://www.douyin.com/user/X", max_videos=5)
         # Same video appearing many times → dedup → only 1
         self.assertEqual(len(out), 1)
@@ -251,8 +242,7 @@ class TestGetUserVideos(unittest.TestCase):
 
         page = _make_mock_page(raise_on_goto=RuntimeError("nope"))
         _fake_browser_manager(page)
-        with mock.patch("douyin_batch.browser.print"):
-            out = br_mod.get_user_videos("https://www.douyin.com/user/X")
+        out = br_mod.get_user_videos("https://www.douyin.com/user/X")
         self.assertEqual(out, [])
 
     def test_caps_at_max_videos(self):
@@ -262,10 +252,7 @@ class TestGetUserVideos(unittest.TestCase):
         htmls = [f'<html><a href="/video/{i}">v</a></html>' for i in range(1, 100)]
         page = _make_mock_page(htmls)
         _fake_browser_manager(page)
-        with (
-            mock.patch("douyin_batch.browser.time.sleep"),
-            mock.patch("douyin_batch.browser.print"),
-        ):
+        with mock.patch("douyin_batch.browser.time.sleep"):
             out = br_mod.get_user_videos("https://www.douyin.com/user/X", max_videos=5)
         self.assertLessEqual(len(out), 5)
 
