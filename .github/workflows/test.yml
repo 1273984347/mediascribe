@@ -49,10 +49,12 @@ jobs:
           cache-dependency-path: |
             pyproject.toml
             requirements-dev.txt
-      - name: Install ruff
+      - name: Install lint tools
         # 上游 ruff 0.17 起不再支持 `--statistics` + 非文本输出格式组合,
-        # 保险起见锁到与本地开发一致的版本。
-        run: pip install "ruff==0.16.6"
+        # 保险起见锁到与本地开发一致的版本。mypy 与 dev extra 同参
+        # (>=1.15,<3) — 2026-10-03 起为阻断门禁, 单独轻量安装避免
+        # 拖整个 dev extra(torch 等)进来。
+        run: pip install "ruff==0.16.6" "mypy>=1.15,<3"
       - name: ruff check
         run: ruff check . --output-format=github
       - name: ruff format (check only)
