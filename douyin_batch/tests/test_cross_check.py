@@ -1,5 +1,6 @@
 """--cross-check 双模型交叉校对测试(diff/报告/端到端接线)"""
 
+import json
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -149,6 +150,34 @@ def test_run_cross_check_writes_report_and_reuses_audio():
         assert report_path.exists()
         content = report_path.read_text(encoding="utf-8")
         assert "追悼" in content and "注价" in content
+        # 同名 JSON 完整清单同步落盘
+        json_path = Path(tmp) / "douyin_123.crosscheck.json"
+        assert json_path.exists()
+        payload = json.loads(json_path.read_text(encoding="utf-8"))
+        assert payload["content_count"] == 1 and payload["divergences"][0]["main"] == "追悼"
         # 复用同一条音频, 且语言/prompt 透传
         assert stub.calls[0]["audio"] == result.audio_path
         assert stub.calls[0]["language"] == "zh"
+
+
+def test_json_report_untruncated_beyond_max_divergences():
+    """md 截断到 MAX_DIVERGENCES 处, JSON 必须含全部分歧(2026-10-02 复盘)。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        main = "".join(f"词语{i}甲" for i in range(120))
+        cross = "".join(f"词语{i}乙" for i in range(120))
+        result = _make_result(tmp, main)
+        pipeline = mock.MagicMock()
+        pipeline.settings = SimpleNamespace(model="large-v3", engine="faster-whisper")
+        pipeline._create_transcriber.return_value = _StubTranscriber(cross)
+
+        report_path = run_cross_check(pipeline, result, "small")
+
+        payload = json.loads(
+            report_path.with_name(report_path.stem + ".json").read_text(encoding="utf-8")
+        )
+        assert payload["total"] == payload["content_count"]
+        assert payload["total"] > 100  # 超过 md 截断上限
+        assert payload["divergences"][-1]["index"] == payload["total"]
+        # md 仍按上限截断并指向 json
+        md = report_path.read_text(encoding="utf-8")
+        assert "实词分歧略" in md and ".crosscheck.json" in md

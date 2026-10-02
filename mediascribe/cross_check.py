@@ -12,9 +12,11 @@ small 模型然后逐处 grep 对比。该流程固化为 ``--cross-check <model
 from __future__ import annotations
 
 import difflib
+import json
 import logging
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -138,7 +140,10 @@ def build_report(
         lines.append(f"> …{d.context}…")
         lines.append("")
     if len(content) > MAX_DIVERGENCES:
-        lines.append(f"(其余 {len(content) - MAX_DIVERGENCES} 处实词分歧略)")
+        lines.append(
+            f"(其余 {len(content) - MAX_DIVERGENCES} 处实词分歧略 —"
+            " 完整清单含逐字原貌见同名 .crosscheck.json)"
+        )
         lines.append("")
     if noise_count:
         lines.append(f"## 虚词/语气词差异({noise_count} 处, 只计数不逐条)")
@@ -148,6 +153,40 @@ def build_report(
             " 如需逐字原貌见 raw ASR 文件。"
         )
     return "\n".join(lines) + "\n"
+
+
+def divergences_to_payload(
+    divergences: list[Divergence],
+    *,
+    main_model: str,
+    cross_model: str,
+    audio_path: Optional[Path] = None,
+) -> dict[str, Any]:
+    """分歧清单的完整 JSON 载荷 — md 报告截断到 ``MAX_DIVERGENCES`` 处,
+    JSON 不截断(含全部实词 + 虚词逐条), 供脚本化复核。
+
+    (2026-10-02 复盘: 长视频 189 处实词分歧只列前 100, 后半段只能
+    通读 raw 稿人工兜底 — 落一份完整机读清单。)
+    """
+    return {
+        "main_model": main_model,
+        "cross_model": cross_model,
+        "audio": str(audio_path) if audio_path else None,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "total": len(divergences),
+        "content_count": sum(1 for d in divergences if not is_noise_divergence(d)),
+        "noise_count": sum(1 for d in divergences if is_noise_divergence(d)),
+        "divergences": [
+            {
+                "index": i,
+                "type": "noise" if is_noise_divergence(d) else "content",
+                "main": d.main,
+                "cross": d.cross,
+                "context": d.context,
+            }
+            for i, d in enumerate(divergences, 1)
+        ],
+    }
 
 
 def _build_prompt(source_kind: Optional[str]) -> Optional[str]:
@@ -211,8 +250,16 @@ def run_cross_check(pipeline: Any, result: Any, model: str) -> Optional[Path]:
     )
     report_path = Path(result.transcript_path).with_suffix(".crosscheck.md")
     report_path.write_text(report, encoding="utf-8")
-    content_count = sum(1 for d in divergences if not is_noise_divergence(d))
-    noise_count = len(divergences) - content_count
+    payload = divergences_to_payload(
+        divergences,
+        main_model=main_model,
+        cross_model=model,
+        audio_path=Path(audio_path),
+    )
+    json_path = report_path.with_name(report_path.stem + ".json")
+    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    content_count = payload["content_count"]
+    noise_count = payload["noise_count"]
     note = f"(虚词/语气词差异 {noise_count} 处只计数)" if noise_count else ""
     print(f"🔍 交叉校对完成: 实词分歧 {content_count} 处{note} -> {report_path.name}")
     return report_path
