@@ -39,6 +39,16 @@ class TestWriteLatestPointer(unittest.TestCase):
     def test_mock_without_attributes_is_silent(self):
         _write_latest_pointer(None, None)  # 不应抛异常
 
+    def test_mock_result_transcript_path_is_skipped(self):
+        # 回归(2026-10-02 复盘): CLI 流程测试全 mock Pipeline 时,
+        # MagicMock 的 transcript_path 经 __fspath__ 溜过 try 保护,
+        # 把 mock repr 写进了真实 output/LATEST.txt — 非真实路径一律跳过
+        from unittest.mock import MagicMock
+
+        with tempfile.TemporaryDirectory() as tmp:
+            _write_latest_pointer(_Settings(tmp), MagicMock())
+            self.assertFalse((Path(tmp) / "LATEST.txt").exists())
+
     def test_custom_output_with_broken_settings_is_silent(self):
         _write_latest_pointer(None, None, output=Path("x.md"))  # 不应抛异常
 

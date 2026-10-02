@@ -434,8 +434,12 @@ class TestMediaScribeCliWechatFlags(unittest.TestCase):
     def test_argparser_accepts_wechat_cookies(self):
         from mediascribe.__main__ import main
 
-        # 避免 main 真实跑：mock 掉 Pipeline
+        # 避免 main 真实跑：mock 掉 Pipeline；_write_latest_pointer 一并
+        # mock — 真实 Settings 的 workspace 是真 output/，MagicMock 结果
+        # 曾把 repr 写进真实 LATEST.txt（2026-10-02 复盘）
         with patch("mediascribe.__main__.Pipeline") as MockPipeline, patch(
+            "mediascribe.__main__._write_latest_pointer"
+        ), patch(
             "sys.argv",
             [
                 "mediascribe",
@@ -465,6 +469,8 @@ class TestMediaScribeCliWechatFlags(unittest.TestCase):
         from mediascribe.__main__ import main
 
         with patch("mediascribe.__main__.Pipeline") as MockPipeline, patch(
+            "mediascribe.__main__._write_latest_pointer"
+        ), patch(
             "sys.argv",
             [
                 "mediascribe",

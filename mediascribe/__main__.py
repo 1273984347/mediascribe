@@ -19,7 +19,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import List, Optional
 
 from .config import Settings
@@ -125,14 +125,23 @@ def _write_latest_pointer(settings, result, output=None) -> None:
     为用户自定义 ``--output`` 时不写：用户明确知道文件在哪，且临时
     跑（如双模型对照稿）不该劫持"最新默认输出"指针。任何失败都吞
     掉：指针只是便利功能，绝不影响转录主流程（测试 mock 场景
-    ``result``/``settings`` 属性不可用也应静默跳过）。
+    ``result``/``settings`` 属性不可用也应静默跳过）。transcript_path/
+    workspace_root 必须是真实 str/PurePath — MagicMock 的 ``__fspath__``
+    能骗过 ``isinstance(os.PathLike)`` 且 ``os.fspath()`` 返回 mock repr
+    相对路径，曾把 mock 路径写进真实 output/LATEST.txt（2026-10-02 复盘），
+    故只认 str/PurePath 实例，不走 PathLike 协议。
     """
     try:
         if output is not None:
             return
-        ws = Path(settings.workspace_root)
-        transcript = Path(result.transcript_path)
-        (ws / "LATEST.txt").write_text(str(transcript), encoding="utf-8")
+        transcript_raw = getattr(result, "transcript_path", None)
+        if not isinstance(transcript_raw, (str, PurePath)):
+            return
+        ws_raw = getattr(settings, "workspace_root", None)
+        if not isinstance(ws_raw, (str, PurePath)):
+            return
+        transcript = Path(transcript_raw)
+        (Path(ws_raw) / "LATEST.txt").write_text(str(transcript), encoding="utf-8")
     except Exception:
         pass
 
