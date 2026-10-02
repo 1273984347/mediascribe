@@ -512,8 +512,8 @@ def _validate_public_url(url: str) -> str:
     """
     try:
         parts = urlsplit(url.strip())
-    except ValueError:
-        raise ValueError(f"URL 无法解析: {url[:80]}")
+    except ValueError as exc:
+        raise ValueError(f"URL 无法解析: {url[:80]}") from exc
     if parts.scheme.lower() not in ("http", "https"):
         raise ValueError(f"仅支持 http/https URL: {url[:80]}")
     if parts.username or parts.password:
@@ -531,9 +531,9 @@ def _validate_public_url(url: str) -> str:
         return url
     try:
         infos = socket.getaddrinfo(hostname, None)
-    except (socket.gaierror, OSError, UnicodeError):
+    except (socket.gaierror, OSError, UnicodeError) as exc:
         # 解析失败一律拒绝(fail closed), 不给内网探测留口子。
-        raise ValueError(f"URL hostname 无法解析: {hostname}")
+        raise ValueError(f"URL hostname 无法解析: {hostname}") from exc
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
         if (
@@ -1397,11 +1397,11 @@ def _register_extension_routes(app: "FastAPI") -> None:
                 builder = importlib.import_module("extension_builder")
             build_extension_zip = builder.build_extension_zip
             build_install_markdown = builder.build_install_markdown
-        except Exception:  # pragma: no cover - defensive
+        except Exception as exc:  # pragma: no cover - defensive
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="extension builder module is not importable",
-            )
+            ) from exc
         # Build the install doc with the user's actual origin so the
         # one-click instructions match the running server.
         # P2-10: 不再原样反射 Host 头 — 优先 env, 否则剥离 userinfo
@@ -1417,7 +1417,7 @@ def _register_extension_routes(app: "FastAPI") -> None:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=str(exc),
-            )
+            ) from exc
         # Use a Response so we can set Content-Disposition explicitly.
         from fastapi.responses import Response
 
@@ -1449,11 +1449,11 @@ def _register_extension_routes(app: "FastAPI") -> None:
             except Exception:
                 builder = importlib.import_module("extension_builder")
             build_install_markdown = builder.build_install_markdown
-        except Exception:  # pragma: no cover
+        except Exception as exc:  # pragma: no cover
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="extension builder module is not importable",
-            )
+            ) from exc
         # P2-10: 同上 — 不反射原始 Host 头。
         origin = _public_base_url(request)
         md = build_install_markdown(web_ui_origin=origin)
@@ -1553,9 +1553,9 @@ def _register_wiki_routes(app: "FastAPI") -> None:
         try:
             removed = vault.delete_note(name)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
-        except FileNotFoundError:
-            raise HTTPException(status_code=404, detail="note not found")
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="note not found") from exc
         return {"deleted": removed}
 
 
@@ -1578,16 +1578,16 @@ def _register_transcribe_route(app: "FastAPI", workspace: Path) -> None:
         try:
             _validate_submitted_urls(req.urls, workspace)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         try:
             pipeline = _build_pipeline(req, workspace)
-        except Exception:
+        except Exception as exc:
             # P2-8: 内部异常细节(路径/stack)不回显客户端, 落服务端日志。
             logger.exception("pipeline init failed")
             raise HTTPException(
                 status_code=500,
                 detail="internal error while initialising the pipeline; see server logs",
-            )
+            ) from exc
         items: List[TranscribeItem] = []
         for url in req.urls:
             items.append(_run_one(pipeline, url, workspace / "out", req))
@@ -1863,16 +1863,16 @@ def _register_submit_jobs_route(app: "FastAPI", workspace: Path) -> None:
         try:
             _validate_submitted_urls(urls, workspace)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         try:
             pipeline = _build_pipeline(req, workspace)
-        except Exception:
+        except Exception as exc:
             # P2-8: 内部异常细节不回显客户端, 落服务端日志。
             logger.exception("pipeline init failed")
             raise HTTPException(
                 status_code=500,
                 detail="internal error while initialising the pipeline; see server logs",
-            )
+            ) from exc
         from mediascribe.pipeline_async import AsyncPipeline
         from mediascribe.progress import ProgressRegistry, with_progress
 

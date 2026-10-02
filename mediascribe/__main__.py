@@ -423,7 +423,7 @@ def _run_legacy(argv: Optional[List[str]]) -> int:
                 print("\n\n⏹️ 用户中断")
                 sys.exit(130)
             results = []
-            for i, (src, r) in enumerate(zip(inputs, raw), 1):
+            for i, (src, r) in enumerate(zip(inputs, raw, strict=False), 1):
                 print(f"\n--- [{i}/{len(inputs)}] ---")
                 if isinstance(r, _FailedResult):
                     print(f"❌ 处理失败: {r.exc}")
@@ -435,7 +435,7 @@ def _run_legacy(argv: Optional[List[str]]) -> int:
             print("📊 批量处理完成")
             success = sum(1 for _, ok, _ in results if ok)
             print(f"✅ 成功: {success}/{len(results)}")
-            for source, ok, result in results:
+            for source, ok, _result in results:
                 status = "✅" if ok else "❌"
                 print(f"{status} {source}")
             if success < len(results):

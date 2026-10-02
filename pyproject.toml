@@ -227,7 +227,7 @@ extend-exclude = [
 # E501 is ignored globally: ``ruff format`` (line-length = 100) handles
 # wrapping, and legacy lines slightly over 100 chars are not worth
 # churning the whole repo for.
-select = ["E", "F", "W", "I", "C4"]
+select = ["E", "F", "W", "I", "C4", "B"]
 ignore = [
     "E501",  # line too long — enforced by ruff format (line-length = 100)
     "E402",  # module level import not at top of file (test convention)
