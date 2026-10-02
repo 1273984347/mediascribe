@@ -112,7 +112,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             parser.error(t("CLI_ERROR_NO_INPUT"))
 
     # 1. 加载配置（优先级：CLI > 文件 > 环境变量 > 默认）
-    from douyin_batch.config import BatchConfig
+    from mediascribe.batch_config import BatchConfig
     from douyin_batch.logger import log
 
     # 1.1 默认配置
@@ -187,7 +187,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     log.info("")
 
     # 2. 初始化缓存
-    from douyin_batch.cache import ProcessCache
+    from mediascribe.batch_cache import ProcessCache
 
     cache = ProcessCache(cache_dir=Path(config.output_dir) / "cache")
     if args.clear_cache:
@@ -204,7 +204,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         get_user_url_from_video,
         get_user_videos,
     )
-    from douyin_batch.progress import ProgressTracker, format_duration
+    from mediascribe.progress import ProgressTracker, format_duration
     from douyin_batch.report import generate_summary_report
     from douyin_batch.retry import download_media_with_retry
     from douyin_batch.transcribe import transcribe_audio

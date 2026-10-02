@@ -123,7 +123,7 @@ class TestEnvPrefix:
         assert cfg.workers == 3
 
     def test_legacy_prefix_still_read_with_warning(self):
-        from douyin_batch import config as cfg_mod
+        from mediascribe import batch_config as cfg_mod
         from douyin_batch.config import BatchConfig
 
         env = {
