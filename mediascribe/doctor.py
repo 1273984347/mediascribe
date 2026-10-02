@@ -49,7 +49,7 @@ def _engine_available(module: str) -> tuple[bool, str]:
 
 
 def _model_cache_dir() -> Optional[Path]:
-    for env, default in (
+    for env, _default in (
         ("MEDIASCRIBE_CACHE_DIR", None),
         ("XDG_CACHE_HOME", None),
     ):

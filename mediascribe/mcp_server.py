@@ -716,7 +716,7 @@ def _mcp_token_ok(headers: Any) -> bool:
     expected = _mcp_expected_token()
     if not expected:
         return True
-    get = getattr(headers, "get")
+    get = headers.get
     presented = (get("X-MCP-Token") or "").strip()
     if not presented:
         auth = (get("Authorization") or "").strip()

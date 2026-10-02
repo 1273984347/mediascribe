@@ -85,8 +85,10 @@ def filter_records(
     if since:
         try:
             cutoff = datetime.fromisoformat(since)
-        except ValueError:
-            raise ValueError(f"profile: --since expects YYYY-MM-DD, got {since!r}")
+        except ValueError as exc:
+            raise ValueError(
+                f"profile: --since expects YYYY-MM-DD, got {since!r}"
+            ) from exc
         kept = []
         for r in out:
             ts = _parse_iso(r.get("ts", ""))
@@ -121,11 +123,12 @@ def aggregate(records: List[dict]) -> List[AggregatedStage]:
         n = len(sorted_d)
 
         # p50 / p95 via simple percentile
-        def pct(p: float) -> float:
-            if n == 1:
-                return sorted_d[0]
-            k = int(round(p / 100.0 * (n - 1)))
-            return sorted_d[k]
+        # B023: 经默认参数显式绑定循环变量, 不依赖闭包晚绑定
+        def pct(p: float, _sorted_d: list = sorted_d, _n: int = n) -> float:
+            if _n == 1:
+                return _sorted_d[0]
+            k = int(round(p / 100.0 * (_n - 1)))
+            return _sorted_d[k]
 
         try:
             p50 = statistics.median(sorted_d)

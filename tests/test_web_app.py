@@ -74,10 +74,10 @@ class TestPydanticModelsIfAvailable(unittest.TestCase):
         self.assertEqual(req.engine, "whisper")
         self.assertEqual(len(req.urls), 1)
         # Invalid engine must raise
-        with self.assertRaises(Exception):
+        with self.assertRaises(Exception):  # noqa: B017 — pydantic 版本间异常类型不同
             TranscribeRequest(urls=["https://example.com/v"], engine="bogus", model="small")
         # Empty urls must raise
-        with self.assertRaises(Exception):
+        with self.assertRaises(Exception):  # noqa: B017 — pydantic 版本间异常类型不同
             TranscribeRequest(urls=[], engine="whisper", model="small")
 
 

@@ -92,7 +92,7 @@ class TestPipelineProfileFlag(unittest.TestCase):
             self.assertIn("transcribe", times)
             self.assertIn("assemble", times)
             # Each label must have at least one duration.
-            for label, durations in times.items():
+            for _label, durations in times.items():
                 self.assertGreater(len(durations), 0)
                 for d in durations:
                     self.assertGreaterEqual(d, 0.0)

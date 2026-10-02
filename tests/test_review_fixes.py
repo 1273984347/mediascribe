@@ -385,7 +385,7 @@ class TestStreamDownload:
 
         dest = tmp_path / "out.mp4"
         sess = _FakeSession([], error=_rq.HTTPError("404"))
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017 — 具体异常类型随网络栈变化
             stream_download("https://x/v.mp4", dest, session=sess)
         assert not dest.exists()
         assert list(tmp_path.glob("*part*")) == []
