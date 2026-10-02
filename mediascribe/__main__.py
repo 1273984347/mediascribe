@@ -557,9 +557,9 @@ def _run_doctor_cli(argv: List[str]) -> int:
 def _run_archive(argv: List[str]) -> int:
     """``python -m mediascribe archive`` — 创作者主页批量转录。
 
-    直接复用 douyin_batch_v3 的完整流程（浏览器抓取 / 断点续传 /
-    汇总报告），统一入口。旧入口 ``python douyin_batch_v3.py ...``
-    保留为兼容壳。
+    复用 :mod:`mediascribe.batch_cli`（原根级 douyin_batch_v3.py，
+    已收编为包模块）的完整流程（浏览器抓取 / 断点续传 / 汇总报告）。
+    旧入口 ``python douyin_batch_v3.py ...`` 保留为弃用壳。
     """
     parser = argparse.ArgumentParser(
         prog="python -m mediascribe archive",
@@ -571,31 +571,23 @@ def _run_archive(argv: List[str]) -> int:
     if pre_args.help:
         print(__doc__)
         print(
-            "\narchive 用法（与 douyin_batch_v3.py 参数一致）:\n"
+            "\narchive 用法（与 mediascribe-batch 参数一致）:\n"
             "  python -m mediascribe archive --user <作者主页URL> -n 20\n"
             "  python -m mediascribe archive --from-video <单条视频URL> -n 10\n"
             "\n"
-            "完整参数: python douyin_batch_v3.py --help\n"
+            "完整参数: python -m mediascribe archive --help 或 mediascribe-batch --help\n"
         )
         return 0
     try:
-        # 脚本在仓库根目录，包安装场景下可能不在 sys.path
-        script = Path(__file__).resolve().parent.parent / "douyin_batch_v3.py"
-        import importlib.util
-
-        spec = importlib.util.spec_from_file_location("douyin_batch_v3", script)
-        module = importlib.util.module_from_spec(spec)
-        if spec.loader is None:  # pragma: no cover
-            raise ImportError(f"cannot load {script}")
-        spec.loader.exec_module(module)
-    except Exception as exc:
+        from mediascribe.batch_cli import main as batch_main
+    except Exception as exc:  # pragma: no cover - 依赖缺失等
         print(
-            f"❌ 无法加载 douyin_batch_v3.py ({exc})。\n"
-            "请直接运行: python douyin_batch_v3.py --user <URL>",
+            f"❌ 无法加载 mediascribe.batch_cli ({exc})。\n"
+            "请直接运行: mediascribe-batch --user <URL>",
             file=sys.stderr,
         )
         return 1
-    return module.main(list(argv))
+    return batch_main(list(argv))
 
 
 def _run_learn(argv: List[str]) -> int:

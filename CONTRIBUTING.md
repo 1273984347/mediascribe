@@ -34,7 +34,7 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
 2. **Install dev dependencies**: `pip install -r requirements-dev.txt`
 3. **Make your changes** with clear commit messages
 4. **Add tests** for new features
-5. **Ensure tests pass**: `python run_tests.py`
+5. **Ensure tests pass**: `python run_tests.py` (pytest with CI-same selection; `python scripts/pre_push_gate.py` runs lint + tests together)
 6. **Update documentation** if needed
 7. **Submit a pull request**
 
@@ -71,15 +71,18 @@ We support both English and Chinese. When adding user-facing strings:
 ### 🧪 Testing
 
 ```bash
-# Run all tests
+# Run all tests (same selection as CI's unit job)
 python run_tests.py
 
-# Run specific test
-python -m unittest douyin_batch.tests.test_basic.TestConfig
+# Run a specific test file / node
+python -m pytest tests/test_basic.py
+python -m pytest tests/test_basic.py::TestConfig::test_x
 
 # Run with coverage
-coverage run -m unittest discover douyin_batch/tests/
-coverage report
+python -m pytest --cov=mediascribe --cov=douyin_batch --cov-report=term-missing
+
+# Pre-push gate (lint + tests, what CI will check first)
+python scripts/pre_push_gate.py
 ```
 
 ### 📁 Project Structure
@@ -88,7 +91,7 @@ When adding new files:
 
 - **Core library** → `mediascribe/`
 - **Batch processing** → `douyin_batch/`
-- **Tests** → `douyin_batch/tests/`
+- **Tests** → `tests/`
 - **Scripts** → project root
 - **Docs** → project root or `docs/`
 
@@ -128,7 +131,7 @@ For security vulnerabilities, please email us directly instead of opening a publ
 2. **安装开发依赖**：`pip install -r requirements-dev.txt`
 3. **进行修改**，提交信息要清晰
 4. **添加测试**
-5. **确保测试通过**：`python run_tests.py`
+5. **确保测试通过**：`python run_tests.py`（pytest，与 CI 同参数；`python scripts/pre_push_gate.py` 可 lint+测试一把跑）
 6. **更新文档**（如需要）
 7. **提交 Pull Request**
 
@@ -163,11 +166,14 @@ For security vulnerabilities, please email us directly instead of opening a publ
 ### 🧪 测试
 
 ```bash
-# 运行所有测试
+# 运行所有测试(与 CI unit job 同选择)
 python run_tests.py
 
 # 运行特定测试
-python -m unittest douyin_batch.tests.test_basic.TestConfig
+python -m pytest tests/test_basic.py
+
+# pre-push 门禁(lint + 测试)
+python scripts/pre_push_gate.py
 ```
 
 ### 📁 项目结构
@@ -176,7 +182,7 @@ python -m unittest douyin_batch.tests.test_basic.TestConfig
 
 - **核心库** → `mediascribe/`
 - **批处理** → `douyin_batch/`
-- **测试** → `douyin_batch/tests/`
+- **测试** → `tests/`
 - **脚本** → 项目根目录
 - **文档** → 项目根目录或 `docs/`
 

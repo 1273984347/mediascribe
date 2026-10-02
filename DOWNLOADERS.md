@@ -169,5 +169,5 @@ full traceback and a minimal repro URL.
 4. Add a URL-detect branch in `mediascribe/inputs.py::parse_source`.
 5. Add a branch in `Pipeline._get_downloader`.
 6. Add a branch in `mcp_server._tool_detect_platform`.
-7. Add tests in `douyin_batch/tests/test_new_downloaders.py`.
+7. Add tests in `tests/test_new_downloaders.py`.
 8. Update this file.

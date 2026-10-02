@@ -24,7 +24,7 @@ git clone https://github.com/example/mediascribe
 cd mediascribe
 python -m pip install -e ".[dev,ocr,web,mcp]"
 pre-commit install       # optional but recommended
-pytest douyin_batch/tests/ -q
+pytest tests/ -q
 ```
 
 ## Pull request checklist
@@ -32,7 +32,7 @@ pytest douyin_batch/tests/ -q
 * [ ] I have read `CONTRIBUTING.md` (this file).
 * [ ] I have added or updated tests.
 * [ ] `ruff check .` is clean.
-* [ ] `pytest douyin_batch/tests/ -q` is green locally.
+* [ ] `pytest tests/ -q` is green locally.
 * [ ] I have updated the docs in `docs_site/` if the user-facing
   behaviour changed.
 * [ ] I have not added a hard dependency without an

@@ -24,7 +24,7 @@ share a similar tail), and YouTube is checked before generic
 2. Implement `supports(source)` and `download(source, settings, **kwargs)`.
 3. Register it in `parse_source` *and* in the plugin entry_points
    so third-party packages can override or extend.
-4. Add tests under `douyin_batch/tests/`.
+4. Add tests under `tests/`.
 
 ## URL transformers
 

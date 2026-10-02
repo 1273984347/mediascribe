@@ -8,7 +8,9 @@
 #   make help       list all targets
 #   make install    install runtime deps
 #   make dev        install runtime + dev deps
-#   make test       run unit tests (must all pass: 38 tests)
+#   make test       run unit tests (same selection as CI's unit job)
+#   make gate       pre-push gate: lint + fast pytest
+#   make push       gate then git push
 #   make lint       run ruff (lint + format check)
 #   make format     auto-format with ruff
 #   make demo       run demo_v3.py
@@ -29,17 +31,20 @@ RUFF    ?= $(PY) -m ruff
 REQUIREMENTS      := requirements.txt
 REQUIREMENTS_DEV  := requirements-dev.txt
 
-.PHONY: help install dev test test-verbose test-i18n test-cross test-imports test-syntax lint format demo clean verify all install-browser up up-daemon down status logs docker-up
+.PHONY: help install dev test test-verbose test-e2e test-i18n test-cross test-imports test-syntax lint format gate push demo clean verify all install-browser up up-daemon down status logs docker-up
 
 help:
 	@echo "MediaScribe — available targets:"
 	@echo "  install         pip install -r $(REQUIREMENTS)"
 	@echo "  dev             pip install -r $(REQUIREMENTS) -r $(REQUIREMENTS_DEV)"
 	@echo "  install-browser playwright install chromium (for Douyin/Bilibili scraping)"
-	@echo "  test            run unit tests (run_tests.py)"
+	@echo "  test            run unit tests (CI-same selection)"
 	@echo "  test-verbose    run unit tests with verbose output"
+	@echo "  test-e2e        run the opt-in real-network e2e suite"
 	@echo "  test-i18n       run i18n integration tests"
 	@echo "  test-cross      run cross-platform tests"
+	@echo "  gate            pre-push gate: lint + fast pytest"
+	@echo "  push            gate then git push"
 	@echo "  lint            ruff check + ruff format --check"
 	@echo "  format          ruff check --fix + ruff format"
 	@echo "  demo            run demo_v3.py"
@@ -65,22 +70,31 @@ install-browser:
 	$(PY) -m playwright install chromium
 
 test:
-	$(PY) run_tests.py
+	$(PYTEST) -m "not integration and not network" --ignore=tests/test_e2e_real_urls.py -q
 
 test-verbose:
-	$(PY) run_tests.py -v
+	$(PYTEST) -m "not integration and not network" --ignore=tests/test_e2e_real_urls.py
+
+test-e2e:
+	$(PYTEST) tests/test_e2e_real_urls.py
 
 test-i18n:
-	$(PY) douyin_batch/tests/test_i18n_integration.py
+	$(PYTEST) tests/test_i18n_integration.py
 
 test-cross:
-	$(PY) douyin_batch/tests/test_cross_platform.py
+	$(PYTEST) tests/test_cross_platform.py
 
 test-imports:
-	$(PY) douyin_batch/tests/test_imports.py
+	$(PYTEST) tests/test_imports.py
 
 test-syntax:
-	$(PY) douyin_batch/tests/test_syntax.py
+	$(PYTEST) tests/test_syntax.py
+
+gate:
+	$(PY) scripts/pre_push_gate.py
+
+push: gate
+	git push
 
 lint:
 	$(RUFF) check .
@@ -135,6 +149,6 @@ docker-up:
 # Help AI agents discover the right command
 # Equivalent without `make`:
 #   pip install -r requirements.txt
-#   python run_tests.py
+#   python -m pytest -m "not integration and not network" --ignore=tests/test_e2e_real_urls.py
 #   python -m ruff check .
 #   python -m ruff format --check .
