@@ -5,6 +5,7 @@ from pathlib import Path
 from mediascribe.post_process import (
     collapse_hallucination_repeats,
     detect_repeated_pairs,
+    detect_repeated_pairs_detailed,
 )
 
 
@@ -77,6 +78,51 @@ class TestDetectRepeatedPairs:
     def test_empty_and_single(self):
         assert detect_repeated_pairs("") == []
         assert detect_repeated_pairs("只有一句话。") == []
+
+
+class TestDetailedClassification:
+    """echo/artifact 启发式标注 — 用四个真实校准样本定标。"""
+
+    def test_real_echo_second_person(self):
+        # 过度坦诚一集真应答: 讲者复述学生主张再反驳(后缀重叠路径命中)
+        text = (
+            "有很多同学就很积极说,老师,我要把那个对自己坦诚写在第一个分论点。"
+            "你要写在第一个分论点,你就偏题。"
+        )
+        pairs = detect_repeated_pairs_detailed(text)
+        assert len(pairs) == 1
+        assert pairs[0]["kind"] == "echo"
+
+    def test_real_artifact_suo_yi(self):
+        # 人的寿命一集真伪影: 后续句以"所以"承接(承接词不作 echo 信号)
+        text = (
+            "我不会产出这个期待,是因为我自己没有办法去考北大,"
+            "是因为我自己没有办法去考北大,所以说我希望你去考北大。"
+        )
+        pairs = detect_repeated_pairs_detailed(text)
+        assert pairs[0]["kind"] == "artifact"
+
+    def test_real_artifact_sentence_level(self):
+        # 刻舟求剑一集真伪影: 句级 A,A,B
+        text = (
+            "所以,在最后的升华点的时候,我们一定能够找到它。"
+            "所以,在最后的升华点的时候,我们一定能够找到它。"
+            "所以,在最后的升华点的时候,我们一定要强调。"
+        )
+        pairs = detect_repeated_pairs_detailed(text)
+        assert pairs[0]["kind"] == "artifact"
+
+    def test_real_echo_contrast_follows(self):
+        # 后续句为真转折 → 倾向应答式
+        text = "我之前跟你说过这件事。但是这件事你从来没听进去,这件事你从来没听进去,真可惜。"
+        pairs = detect_repeated_pairs_detailed(text)
+        assert pairs[0]["kind"] == "echo"
+
+    def test_matches_plain_detector_text(self):
+        text = "第一行重复内容,第一行重复内容。\n第二行:第一行重复内容,第一行重复内容。"
+        plain = detect_repeated_pairs(text)
+        detailed = detect_repeated_pairs_detailed(text)
+        assert [p["text"] for p in detailed] == plain
 
     def test_same_dup_across_lines_reported_once(self):
         text = "第一行重复内容,第一行重复内容。\n第二行:第一行重复内容,第一行重复内容。"

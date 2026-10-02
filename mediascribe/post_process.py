@@ -179,6 +179,95 @@ def _common_suffix_len(a: str, b: str) -> int:
     return n
 
 
+# 应答式口语重复的启发式(供甄别参考, 非判定), 词表用真实样本定标:
+# * echo 命中: "…写在第一个分论点。/你要写在第一个分论点,你就偏题了"
+#   (2026-10-02 过度坦诚一集真应答) — 第二遍重复以第二人称称呼开头;
+# * artifact 保持: "…去考北大,×2,所以说…" / "…找到它。×2,所以…"
+#   (人的寿命/刻舟求剑两集真伪影) — 所以/于是/然后 等承接词常跟在
+#   伪影后, 不作 echo 信号; 仅真转折词出现在后续句时才倾向 echo。
+_ECHO_SECOND_PERSON = ("你要", "你就", "你说", "你们", "请问", "各位")
+_ECHO_CONTRAST = ("但是", "但", "然而", "可是", "不过", "其实")
+
+
+def _is_echo_suspect(prev_core: str, second_core: str, next_core: str) -> bool:
+    """应答式信号: 第二遍重复以第二人称称呼开头, 或其前/后一句为真转折。"""
+    return (
+        second_core.startswith(_ECHO_SECOND_PERSON)
+        or prev_core.startswith(_ECHO_CONTRAST)
+        or next_core.startswith(_ECHO_CONTRAST)
+    )
+
+
+def detect_repeated_pairs_detailed(text: str, min_len: int = 6, suffix_len: int = 8) -> list:
+    """:func:`detect_repeated_pairs` 的分级版本, 返回
+    ``[{"text": ..., "kind": "echo"|"artifact"}]``。
+
+    ``kind`` 为启发式标注(供人工甄别参考, 非判定), 词表与判定面
+    用四个真实样本定标(见 _ECHO_* 注释):
+    * ``echo`` — 第二遍重复以第二人称称呼开头(讲者复述学生主张再
+      反驳, 如"…写在第一个分论点。/你要写在第一个分论点,你就偏题了",
+      过度坦诚一集真应答), 或后续句为真转折 → 更可能是应答式口语
+      重复, 保留;
+    * ``artifact`` — 其余 → 更可能是 ASR 解码循环伪影, 建议人工合并。
+
+    与 :func:`detect_repeated_pairs` 同一套三级扫描(句级/短语级/
+    共享后缀, 含跨行承接), 独立实现以携带位置信息。
+    """
+    if not text:
+        return []
+    suspects: list = []
+    seen: set = set()
+
+    def _report(unit: str, echo: bool) -> None:
+        if unit not in seen:
+            seen.add(unit)
+            suspects.append({"text": unit.strip(), "kind": "echo" if echo else "artifact"})
+
+    def _echo(prev_core: str, second_core: str, next_core: str) -> bool:
+        return _is_echo_suspect(prev_core, second_core, next_core)
+
+    sent_carry: list = [None]
+    unit_carry: list = [None]
+
+    def _scan_run(seq_items: list, carry: list) -> None:
+        """恰好 2 连扫描(跨行由 carry 承接上一行末单元)。"""
+        seq = ([carry[0]] if carry and carry[0] else []) + seq_items
+        i = 0
+        while i < len(seq):
+            core = _normalize_sentence(seq[i])
+            if len(core) >= min_len:
+                j = i
+                while j + 1 < len(seq) and _normalize_sentence(seq[j + 1]) == core:
+                    j += 1
+                if j - i + 1 == 2:
+                    second = _normalize_sentence(seq[i + 1])
+                    nxt = _normalize_sentence(seq[j + 1]) if j + 1 < len(seq) else ""
+                    prev = _normalize_sentence(seq[i - 1]) if i > 0 else ""
+                    _report(seq[i], _echo(prev, second, nxt))
+                i = j + 1
+                continue
+            i += 1
+        carry.clear()
+        carry.append(seq[-1] if seq else None)
+
+    for line in text.splitlines():
+        # 1) 句级恰好 2 连(跨行由 carry 承接)
+        _scan_run(_split_full_sentences(line), sent_carry)
+        # 2) 短语级恰好 2 连
+        units = _split_sentence_units(line)
+        _scan_run(units, unit_carry)
+        # 3) 共享后缀的部分重复(第二遍以第二人称/后续句真转折 → echo)
+        for k in range(len(units) - 1):
+            c1 = _normalize_sentence(units[k])
+            c2 = _normalize_sentence(units[k + 1])
+            if c1 == c2 or min(len(c1), len(c2)) < min_len:
+                continue
+            if _common_suffix_len(c1, c2) >= suffix_len:
+                nxt = _normalize_sentence(units[k + 2]) if k + 2 < len(units) else ""
+                _report(units[k + 1], _echo(c1, c2, nxt))
+    return suspects
+
+
 def detect_repeated_pairs(text: str, min_len: int = 6, suffix_len: int = 8) -> list:
     """检测收敛后仍存在的可疑重复(不修改文本, 供审校提示)。两类:
 
