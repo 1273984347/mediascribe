@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (2026-10-03 全面审查)
+- **发布链修复**: release.yml lint 补装 bandit(dev extra 缺失导致 tag 一推必挂)、
+  `--skip` 误用改 `--exclude`、Docker 多架构改单 job manifest list(原 amd64/arm64
+  短阵互覆盖)、全 job 补 timeout、test job 收敛为单 sanity 组合; bandit.yml 收敛单
+  ubuntu(原三平台上传同名 artifact 必冲突); codecov v4→v5 并留档 coverage.xml
+- **安全默认**: docker-compose 端口只绑 127.0.0.1; 无 token 模式拒绝公网来源
+  (loopback/私网/docker 网关放行); WS token 首选子协议不再走 URL query;
+  短链重定向最终目标 SSRF 复查; .gitignore 补 config.json; wiki.html DOM XSS 两处
+- **测试体系**: 测试搬家顶层 `tests/`(原 douyin_batch/tests 错位且打进发行包)+
+  新增 conftest.py; 删除零生产引用的 observability.py 幽灵特性(模块+otel extra+
+  文档+26 个测试); coverage_gaps 1/2/3 按模块拆回; 脚本伪装测试改真测试;
+  e2e 挂 marker 使 CI `-m` 过滤首次生效; Path.cwd() 工作区改 tempfile;
+  doctor.py 首个专属测试(15 用例); mcp_server/faster_whisper 移出 coverage omit
+- **架构**: 根级 douyin_batch_v3.py 收编为 `mediascribe.batch_cli`(entry point/
+  py-modules/动态加载三层耦合一次解决, 根级留弃用壳); create_app(817 行)拆 9 个
+  route registrar
+- **工具链**: requires-python 下限 3.8→3.11(3.8-3.10 已 EOL), mypy/ruff target/
+  CI 矩阵(3.11-3.13)对齐; openai-whisper 下限抬 20250625(修 torch>=2.6
+  weights_only 必崩组合); dev extra 钉 ruff 0.16.x 并补 bandit; run_tests.py 改
+  pytest 垫片; 新增 scripts/pre_push_gate.py 门禁 + justfile/Makefile gate/push
+- **数据治理**: 术语库路径支持 `MEDIASCRIBE_LEARNED_TERMS` 覆盖; `learn clear`
+  清空前自动留时间戳备份; vault 落点支持 `MEDIASCRIBE_VAULT_DIR` 覆盖;
+  archive/ 从 git 追踪中移除(规则与现状一致化); CLI 快照重建
+
 ### Added
 - **`--cleanup-media`: auto-delete intermediates after successful
   transcription** (v3.4.3). New `CleanupStage` at the tail of the stage
@@ -559,7 +583,7 @@ ruff check .                            # 0 errors
 coverage report -m (video2text scope)   # 75% overall, all v3.2.0a modules ≥ 89%
 ```
 
-## [Unreleased]
+## [Historical] — video2text 时代累积条目(未随版本归档, 2026-10-03 审查改名消歧)
 
 ### Added
 - **AI agent compatibility**: `AGENTS.md`, `CLAUDE.md`, `.cursorrules`,

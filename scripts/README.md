@@ -7,6 +7,8 @@ MediScribe 主流程之外的批量任务与修订工具(在 45 集徐涛课程�
 | `batch_transcribe.py` | 多 P 课程批量转录。`--bv <BV号> --total <集数>`,large-v3 + CUDA + 时间戳 + `--audio-only`;启动前做分 P 防呆断言(数量/唯一性/序号对应),断点续跑(断点 `output/.batch_state_<BV>.json`) |
 | `fix_xutao_terms.py` | ASR 术语批量替换(修订管线第①步)。规则表分批次记录,`TERMS_STATE` 环境变量切换目标课程断点文件;幂等可重跑 |
 | `seed_learned_terms.py` | 把人工核定的修正表灌入 learn 术语库(`learned_terms.json`),此后转录时自动注入 initial_prompt + 事后校正,从源头减少术语错字 |
+| `pre_push_gate.py` | pre-push 门禁(2026-10-03):ruff + CI 同参快速测试,任何失败非零退出。`python scripts/pre_push_gate.py`;亦可用 `just push` / `make push` 一键过门禁后推送 |
+| `capture_cli_help.py` | 重建 `docs/cli-screenshots/` 的 CLI help 快照(CLI 面变化后跑一次) |
 
 ## 标准流程(新课程/新增分 P)
 

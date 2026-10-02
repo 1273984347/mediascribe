@@ -12,12 +12,11 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![i18n: EN / 中文](https://img.shields.io/badge/i18n-EN%20%2F%20中文-blue.svg)](#i18n)
 
-[English](#english) | [中文](#中文) | [Español](README_ES.md) | [日本語](README_JA.md)
+[English](#english) | [中文](#中文)
 
-> 🤖 **Built for AI coding agents** — ships with `AGENTS.md`, MCP server, JSON
-> output mode, and platform-specific config files for Claude Code, Cursor,
-> Cline, Windsurf, GitHub Copilot, Cody, Continue, Aider, Trae and more. See
-> [🤖 AI Agent Compatibility](#-ai-agent-compatibility).
+> 🤖 **Built for AI coding agents** — MCP server, stable JSON output mode
+> (schema `video2text.agent-output/v1`), and a Copilot instructions file.
+> See [🤖 AI Agent Compatibility](#-ai-agent-compatibility).
 
 ---
 
@@ -74,6 +73,9 @@ python -m mediascribe transcribe "video.mp4" --model auto
 # 分段 + 每段 [mm:ss] 时间戳
 python -m mediascribe transcribe "video.mp4" --timestamps
 
+# 双模型交叉校对(生成 <转录稿>.crosscheck.md 复核清单)+ 成功后自动清理中间媒体
+python -m mediascribe transcribe "https://..." --cross-check small --cleanup-media
+
 # 常用参数持久化到配置文件（CLI 显式参数优先）
 python -m mediascribe --config mediascribe.json transcribe "video.mp4"
 
@@ -99,7 +101,7 @@ python -m mediascribe archive --user "https://www.douyin.com/user/xxx" -n 20
 python -m mediascribe archive --from-video "https://v.douyin.com/xxxxx/" -n 10
 
 # Legacy script entry still works
-python douyin_batch_v3.py --user "https://www.douyin.com/user/xxx" -n 20
+mediascribe-batch --user "https://www.douyin.com/user/xxx" -n 20
 ```
 
 #### ASR Auto-Learning (`learn`)
@@ -176,26 +178,15 @@ MediaScribe is **built first for AI coding agents**. Every file an agent might
 need, every flag an agent might call, and every command an agent might run is
 designed to be machine-readable and deterministic.
 
-### Universal guide: `AGENTS.md`
+### Agent entry points
 
-Every agent should read [`AGENTS.md`](AGENTS.md) first. It contains the
-project layout, conventions, build/test commands, hard rules, common-task
-recipes, and an explicit list of "what NOT to do".
+| Agent | File |
+|---|---|
+| **GitHub Copilot** | [`.github/copilot-instructions.md`](.github/copilot-instructions.md) |
+| **Any agent** | [`CONTRIBUTING.md`](CONTRIBUTING.md) (layout, commands, conventions) + this README |
 
-### Per-agent config files
-
-| Agent | File | Status |
-|---|---|---|
-| **Claude Code** | [`CLAUDE.md`](CLAUDE.md) | ✅ |
-| **Cursor** | [`.cursorrules`](.cursorrules) | ✅ |
-| **Cline / Roo Code** | [`.clinerules`](.clinerules) | ✅ |
-| **Windsurf** | [`.windsurfrules`](.windsurfrules) | ✅ |
-| **GitHub Copilot** | [`.github/copilot-instructions.md`](.github/copilot-instructions.md) | ✅ |
-| **Cody (Sourcegraph)** | [`.cody.yml`](.cody.yml) | ✅ |
-| **Continue** | [`.continue/config.json`](.continue/config.json) | ✅ |
-| **Aider** | [`.aider.conf.yml`](.aider.conf.yml) | ✅ |
-| **Trae** | [`.traerules`](.traerules) | ✅ |
-| **Zed AI / Tabnine / Codeium** | reads `AGENTS.md` automatically | ✅ |
+> 2026-10-03 审查: 此前这里列出的 `AGENTS.md` / `CLAUDE.md` /
+> `.cursorrules` 等十个文件在仓库中并不存在, 已清除死链。
 
 ### MCP (Model Context Protocol) server
 
@@ -291,7 +282,7 @@ detect language without parsing the label value:
 You can also filter the batch to a whitelist of platforms:
 
 ```bash
-python douyin_batch_v3.py --user <URL> --platform youtube --platform wechat_mp --json
+mediascribe-batch --user <URL> --platform youtube --platform wechat_mp --json
 # Non-matching videos are returned with status="skipped", stage="platform_filter"
 ```
 
@@ -302,7 +293,7 @@ binary directly. Human-readable output is silenced and a single
 `mediascribe.agent-output/v1` document is emitted to stdout:
 
 ```bash
-python douyin_batch_v3.py --user <URL> --json
+mediascribe-batch --user <URL> --json
 # {
 #   "schema": "mediascribe.agent-output/v1",
 #   "ok": true,
@@ -356,13 +347,13 @@ The CLI and runtime messages are bilingual. Use `--lang en` or `--lang zh`, or l
 
 ```bash
 # Auto-detect (default)
-python douyin_batch_v3.py --user "..."
+mediascribe-batch --user "..."
 
 # Force English
-python douyin_batch_v3.py --lang en --user "..."
+mediascribe-batch --lang en --user "..."
 
 # Force Chinese
-python douyin_batch_v3.py --lang zh --user "..."
+mediascribe-batch --lang zh --user "..."
 ```
 
 You can also set the environment variable `MEDIASCRIBE_LANG=en` (or `zh`).
@@ -434,6 +425,9 @@ python -m mediascribe transcribe "video.mp4" --model auto
 # 分段 + 每段 [mm:ss] 时间戳
 python -m mediascribe transcribe "video.mp4" --timestamps
 
+# 双模型交叉校对(生成 .crosscheck.md 复核清单)+ 成功后自动清理中间媒体
+python -m mediascribe transcribe "https://..." --cross-check small --cleanup-media
+
 # 常用参数持久化到配置文件（CLI 显式参数优先）
 python -m mediascribe --config mediascribe.json transcribe "video.mp4"
 
@@ -457,7 +451,7 @@ python -m mediascribe archive --user "https://www.douyin.com/user/xxx" -n 20
 python -m mediascribe archive --from-video "https://v.douyin.com/xxxxx/" -n 10
 
 # 旧脚本入口仍然可用
-python douyin_batch_v3.py --user "https://www.douyin.com/user/xxx" -n 20
+mediascribe-batch --user "https://www.douyin.com/user/xxx" -n 20
 ```
 
 #### ASR 自动学习（learn）
@@ -507,13 +501,13 @@ MIT 许可证 - 详情见 [LICENSE](LICENSE)。
 
 ```bash
 # 自动检测（默认）
-python douyin_batch_v3.py --user "..."
+mediascribe-batch --user "..."
 
 # 强制英文
-python douyin_batch_v3.py --lang en --user "..."
+mediascribe-batch --lang en --user "..."
 
 # 强制中文
-python douyin_batch_v3.py --lang zh --user "..."
+mediascribe-batch --lang zh --user "..."
 ```
 
 也可通过环境变量 `MEDIASCRIBE_LANG=en`（或 `zh`）配置。

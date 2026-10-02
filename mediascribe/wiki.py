@@ -687,7 +687,17 @@ class WikiVault:
 def vault_for_workspace(
     workspace: Path | str, extractor: Optional[ConceptExtractor] = None
 ) -> Optional["WikiVault"]:
-    """按环境开关构造 vault; 停用时返回 ``None``。"""
+    """按环境开关构造 vault; 停用时返回 ``None``。
+
+    vault 是用户的**知识资产**, 落点可用 ``MEDIASCRIBE_VAULT_DIR`` 显式
+    指定(2026-10-03 数据治理)—— 默认 ``<workspace>/vault/`` 仍会随
+    workspace 一起被清理/迁移, 有独立知识库需求的用户应设该变量。
+    """
     if not wiki_enabled():
         return None
+    import os
+
+    env_dir = os.environ.get("MEDIASCRIBE_VAULT_DIR", "").strip()
+    if env_dir:
+        return WikiVault(Path(env_dir), extractor=extractor)
     return WikiVault(Path(workspace) / VAULT_DIRNAME, extractor=extractor)
