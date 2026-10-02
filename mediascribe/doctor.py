@@ -77,9 +77,9 @@ def run_doctor(workspace: Optional[Path] = None) -> int:
     v = sys.version_info
     _check(
         "版本",
-        v >= (3, 8),
+        v >= (3, 11),
         f"{v.major}.{v.minor}.{v.micro}",
-        "需要 Python 3.8+",
+        "需要 Python 3.11+",
     )
 
     # ---- ffmpeg ----

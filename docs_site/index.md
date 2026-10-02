@@ -50,8 +50,7 @@ mediascribe/
 ├── transcribers/            # whisper, faster-whisper, whisperx, chunked
 ├── downloaders/             # one module per platform
 ├── plugins/                 # entry_points-based extension API
-├── web/                     # FastAPI app + static HTML
-└── observability.py         # OTel-compatible mini-SDK
+└── web/                     # FastAPI app + static HTML
 
 scripts/                     # CLI helpers (benchmark, E2E, recording)
 extension/                   # Chrome / Edge browser extension
@@ -64,7 +63,7 @@ extension/                   # Chrome / Edge browser extension
 |------|-------|
 | Version | 3.0.0 |
 | License | MIT |
-| Python | 3.8 – 3.12 |
+| Python | 3.11 – 3.13 |
 | Tests | 240+ |
 | Platforms | 6 |
 | Engines | 3 (auto-fallback) |

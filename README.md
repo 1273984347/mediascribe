@@ -3,7 +3,7 @@
 > **Offline video transcription tool** - Convert videos to text using local AI models
 > **离线视频转文字工具** - 使用本地 AI 模型将视频转换为文字
 
-[![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/Tests-612%20passed-brightgreen.svg)](#testing)
 [![Coverage](https://img.shields.io/badge/Coverage-75%25-green.svg)](#testing)

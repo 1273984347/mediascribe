@@ -41,12 +41,15 @@ jobs:
   lint:
     name: lint (ruff + bandit)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: 'pip'
+      # dev extra 已含 ruff/mypy/bandit —— 此前 bandit 不在 dev extra 里,
+      # 本步骤 exit 127,发布链从未通过(2026-10-03 审查修复)。
       - run: pip install -e ".[dev]"
       - run: ruff check .
       - run: ruff format --check .
@@ -55,12 +58,14 @@ jobs:
         # 作为 advisory 步骤逐步收敛。
         continue-on-error: true
         run: mypy mediascribe douyin_batch
-      - name: bandit (skip tests/, gate on HIGH)
-        # 仅高危（HIGH）阻断发布；中危（MEDIUM）作为 artifact 留档。
+      - name: bandit (exclude tests + static assets, gate on HIGH)
+        # 仅高危（HIGH）阻断发布；中危（MEDIUM）交给 bandit.yml 留档。
         # MD5 缓存键已在 cache.py 标注 # nosec B324（非安全敏感）。
+        # 排除路径用 -x/--exclude;--skip 只接检查 ID(如 B101),
+        # 此前 `--skip '*/tests/*'` 是错误用法(2026-10-03 审查修复)。
         run: |
           bandit -r mediascribe douyin_batch \
-            --skip '*/tests/*' \
+            --exclude mediascribe/web/static,tests \
             --severity-level high \
             --confidence-level medium \
             --format json --output bandit-report.json
@@ -74,13 +79,17 @@ jobs:
   # 2. test
   # ------------------------------------------------------------------
   test:
-    name: test (${{ matrix.os }} · py${{ matrix.python }})
+    # 单一 sanity 组合即可:tag push 同时触发 test.yml 的 integration(5 组合)
+    # + matrix(3 OS × 5 py)全量门禁,此处再跑 9 组合是 ~15 倍重复开销
+    # (2026-10-03 审查收敛;如需恢复删掉 matrix 字段即可)。
+    name: test (sanity · py3.12 · ubuntu)
     needs: lint
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python: ['3.10', '3.11', '3.12']
+        os: [ubuntu-latest]
+        python: ['3.12']
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -107,6 +116,7 @@ jobs:
     name: build (sdist + wheel)
     needs: test
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -133,6 +143,7 @@ jobs:
     name: publish · PyPI
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment: pypi
     if: vars.ENABLE_PYPI_PUBLISH == 'true'
     steps:
@@ -151,7 +162,10 @@ jobs:
   # 5. publish multi-arch Docker image
   # ------------------------------------------------------------------
   publish-docker:
-    name: publish · Docker (${{ matrix.platform }})
+    # 单 job 一次 buildx 出多架构 manifest list。此前 amd64/arm64 两个
+    # 矩阵 job 各自 push 同一组 tag,后者覆盖前者,docker pull 只能拉到
+    # 单架构镜像(2026-10-03 审查修复)。
+    name: publish · Docker (amd64 + arm64)
     needs: build
     # Disabled by default — requires DOCKERHUB_USERNAME / DOCKERHUB_TOKEN
     # secrets and a Docker Hub repo. To enable: add repository *variable*
@@ -159,9 +173,7 @@ jobs:
     # Actions → Variables) and configure the secrets.
     if: vars.ENABLE_DOCKER_PUBLISH == 'true'
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        platform: [linux/amd64, linux/arm64]
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -182,7 +194,7 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          platforms: ${{ matrix.platform }}
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             1273984347/mediascribe:${{ steps.version.outputs.version }}
@@ -198,6 +210,7 @@ jobs:
     needs: [build, publish-pypi, publish-docker]
     if: always() && needs.build.result == 'success'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -212,6 +225,14 @@ jobs:
           TAG=${GITHUB_REF#refs/tags/}
           [ "$TAG" = "$GITHUB_REF" ] && TAG=${{ github.event.inputs.tag }}
           echo "version=${TAG}" >> $GITHUB_OUTPUT
+          # prerelease = 版本号带 a/b/rc/dev 后缀(如 v3.4.0a1 / v3.4.0rc1)。
+          # 此前 contains(...,'a') 会把任何含字母 a 的 tag 误判,
+          # 且漏判 rc(2026-10-03 审查修复)。
+          if [[ "$TAG" =~ (a|b|rc|dev)[0-9]*$ ]]; then
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+          fi
       - name: Pick release notes file
         id: notes
         run: |
@@ -226,7 +247,7 @@ jobs:
         with:
           name: ${{ steps.version.outputs.version }}
           draft: false
-          prerelease: ${{ contains(steps.version.outputs.version, 'a') || contains(steps.version.outputs.version, 'b') }}
+          prerelease: ${{ steps.version.outputs.prerelease == 'true' }}
           body_path: ${{ steps.notes.outputs.file }}
           files: |
             dist/*.tar.gz
@@ -241,6 +262,7 @@ jobs:
     name: release · summary
     needs: [publish-pypi, publish-docker, github-release]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: always() && needs.github-release.result == 'success'
     steps:
       - name: Print summary

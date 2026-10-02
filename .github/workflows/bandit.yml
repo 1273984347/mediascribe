@@ -10,8 +10,12 @@
 #   * Skips ``tests/`` (test fixtures often contain intentionally
 #     fake secrets / weak tokens — that is *not* a vulnerability).
 #   * Uploads the JSON report as a build artifact for review.
-#   * Soft-fails (continues-on-error) so the workflow is informational
-#     unless a maintainer opts in to making it required.
+#   * Hard-fails on MEDIUM+ findings (bandit exit code is propagated);
+#     the report artifact is kept for post-mortem review.
+#   * Single ubuntu job — bandit is a static scan, the former 3-OS
+#     matrix was 3x the runner cost for identical output AND all three
+#     jobs uploaded a same-named artifact, which upload-artifact@v4
+#     rejects (2026-10-03 audit fix).
 
 name: bandit
 
@@ -39,22 +43,18 @@ permissions:
 
 jobs:
   bandit:
-    name: bandit (${{ matrix.os }}, py${{ matrix.python-version }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.12"]
+    name: bandit (ubuntu, py3.12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
 
       - name: Install Bandit
         run: |
@@ -62,32 +62,27 @@ jobs:
           pip install "bandit>=1.7,<2.0"
 
       - name: Run Bandit
-        # ``-r`` produces a JSON report; ``-ll`` raises the alarm
-        # threshold to medium+.  Test trees are excluded by an inline
-        # ``--exclude`` — they are allowed to use obviously-fake
-        # secrets and weak tokens.  ``-q`` silences per-file noise so
-        # the workflow log stays readable.
-        #
-        # ``shell: bash`` 必须显式声明 — Windows runner 默认 pwsh，
-        # 既不认 "\" 续行，也不认下面的 bash 条件语句。
-        shell: bash
+        # ``-ll`` raises the alarm threshold to medium+.  Test trees are
+        # excluded by ``--exclude`` — they are allowed to use
+        # obviously-fake secrets and weak tokens.  ``-q`` silences
+        # per-file noise so the workflow log stays readable.
         run: |
           mkdir -p bandit-reports
           bandit \
             -r mediascribe douyin_batch \
-            --exclude mediascribe/web/static,douyin_batch/tests \
+            --exclude mediascribe/web/static,tests \
             -ll \
             -f json \
-            -o bandit-reports/bandit-${{ matrix.os }}.json || EXIT=$?
+            -o bandit-reports/bandit-ubuntu.json || EXIT=$?
           # Also produce a human-readable summary for the workflow log.
           bandit \
             -r mediascribe douyin_batch \
-            --exclude mediascribe/web/static,douyin_batch/tests \
+            --exclude mediascribe/web/static,tests \
             -ll \
             -f txt \
-            -o bandit-reports/bandit-${{ matrix.os }}.txt || true
+            -o bandit-reports/bandit-ubuntu.txt || true
           # Re-emit the summary to the console for quick review.
-          cat bandit-reports/bandit-${{ matrix.os }}.txt
+          cat bandit-reports/bandit-ubuntu.txt
           # If a real run failed for reasons other than findings, propagate it.
           if [ -n "${EXIT:-}" ] && [ "$EXIT" -ne 0 ]; then exit "$EXIT"; fi
 
