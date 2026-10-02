@@ -56,14 +56,14 @@ def _get_cached_align_model(whisperx: Any, language_code: str, device: str) -> T
     返回 ``(align_model, meta)``。
     """
     key = (language_code, device)
-    cached = _ALIGN_MODEL_CACHE.get(key)
+    cached: Optional[Tuple[Any, Any]] = _ALIGN_MODEL_CACHE.get(key)
     if cached is not None:
         return cached
     with _MODEL_CACHE_LOCK:
         # 双检锁
-        cached = _ALIGN_MODEL_CACHE.get(key)
-        if cached is not None:
-            return cached
+        cached2: Optional[Tuple[Any, Any]] = _ALIGN_MODEL_CACHE.get(key)
+        if cached2 is not None:
+            return cached2
         align_model, meta = whisperx.load_align_model(
             language_code=language_code,
             device=device,

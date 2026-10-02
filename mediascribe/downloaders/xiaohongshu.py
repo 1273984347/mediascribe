@@ -147,7 +147,9 @@ class XiaohongshuDownloader(Downloader):
                 },
             )
             if resp.url and resp.url != url:
-                return resp.url
+                # requests 无类型存根（未装 types-requests），resp.url 运行时为 str
+                real: str = resp.url
+                return real
         except Exception as e:  # pragma: no cover
             logger.warning("短链接展开失败: %s (%s)", url, e)
         return None

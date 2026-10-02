@@ -224,7 +224,9 @@ class WechatMpDownloader(Downloader):
             )
             resp.raise_for_status()
             resp.encoding = resp.apparent_encoding or "utf-8"
-            return resp.text
+            # requests 无类型存根（未装 types-requests），resp.text 运行时为 str
+            text: str = resp.text
+            return text
         except Exception as e:
             logger.warning("拉取文章 HTML 失败: %s (%s)", url, e)
             return None
@@ -439,7 +441,7 @@ class WechatMpDownloader(Downloader):
                 save_dir.mkdir(parents=True, exist_ok=True)
                 ext = ".png"
                 if "format" in img.info:
-                    ext = "." + img.format.lower()
+                    ext = "." + (img.format or "PNG").lower()
                 file_name = f"wemp_{int(time.time() * 1000)}{ext}"
                 img.save(save_dir / file_name)
             except Exception as e:
@@ -470,7 +472,7 @@ class WechatMpDownloader(Downloader):
             try:
                 import pytesseract  # type: ignore
 
-                text = pytesseract.image_to_string(img, lang=lang)
+                text: str = pytesseract.image_to_string(img, lang=lang)
                 if text and text.strip():
                     return text.strip()
             except Exception:

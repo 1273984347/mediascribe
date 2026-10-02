@@ -62,7 +62,7 @@ class DouyinDownloader(Downloader):
         audio_url: Optional[str] = None
         if "douyinvod.com" in url:
             logger.info("检测到直接媒体链接")
-            media_url = url
+            media_url: Optional[str] = url
         else:
             # 尝试使用浏览器工具获取真实媒体 URL
             logger.info("使用浏览器工具解析抖音视频...")

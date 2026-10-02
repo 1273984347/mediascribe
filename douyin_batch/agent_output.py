@@ -78,7 +78,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 SCHEMA_VERSION = "mediascribe.agent-output/v1"
 
@@ -304,7 +304,7 @@ class AgentOutput:
             }
         )
 
-    def set_summary_report(self, path: Optional[str]) -> None:
+    def set_summary_report(self, path: Optional[Union[str, Path]]) -> None:
         self._summary_report = str(path) if path else None
 
     def finish(self, ok: bool) -> None:

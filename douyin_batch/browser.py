@@ -31,6 +31,8 @@ class BrowserManager:
     """浏览器管理器 - 单例模式复用浏览器实例"""
 
     _instance = None
+    _initialized: bool  # 类级标注: __init__ 中先 hasattr 检查后赋值
+    _headless: bool
 
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
@@ -225,7 +227,7 @@ def get_media_url_fast(video_url: str, headless: bool = True, timeout: int = 15)
     try:
         page.goto(video_url, wait_until="domcontentloaded", timeout=30000)
         # 智能等待：每0.5秒检查一次是否已捕获
-        elapsed = 0
+        elapsed = 0.0
         while elapsed < timeout and not captured_urls:
             time.sleep(0.5)
             elapsed += 0.5

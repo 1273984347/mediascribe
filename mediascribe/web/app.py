@@ -84,7 +84,7 @@ from urllib.parse import urlsplit
 try:
     from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, status
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import HTMLResponse
+    from fastapi.responses import HTMLResponse, Response
     from pydantic import BaseModel, Field, field_validator
 
     _FASTAPI_AVAILABLE = True
@@ -824,7 +824,7 @@ def _cached_gpu_health(ttl_seconds: float = 1.0) -> Dict[str, Any]:
     """
     now = time.monotonic()
     with _gpu_health_lock:
-        cached = _gpu_health_cache["value"]
+        cached: Optional[Dict[str, Any]] = _gpu_health_cache["value"]
         ts = _gpu_health_cache["ts"]
     if cached is not None and (now - ts) < ttl_seconds:
         return cached
@@ -1160,7 +1160,10 @@ def create_app(
     app.state.job_executor = ThreadPoolExecutor(
         max_workers=_max_workers, thread_name_prefix="v2t-job"
     )
-    app.state.job_results: Dict[str, Dict[str, Any]] = {}
+    # app.state 属性不能在赋值处写类型标注(mypy: Type cannot be declared
+    # in assignment to non-self attribute), 类型标注提升到局部变量再挂载。
+    job_results: Dict[str, Dict[str, Any]] = {}
+    app.state.job_results = job_results
     # v3.2.0c-fix (P3-2): lock guarding ``app.state.job_results`` against
     # concurrent mutation between the worker thread (``_run_job_safely``)
     # and the /api/health iteration+pop in the request thread. Without
@@ -1180,9 +1183,11 @@ def create_app(
     # Optional mapping from job_id → AsyncPipeline (for future
     # async-wired cancellations).  Populated by callers that wrap
     # Pipeline in AsyncPipeline; empty by default.
-    app.state.async_pipelines: Dict[str, Any] = {}
+    async_pipelines: Dict[str, Any] = {}
+    app.state.async_pipelines = async_pipelines
     # P2-9: job_id → WS event bridge (resident drain thread per job).
-    app.state.ws_bridges: Dict[str, _JobEventBridge] = {}
+    ws_bridges: Dict[str, _JobEventBridge] = {}
+    app.state.ws_bridges = ws_bridges
     app.state.ws_bridge_lock = threading.Lock()
 
     # 附加修复: Docker 镜像已设 ``MEDIASCRIBE_WORKSPACE=/workspace`` 且
@@ -1432,7 +1437,7 @@ def _register_extension_routes(app: "FastAPI") -> None:
         )
 
     @app.get("/api/extension/install.md", response_class=HTMLResponse)
-    def extension_install_md(request: Request) -> HTMLResponse:
+    def extension_install_md(request: Request) -> Response:
         """Serve the per-user install guide as raw markdown.
 
         ``text/markdown`` is the right MIME type per RFC 7763, but
@@ -1517,7 +1522,8 @@ def _register_wiki_routes(app: "FastAPI") -> None:
         data = vault.index()
         data["enabled"] = True
         data["path"] = str(vault.root)
-        return data
+        payload: Dict[str, Any] = data
+        return payload
 
     @app.get("/api/wiki/note", dependencies=[Depends(_require_api_token)])
     def wiki_note(name: str) -> Any:

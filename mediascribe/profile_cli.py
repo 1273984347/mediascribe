@@ -122,7 +122,7 @@ def aggregate(records: List[dict]) -> List[AggregatedStage]:
 
         # p50 / p95 via simple percentile
         # B023: 经默认参数显式绑定循环变量, 不依赖闭包晚绑定
-        def pct(p: float, _sorted_d: list = sorted_d, _n: int = n) -> float:
+        def pct(p: float, _sorted_d: list[float] = sorted_d, _n: int = n) -> float:
             if _n == 1:
                 return _sorted_d[0]
             k = int(round(p / 100.0 * (_n - 1)))

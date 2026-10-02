@@ -289,7 +289,6 @@ class JobCancelled(Exception):
 
 
 import time
-from typing import Optional
 
 
 class ProgressTracker:
@@ -301,7 +300,7 @@ class ProgressTracker:
         self.completed = 0
         self.failed = 0
         self.start_time = time.time()
-        self.task_times = []  # 每个任务的耗时
+        self.task_times: list[float] = []  # 每个任务的耗时
 
     def update(self, success: bool = True, task_time: Optional[float] = None):
         """更新进度"""
@@ -360,7 +359,7 @@ def format_duration(seconds: float) -> str:
         return f"{h:02d}:{m:02d}:{s:02d}"
 
 
-def format_size(bytes_size: int) -> str:
+def format_size(bytes_size: float) -> str:
     """格式化文件大小"""
     for unit in ["B", "KB", "MB", "GB"]:
         if bytes_size < 1024:

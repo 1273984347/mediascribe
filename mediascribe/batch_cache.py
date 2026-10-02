@@ -33,15 +33,16 @@ class ProcessCache:
         self.cache_dir = cache_dir
         self.cache_file = cache_dir / "processed_videos.json"
         self._lock = threading.Lock()
-        self._cache_data = self._load()
+        self._cache_data: dict[str, dict] = self._load()
 
-    def _load(self) -> dict:
+    def _load(self) -> dict[str, dict]:
         """加载缓存；损坏时保留 .bak 并返回空结构"""
         if not self.cache_file.exists():
             return {"videos": {}, "users": {}}
         try:
             with open(self.cache_file, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data: dict[str, dict] = json.load(f)
+                return data
         except Exception as e:
             logger.warning(
                 "缓存文件损坏（%s），将改名保留为 .bak 并重新开始: %s",
@@ -108,7 +109,9 @@ class ProcessCache:
         """获取缓存的某用户的所有视频"""
         # 仅作缓存键去重用，非安全敏感哈希（nosec 须与代码同行，见下）
         user_hash = hashlib.md5(user_url.encode()).hexdigest()[:12]  # nosec B324
-        return self._cache_data["users"].get(user_hash, {}).get("videos", [])
+        cached: dict = self._cache_data["users"].get(user_hash, {})
+        videos: list = cached.get("videos", [])
+        return videos
 
     def save_user_videos(self, user_url: str, videos: list):
         """保存用户视频列表到缓存"""

@@ -48,7 +48,7 @@ import shutil
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 from .cache import persistent_cache_dir
 
@@ -380,7 +380,7 @@ def learn_from_edit(
 
 
 def learn(
-    correction_pairs: list[tuple[str, str] | tuple[str, str, str]],
+    correction_pairs: Sequence[tuple[str, str] | tuple[str, str, str]],
     *,
     source: str = "",
     path: Optional[Path] = None,

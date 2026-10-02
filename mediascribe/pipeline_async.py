@@ -339,7 +339,7 @@ class AsyncPipeline:
         sem = _shared_gpu_semaphore(str(health.get("device") or "cpu"), effective)
         runners = runners or {}
 
-        async def _one(src: str) -> object:
+        async def _one(src: str) -> Any:  # 失败槽位按契约放 _FailedResult, 见 docstring
             try:
                 # sem 等待点也在 try 内 — task.cancel() 可能在排队等
                 # 信号量时打断,同样要按取消语义返回而非上抛 (P1-8)

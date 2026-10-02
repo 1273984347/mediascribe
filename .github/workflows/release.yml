@@ -53,10 +53,10 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: ruff check .
       - run: ruff format --check .
-      - name: mypy (non-blocking — surfaces type issues)
-        # 类型检查当前为非阻断：历史代码未全量注解，阻断会拖垮发布。
-        # 作为 advisory 步骤逐步收敛。
-        continue-on-error: true
+      - name: mypy (blocking since 2026-10-03)
+        # 2026-10-03 类型错误清零后从 advisory 转为阻断。
+        # 此前 python_version=3.8 在 mypy>=1.15 下直接报错, 又被
+        # continue-on-error 掩盖, 等于从未真正运行过。
         run: mypy mediascribe douyin_batch
       - name: bandit (exclude tests + static assets, gate on HIGH)
         # 仅高危（HIGH）阻断发布；中危（MEDIUM）交给 bandit.yml 留档。

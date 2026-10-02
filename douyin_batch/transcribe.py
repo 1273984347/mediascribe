@@ -50,7 +50,9 @@ class TranscriberPool:
         try:
             language = getattr(self, "_language", None) or "zh"
             result = self.pipeline.transcribe(str(audio_path), language=language)
-            return result.transcript_path
+            # TranscriptResult.transcript_path 为 Path; pipeline 属性经动态导入推断为 Any
+            path: Path = result.transcript_path
+            return path
         except Exception as e:
             logger.error("转录失败: %s", e)
             return None

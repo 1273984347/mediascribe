@@ -716,7 +716,7 @@ def t(key: str, **kwargs) -> str:
         # Fallback: return the key
         return f"[{key}]"
 
-    msg = msg_dict.get(_current_lang, msg_dict.get("en", f"[{key}]"))
+    msg: str = msg_dict.get(_current_lang, msg_dict.get("en", f"[{key}]"))
     if kwargs:
         try:
             return msg.format(**kwargs)

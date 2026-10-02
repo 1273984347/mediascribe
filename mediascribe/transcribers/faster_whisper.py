@@ -335,7 +335,8 @@ class FasterWhisperTranscriber(Transcriber):
             return []
         audio_path = Path(audio_path)
         duration = _probe_duration_seconds(audio_path)
-        if not tail_rescue_needed(seg_list, duration):
+        # duration 为 None 时 tail_rescue_needed 必然返回 False, 此处提前收窄
+        if duration is None or not tail_rescue_needed(seg_list, duration):
             return []
         last_end = float(seg_list[-1]["end"])
         slice_start = max(0.0, last_end - _TAIL_REWIND_SECONDS)
