@@ -679,17 +679,23 @@ class AssembleStage(Stage):
         if not text:
             return text, 0, []
         try:
-            from .post_process import collapse_hallucination_repeats, detect_repeated_pairs
+            from .post_process import (
+                collapse_hallucination_repeats,
+                detect_repeated_pairs_detailed,
+            )
 
             new_text, removed = collapse_hallucination_repeats(text)
             if removed:
                 logger.warning("幻觉重复收敛: 删除 %d 句解码循环", removed)
-            pairs = detect_repeated_pairs(new_text)
+            pairs = detect_repeated_pairs_detailed(new_text)
             if pairs:
+                echo_n = sum(1 for p in pairs if p["kind"] == "echo")
                 logger.warning(
-                    "检测到 %d 处 2 连重复句(口语强调或 ASR 伪影, 未自动合并, 审校注意): %s",
+                    "检测到 %d 处 2 连重复(未自动合并, 审校注意): 疑似应答式口语 %d 处、疑似伪影 %d 处 — %s",
                     len(pairs),
-                    "、".join(f"「{p}」" for p in pairs[:5]),
+                    echo_n,
+                    len(pairs) - echo_n,
+                    "、".join(f"「{p['text'][:24]}」({p['kind']})" for p in pairs[:5]),
                 )
             return new_text, removed, pairs
         except Exception:
