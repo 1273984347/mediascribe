@@ -43,9 +43,12 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from .models import TranscriptResult  # noqa: F401  (re-exported for type hints)
+
+if TYPE_CHECKING:  # pragma: no cover
+    from mediascribe.wiki import WikiVault
 
 SCHEMA_VERSION = "mediascribe.mcp/v1"
 
@@ -179,6 +182,35 @@ TOOL_LIST = [
                 "path": {"type": "string"},
             },
             "required": ["path"],
+        },
+    },
+    {
+        "name": "wiki_list",
+        "description": (
+            "List the Karpathy-style knowledge vault (wiki) notes: raw "
+            "transcript notes + aggregated wiki notes + the HOME index "
+            "content. Vault location: MEDIASCRIBE_VAULT_DIR, else "
+            "<workspace>/vault. Disabled (MEDIASCRIBE_WIKI=0) returns "
+            "enabled=False."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "wiki_read_note",
+        "description": (
+            "Read one vault note's markdown content by its relative name "
+            "(e.g. 'raw/foo' or 'wiki/概念 - X'). Root-sandboxed to the "
+            "vault directory; 5 MiB cap."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Note path relative to the vault, with or without .md",
+                },
+            },
+            "required": ["name"],
         },
     },
     {
@@ -496,7 +528,8 @@ def _tool_batch_transcribe_creator(args: Dict[str, Any]) -> Dict[str, Any]:
             "stderr": e.stderr or "",
         }
     try:
-        return json.loads(proc.stdout)
+        result: Dict[str, Any] = json.loads(proc.stdout)
+        return result
     except json.JSONDecodeError:
         return {
             "ok": False,
@@ -504,6 +537,76 @@ def _tool_batch_transcribe_creator(args: Dict[str, Any]) -> Dict[str, Any]:
             "stdout": proc.stdout,
             "stderr": proc.stderr,
         }
+
+
+# ---------------------------------------------------------------------------
+# wiki Phase 4 — Karpathy 式知识库的 MCP 查询入口 (2026-10-03 拍板)
+# 落点解析与 web 层一致: MEDIASCRIBE_VAULT_DIR > <workspace>/vault,
+# MEDIASCRIBE_WIKI=0 时与 web 同步停用。读取沿用 get_transcript 的
+# root 沙箱 + 5MiB 上限模式。
+# ---------------------------------------------------------------------------
+def _mcp_vault() -> Optional["WikiVault"]:
+    """构造 MCP 侧 vault 实例; 停用/不可导入时返回 None。"""
+    try:
+        from mediascribe.wiki import vault_for_workspace
+    except ImportError:  # pragma: no cover - 可选依赖
+        return None
+    workspace = os.environ.get("MEDIASCRIBE_WORKSPACE", "").strip() or "output"
+    return vault_for_workspace(Path(workspace))
+
+
+def _tool_wiki_list(_: Dict[str, Any]) -> Dict[str, Any]:
+    """列出 vault 笔记清单 + HOME 索引(供 agent 决定要读哪篇)。"""
+    vault = _mcp_vault()
+    if vault is None:
+        return {"enabled": False, "notes": [], "home": ""}
+    data = vault.index()
+    data["enabled"] = True
+    data["path"] = str(vault.root)
+    return data
+
+
+def _tool_wiki_read_note(args: Dict[str, Any]) -> Dict[str, Any]:
+    """返回单篇笔记原文。与 web 层相同的路径校验(相对 .md、防穿越)。"""
+    max_bytes = 5 * 1024 * 1024  # 5 MiB, 与 get_transcript 一致
+    vault = _mcp_vault()
+    if vault is None:
+        return {"name": args.get("name", ""), "enabled": False, "error": "wiki disabled"}
+
+    raw = str(args.get("name", "")).strip()
+    if not raw:
+        return {"name": raw, "error": "name is required"}
+
+    rel = Path(raw)
+    if rel.suffix != ".md":
+        rel = rel.with_suffix(".md")
+    if rel.is_absolute() or ".." in rel.parts:
+        return {"name": raw, "error": "invalid note path"}
+    target = (vault.root / rel).resolve()
+    try:
+        contained = target.is_relative_to(vault.root.resolve())
+    except OSError:  # pragma: no cover - defensive
+        contained = False
+    if not contained:
+        return {"name": raw, "error": "invalid note path"}
+    if not target.is_file():
+        return {"name": raw, "exists": False, "error": "note not found"}
+
+    size = target.stat().st_size
+    if size > max_bytes:
+        return {
+            "name": raw,
+            "exists": True,
+            "size_bytes": size,
+            "truncated": True,
+            "max_bytes": max_bytes,
+            "error": f"file is larger than {max_bytes} bytes; refusing to inline",
+        }
+    try:
+        text = target.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return {"name": raw, "exists": True, "error": "file is not valid utf-8"}
+    return {"name": raw, "exists": True, "size_bytes": size, "content": text}
 
 
 def _tool_transcribe_wechat_mp(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -578,6 +681,8 @@ TOOL_HANDLERS = {
     "sanitize_filename": _tool_sanitize_filename,
     "detect_platform": _tool_detect_platform,
     "get_transcript": _tool_get_transcript,
+    "wiki_list": _tool_wiki_list,
+    "wiki_read_note": _tool_wiki_read_note,
 }
 
 
@@ -622,7 +727,7 @@ def _handle_request(req: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return _make_response(req_id, {"tools": TOOL_LIST})
 
     if method == "tools/call":
-        name = params.get("name")
+        name = str(params.get("name") or "")
         args = params.get("arguments", {}) or {}
         handler = TOOL_HANDLERS.get(name)
         if handler is None:
