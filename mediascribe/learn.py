@@ -142,6 +142,10 @@ class LearnedTermsDB:
             return True
         return False
 
+    def has(self, wrong: str, right: str) -> bool:
+        """是否已存在同一 (wrong, right) 校正。"""
+        return self._key(wrong, right) in self.terms
+
     def remove(self, wrong: str, right: str) -> bool:
         """删除一条校正。"""
         key = self._key(wrong, right)
@@ -415,21 +419,23 @@ def get_prompt_terms(path: Optional[Path] = None) -> str:
     把已确认的正确词融入自然语言句子,而非术语堆砌,
     因为 Whisper 对自然语言 prompt 效果更好。
 
-    注入优先级 (2026-10-02): 按 **学习频次降序** — learn/复核命中
-    越多的词越靠前; 同频时 **后播种的优先** (更贴近当前在录的系列)。
-    上限 40 条 — Whisper prompt(~224 tokens)安全上限内; 未注入的术语
-    仍由 ``post_process_transcript`` 事后替换兜底。
+    注入优先级 (2026-10-02 批四): **最近入库/回填的优先** — terms dict
+    保持插入序, 直接倒序取, 上限 40 条 (Whisper prompt ~224 tokens
+    安全上限内)。旧实现按 count 降序, 但 seed 脚本 ``--force`` 重灌走
+    ``add()`` 会给旧词 count 每次 +1 (重播种 N 次膨胀到 N), 新回填批次
+    count=1 永远挤不进上限 — 实锤"卦象"集 21 对新词目注入为零; 而
+    "最近回填的批次"最能代表当前在录的系列。未注入的术语仍由
+    ``post_process_transcript`` 事后替换兜底 (不受上限影响)。
     """
     db = _load_db(path)
     active = db.get_active_terms()
     if not active:
         return ""
     entries = [c for c in db.terms.values() if c.should_apply()]
-    order = sorted(range(len(entries)), key=lambda i: (-entries[i].count, -i))
     rights: list[str] = []
     seen: set[str] = set()
-    for i in order:
-        right = entries[i].right
+    for c in reversed(entries):
+        right = c.right
         if right and right not in seen:
             seen.add(right)
             rights.append(right)

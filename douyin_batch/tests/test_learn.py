@@ -10,6 +10,7 @@ import pytest
 from mediascribe.learn import (
     Correction,
     LearnedTermsDB,
+    _load_db,
     clear_learned_terms,
     compare,
     confirm_term,
@@ -243,21 +244,30 @@ class TestPromptTerms:
         assert "霍去病" in prompt
         assert "专有名词" in prompt
 
-    def test_high_frequency_terms_rank_first(self, tmp_path: Path):
-        # v3.4.3: 按学习频次降序注入(高频 > 低频), 同频后播种的优先
-        # 注意: 单次 learn count=1 未达 AUTO_CONFIRM_THRESHOLD(2), 双方都要学 ≥2 次
+    def test_recently_added_terms_rank_first(self, tmp_path: Path):
+        # 2026-10-02 批四: 注入改 recency 优先 — 旧 count 降序会被 seed --force
+        # 重灌膨胀(count 每次 +1), 新回填批次永远挤不进上限(实锤"卦象"集
+        # 21 对注入为零)。现按插入序倒取: 高频老词也让位给最新批次
         store = tmp_path / "learned_terms.json"
-        learn([("低频词甲", "低频词乙")], path=store)
-        learn([("低频词甲", "低频词乙")], path=store)  # count=2, 先插入
-        learn([("高频错", "高频对")], path=store)
-        learn([("高频错", "高频对")], path=store)
-        learn([("高频错", "高频对")], path=store)  # count=3, 后插入
+        for _ in range(5):
+            learn([("老错词", "老对词")], path=store)  # count=5, 先插入
+        learn([("新错词", "新对词")], path=store)  # count=1, 后插入
+        confirm_term("新错词", "新对词", path=store)  # 手动确认后才 active
         prompt = get_prompt_terms(path=store)
-        assert prompt.index("高频对") < prompt.index("低频词乙")
+        assert prompt.index("新对词") < prompt.index("老对词")
+
+    def test_has_does_not_duplicate(self, tmp_path: Path):
+        # seed 幂等 upsert 依赖: has() 判重, 确认已有条目时 count 不膨胀
+        store = tmp_path / "learned_terms.json"
+        learn([("错词", "对词")], path=store)
+        learn([("错词", "对词")], path=store)
+        db = _load_db(store)
+        assert db.has("错词", "对词")
+        assert not db.has("错词", "别的对")
 
     def test_prompt_cap_at_40(self, tmp_path: Path):
-        # v3.4.3: 频次降序+新近度优先排序后, 上限 30→40(Whisper prompt
-        # ~224 tokens 安全内), 提升当前在录系列的注入覆盖率
+        # v3.4.3: 上限 30→40(Whisper prompt ~224 tokens 安全内);
+        # 2026-10-02 批四起按 recency 排序, cap 语义不变
         store = tmp_path / "learned_terms.json"
         pairs = [(f"错词{i:03d}", f"对词{i:03d}") for i in range(45)]
         learn(pairs, path=store)

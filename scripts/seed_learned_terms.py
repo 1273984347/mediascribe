@@ -2,7 +2,7 @@
 
 用法:
     python scripts/seed_learned_terms.py            # 幂等, 已存在则跳过
-    python scripts/seed_learned_terms.py --force    # 追加/确认(不删除已有)
+    python scripts/seed_learned_terms.py --force    # 追加新词目/确认已有(不删已有, count 不膨胀)
 
 效果:
 - get_prompt_terms() 把正确词注入 Whisper initial_prompt (转录时防错)
@@ -345,16 +345,24 @@ def main() -> int:
 
     db = _load_db()  # 复用 learn 的反序列化(dict -> Correction), 避免 --force 时 dict 崩溃
 
+    # 幂等 upsert (2026-10-02 批四): 已存在的只 confirm, count 不膨胀 —
+    # 旧实现每次 --force 走 add() 给旧词 count +1, 重播种 N 次膨胀到 N,
+    # 挤掉新回填批次的注入名额(prompt 注入已改为 recency 优先, 见 learn.get_prompt_terms)
     added = 0
+    confirmed = 0
     for wrong, right in SAFE_TERMS:
         if not wrong or not right:
             continue
-        db.add(wrong, right)
-        db.confirm(wrong, right)  # 人工核定, 直接确认
-        added += 1
+        if db.has(wrong, right):
+            db.confirm(wrong, right)
+            confirmed += 1
+        else:
+            db.add(wrong, right)
+            db.confirm(wrong, right)  # 人工核定, 直接确认
+            added += 1
 
     _save_db(db)
-    print(f"已灌入 {added} 条确认术语 -> {store}")
+    print(f"已灌入 {added} 条新术语, 确认 {confirmed} 条已有术语 -> {store}")
 
     preview = get_prompt_terms()
     print(f"\nprompt 注入预览:\n  {preview[:180]}...")
