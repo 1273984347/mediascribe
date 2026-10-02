@@ -85,7 +85,7 @@ the stdio transport.  See [MCP server](mcp.md) for the tool list.
 
 ```bash
 python -c "import mediascribe; print(mediascribe.__version__)"
-python -m pytest douyin_batch/tests/ -q
+python -m pytest tests/ -q
 ```
 
 You should see `3.0.0` and `240 passed` (or thereabouts).

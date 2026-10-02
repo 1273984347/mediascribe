@@ -34,7 +34,7 @@ injection paths: inline, file, and environment variable.
 ## Pytest E2E
 
 ```bash
-MEDIASCRIBE_E2E=1 python -m pytest douyin_batch/tests/test_e2e_real_urls.py
+MEDIASCRIBE_E2E=1 python -m pytest tests/test_e2e_real_urls.py
 ```
 
 Without the `MEDIASCRIBE_E2E=1` env var, the E2E tests are

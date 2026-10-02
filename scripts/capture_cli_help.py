@@ -34,7 +34,7 @@ COMMANDS = [
     ),
     (
         "douyin-batch-v3-help.txt",
-        [sys.executable, "douyin_batch_v3.py", "--help"],
+        [sys.executable, "-m", "mediascribe", "archive", "--help"],
         "douyin_batch_v3 (auto-detect language)",
     ),
     (

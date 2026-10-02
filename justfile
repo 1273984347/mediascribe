@@ -26,31 +26,43 @@ install-browser:
     {{python}} -m pip install playwright
     {{python}} -m playwright install chromium
 
-# Run all unit tests (38 tests, must all pass)
+# Run unit tests (same selection as CI's unit job)
 test:
-    {{python}} run_tests.py
+    {{python}} -m pytest -m "not integration and not network" --ignore=tests/test_e2e_real_urls.py -q
 
 # Run unit tests with verbose output
 test-verbose:
-    {{python}} run_tests.py -v
+    {{python}} -m pytest -m "not integration and not network" --ignore=tests/test_e2e_real_urls.py
+
+# Run the full integration/e2e suite (needs MEDIASCRIBE_E2E=1 + network)
+test-e2e:
+    {{python}} -m pytest tests/test_e2e_real_urls.py
 
 # Run i18n integration tests
 test-i18n:
-    {{python}} douyin_batch/tests/test_i18n_integration.py
+    {{python}} -m pytest tests/test_i18n_integration.py
 
 # Run cross-platform tests
 test-cross:
-    {{python}} douyin_batch/tests/test_cross_platform.py
+    {{python}} -m pytest tests/test_cross_platform.py
 
-# Lint with ruff (lint + format check)
+# Lint with ruff (same parameters as CI)
 lint:
-    {{python}} -m ruff check mediascribe douyin_batch scripts examples
-    {{python}} -m ruff format --check --diff mediascribe douyin_batch scripts examples
+    {{python}} -m ruff check .
+    {{python}} -m ruff format --check .
 
 # Auto-format with ruff
 format:
-    {{python}} -m ruff check --fix mediascribe douyin_batch scripts examples
-    {{python}} -m ruff format mediascribe douyin_batch scripts examples
+    {{python}} -m ruff check --fix .
+    {{python}} -m ruff format .
+
+# Pre-push gate: lint + fast pytest (scripts/pre_push_gate.py)
+gate:
+    {{python}} scripts/pre_push_gate.py
+
+# Gate then push — use this instead of raw `git push`
+push: gate
+    git push
 
 # Run the v3 feature demo
 demo:
@@ -69,11 +81,11 @@ verify: test-syntax test-imports test
 
 # Test that all .py files parse
 test-syntax:
-    {{python}} douyin_batch/tests/test_syntax.py
+    {{python}} -m pytest tests/test_syntax.py
 
 # Test that all modules import
 test-imports:
-    {{python}} douyin_batch/tests/test_imports.py
+    {{python}} -m pytest tests/test_imports.py
 
 # ---------------------------------------------------------------------------
 # One-click Web UI launcher

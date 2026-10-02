@@ -33,7 +33,7 @@ JSON,schema 固定::
 
 测试
 ----
-``douyin_batch/tests/test_benchmark_transcribers.py`` 验证 schema 稳定
+``tests/test_benchmark_transcribers.py`` 验证 schema 稳定
 + ``--engines fake`` 假数据路径。
 """
 
@@ -54,7 +54,7 @@ SCHEMA = "mediascribe-benchmark/v1"
 
 # ---------------------------------------------------------------------------
 # v3.1.0 兼容: 旧的 COST_PROFILE / BenchResult / render_table / write_reports
-# 这些 API 由 ``douyin_batch/tests/test_benchmark_transcribers.py`` 锁定,
+# 这些 API 由 ``tests/test_benchmark_transcribers.py`` 锁定,
 # v3.2.0b 不能移除;新写法的功能在 :func:`benchmark` / :class:`EngineResult`。
 # ---------------------------------------------------------------------------
 COST_PROFILE: Dict[str, Dict[str, float]] = {
