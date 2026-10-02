@@ -669,9 +669,13 @@ https://www.youtube.com/watch?v=…" required></textarea>
       return t ? { "Authorization": "Bearer " + t } : {};
     }
     function wsUrl(path) {
+      // token 不再走 URL query(?token= 会落 uvicorn/反代访问日志),
+      // 改经 WebSocket 子协议传递, 服务端握手时回显(2026-10-03 审查加固)。
+      return (location.protocol === "https:" ? "wss:" : "ws:") + "//" + location.host + path;
+    }
+    function wsProtocols() {
       const t = apiToken();
-      const q = t ? "?token=" + encodeURIComponent(t) : "";
-      return (location.protocol === "https:" ? "wss:" : "ws:") + "//" + location.host + path + q;
+      return t ? [t] : undefined;
     }
 
     // ---------------------------------------------------------------------
@@ -764,7 +768,7 @@ https://www.youtube.com/watch?v=…" required></textarea>
     }
 
     function connectWs(card, job) {
-      const ws = new WebSocket(wsUrl(`/ws/progress/${job.job_id}`));
+      const ws = new WebSocket(wsUrl(`/ws/progress/${job.job_id}`), wsProtocols());
       const nodes = {};
       const segs = {};
       card.querySelectorAll(".node").forEach((n) => { nodes[n.dataset.node] = n; });

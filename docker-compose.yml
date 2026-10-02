@@ -18,7 +18,10 @@ services:
     # pin a stable local tag instead of a version tag that drifts from pyproject.
     image: mediascribe:local
     ports:
-      - "8000:8000"
+      # 只绑宿主机 loopback — 默认不对局域网暴露(2026-10-03 审查加固)。
+      # 容器内必须 --host 0.0.0.0(否则端口映射本身失效), 收敛在宿主侧完成。
+      # 确需 LAN 访问: 改回 "8000:8000" 并务必设置 MEDIASCRIBE_API_TOKEN。
+      - "127.0.0.1:8000:8000"
     volumes:
       # Persist transcripts / downloads on the host.  Pairs with
       # MEDIASCRIBE_WORKSPACE=/workspace baked into the image, so everything
@@ -32,6 +35,9 @@ services:
       - PYTHONUNBUFFERED=1
       # Wired into the web layer's logging setup
       - MEDIASCRIBE_LOG_LEVEL=info
+      # 暴露到本机以外前必须设置共享 token
+      # (生成: python -c "import secrets; print(secrets.token_urlsafe(32))"):
+      # - MEDIASCRIBE_API_TOKEN=change-me
     restart: unless-stopped
     # Add GPU passthrough by uncommenting on a host with nvidia-container-toolkit:
     # deploy:

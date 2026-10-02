@@ -203,7 +203,11 @@
         $("viewer").querySelector("[data-del]").addEventListener("click", deleteNote);
       } catch (err) {
         current = null;
-        $("viewer").innerHTML = `<div class="empty">加载失败:${err.message}</div>`;
+        // err.message 可能来自响应 statusText — 走 textContent 防注入
+        const box = document.createElement("div");
+        box.className = "empty";
+        box.textContent = "加载失败:" + err.message;
+        $("viewer").replaceChildren(box);
       }
     }
 
@@ -283,7 +287,11 @@
           list.appendChild(box);
         }
       } catch (err) {
-        list.innerHTML = `<div class="empty">加载失败:${err.message}</div>`;
+        // err.message 可能来自响应 statusText — 走 textContent 防注入
+        const box = document.createElement("div");
+        box.className = "empty";
+        box.textContent = "加载失败:" + err.message;
+        list.replaceChildren(box);
       }
     }
     load();
