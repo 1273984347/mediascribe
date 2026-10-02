@@ -42,7 +42,10 @@ from __future__ import annotations
 
 import difflib
 import json
+import os
 import re
+import shutil
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -178,8 +181,15 @@ class LearnedTermsDB:
 def learned_terms_path() -> Path:
     """返回学习术语库的文件路径。
 
-    遵循缓存目录约定 (XDG / LOCALAPPDATA / MEDIASCRIBE_CACHE_DIR)。
+    解析顺序(2026-10-03 数据治理): ``MEDIASCRIBE_LEARNED_TERMS`` 显式
+    指定 > 缓存目录约定 (XDG / LOCALAPPDATA / MEDIASCRIBE_CACHE_DIR)。
+    术语库是人工核定数月的**数据资产**, 不是可随意清除的缓存 —— 生产
+    建议用环境变量把它放到有备份的位置, 并定期
+    ``python -m mediascribe learn export <file>`` 留档。
     """
+    env = os.environ.get("MEDIASCRIBE_LEARNED_TERMS", "").strip()
+    if env:
+        return Path(env)
     return persistent_cache_dir() / "learned_terms.json"
 
 
@@ -492,9 +502,15 @@ def import_terms(
 
 
 def clear_learned_terms(path: Optional[Path] = None) -> None:
-    """清空学习记录。"""
+    """清空学习记录。
+
+    术语库是人工核定的数据资产, 清空前先留一份带时间戳的
+    ``.bak`` 备份(同目录), 误清可手工恢复。
+    """
     store = path or learned_terms_path()
     if store.exists():
+        backup = store.with_name(f"{store.name}.{time.strftime('%Y%m%d-%H%M%S')}.bak")
+        shutil.copy2(store, backup)
         store.unlink()
 
 

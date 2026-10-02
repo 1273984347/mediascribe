@@ -1,7 +1,7 @@
 site_name: MediaScribe
 site_description: Transcribe videos from 6 platforms to Markdown using Whisper
-site_url: https://example.github.io/mediascribe/
-repo_url: https://github.com/example/mediascribe
+site_url: https://1273984347.github.io/mediascribe/
+repo_url: https://github.com/1273984347/mediascribe
 repo_name: example/mediascribe
 edit_uri: edit/main/docs_site/
 
@@ -95,7 +95,7 @@ extra:
     default: stable
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/example/mediascribe
+      link: https://github.com/1273984347/mediascribe
     - icon: fontawesome/brands/python
       link: https://pypi.org/project/mediascribe/
 
