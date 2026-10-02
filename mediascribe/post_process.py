@@ -88,14 +88,19 @@ _SENT_END_PUNCT = r"[。?!;;?!]"  # 句末标点(不含逗号)
 
 
 def _split_sentence_units(line: str) -> list:
-    """把一行按中英文标点切成 (句子, 尾分隔符) 单元, 保留原文所有字符。"""
+    """把一行按中英文标点/空白切成 (句子, 尾分隔符) 单元, 保留原文所有字符。
+
+    v3.4.3: 空白也作边界 — ASR 文本存在空格分隔的重复片段
+    ("我们的困难 不是不幸" / "…学学的了 是该让…学学的了"), 此前
+    空格把重复单元黏成一个, 收敛与检测双双漏判(2026-10-02 两集实锤)。
+    """
     import re as _re
 
-    parts = _re.split(r"(" + _UNIT_PUNCT + r")", line)
+    parts = _re.split(r"(" + _UNIT_PUNCT + r"|\s+)", line)
     units, cur = [], ""
     for tok in parts:
         cur += tok
-        if _re.fullmatch(_UNIT_PUNCT, tok or ""):
+        if tok and _re.fullmatch(_UNIT_PUNCT + r"|\s+", tok):
             units.append(cur)
             cur = ""
     if cur:
