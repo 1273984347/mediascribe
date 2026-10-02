@@ -46,6 +46,17 @@ def _host_matches(url: str, domains: tuple) -> bool:
     return any(host == d or host.endswith(f".{d}") for d in domains)
 
 
+def is_short_link(url: str) -> bool:
+    """True 当 URL 会被 :func:`resolve_short_url` 跟随重定向解析。
+
+    供 web 层在提交时对短链的*最终*重定向目标做 SSRF 复查 ——
+    原始 hostname 合法不代表重定向目标合法(开放重定向/域名接管场景)。
+    与 ``is_short_url``(_SHORT_DOMAINS, 仅识别)不同, 这里只匹配
+    真正会被跟随的 ``_RESOLVABLE_SHORT_DOMAINS``。
+    """
+    return _host_matches(url, _RESOLVABLE_SHORT_DOMAINS)
+
+
 def resolve_short_url(url: str, timeout: int = 10) -> Optional[str]:
     """
     解析短链接，获取重定向后的真实 URL

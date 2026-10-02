@@ -385,17 +385,48 @@ def _resolve_cors_origins() -> tuple[List[str], Optional[str]]:
     return origins, None
 
 
-def _require_api_token(authorization: Optional[str] = Header(default=None)) -> None:
+def _trusted_no_auth_client(host: Optional[str]) -> bool:
+    """无 token 模式下该客户端来源是否可信(2026-10-03 审查加固)。
+
+    威胁模型: "零配置 = 仅本机/内网"。公网来源一律拒绝; 两类合法的
+    零配置场景放行 —— 直连 127.0.0.1 的本地开发, 以及 docker bridge
+    网关(172.x/192.168.x, 宿主机经 127.0.0.1 端口映射进容器)。
+    更细的 LAN 收敛交给端口绑定(compose 默认 127.0.0.1:8000)与
+    ``MEDIASCRIBE_API_TOKEN``; 非 IP peer(测试客户端/unix socket)视为本地。
+    """
+    if not host:
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return True
+    return ip.is_loopback or ip.is_private or ip.is_link_local
+
+
+def _require_api_token(
+    request: "Request",
+    authorization: Optional[str] = Header(default=None),
+) -> None:
     """Enforce a single shared bearer token on every API route that depends
-    on it.  Disabled (no-op) when ``MEDIASCRIBE_API_TOKEN`` is unset so local
-    development keeps working without ceremony.  Comparison is constant-time
+    on it.  Disabled (no-op for trusted clients) when ``MEDIASCRIBE_API_TOKEN``
+    is unset so local development keeps working without ceremony; a client
+    from a *public* address is rejected even in no-token mode (see
+    :func:`_trusted_no_auth_client`).  Comparison is constant-time
     to prevent timing oracles against the secret.
     """
     import hmac
 
     expected = os.environ.get("MEDIASCRIBE_API_TOKEN", "").strip()
     if not expected:
-        return  # auth disabled
+        client_host = request.client.host if request.client else None
+        if _trusted_no_auth_client(client_host):
+            return  # auth disabled, trusted (local/private) client
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "API token 未配置, 已拒绝非本机/内网来源的请求。请设置 MEDIASCRIBE_API_TOKEN。"
+            ),
+        )
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -410,16 +441,17 @@ def _require_api_token(authorization: Optional[str] = Header(default=None)) -> N
         )
 
 
-def _verify_api_token(presented: Optional[str]) -> bool:
+def _verify_api_token(presented: Optional[str], client_host: Optional[str] = None) -> bool:
     """Constant-time token check shared by HTTP and WebSocket auth (P1-1).
 
     Same server-side token source as :func:`_require_api_token`
     (``MEDIASCRIBE_API_TOKEN``).  When the env var is unset auth is
-    disabled and every caller is allowed — mirroring the HTTP behaviour.
+    disabled and only *trusted* (loopback / private-network) clients are
+    allowed — mirroring the HTTP behaviour (2026-10-03 审查加固).
     """
     expected = os.environ.get("MEDIASCRIBE_API_TOKEN", "").strip()
     if not expected:
-        return True  # auth disabled — same as the HTTP side
+        return _trusted_no_auth_client(client_host)  # auth disabled
     if not presented or not presented.strip():
         return False
     import hmac
@@ -568,9 +600,28 @@ def _validate_submitted_urls(urls: List[str], workspace: Path) -> None:
             raise ValueError("提交项不能为空")
         if stripped.lower().startswith(("http://", "https://")):
             _validate_public_url(stripped)
+            _revalidate_short_link_target(stripped)
         elif _is_local_path_source(stripped):
             _validate_local_source(stripped, workspace)
         # 其余: 平台分享文本(无 "://" 且无对应本地文件) — 原样放行。
+
+
+def _revalidate_short_link_target(url: str) -> None:
+    """短链(b23.tv / v.douyin.com)的最终重定向目标也要过 SSRF 校验。
+
+    提交时只查原始 hostname; 短链服务若被利用做开放重定向(或被接管),
+    重定向目标可以指向 169.254.169.254 等元数据端点, 绕过首次校验
+    (2026-10-03 审查加固)。解析失败不拦截(交给下载阶段自然失败,
+    也避免离线 CI 被 网络 round-trip 卡死); 只有解析出明确目标且
+    目标违规时拒绝。
+    """
+    from mediascribe.url_utils import is_short_link, resolve_short_url
+
+    if not is_short_link(url):
+        return
+    final = resolve_short_url(url)
+    if final and final != url:
+        _validate_public_url(final)
 
 
 def _public_base_url(request: "Request") -> str:
@@ -1034,6 +1085,12 @@ def create_app(
     # 附加修复: docker-compose 已设 ``MEDIASCRIBE_LOG_LEVEL=info`` 但代码
     # 此前不读 — 在应用装配处应用一次(幂等)。
     _configure_logging_from_env()
+    if not (api_token or os.environ.get("MEDIASCRIBE_API_TOKEN", "")).strip():
+        logger.warning(
+            "MEDIASCRIBE_API_TOKEN 未配置 — API 处于无鉴权模式, "
+            "仅信任本机/内网来源(公网来源会被拒绝)。"
+            "暴露到本机以外之前请务必设置该环境变量。"
+        )
 
     # v3.2.0c-fix: release worker threads + GPU memory on shutdown.
     # Without this the ``ThreadPoolExecutor`` threads outlive the app
@@ -1084,7 +1141,6 @@ def create_app(
     app.state.rate_limiter = _build_rate_limiter()
     # Job progress registry (v3.2.0a) — backs ``/ws/progress/{job_id}``
     # and the ``/api/jobs/{job_id}`` REST helpers.
-    from mediascribe.pipeline import resolve_device
     from mediascribe.progress import ProgressRegistry
 
     app.state.jobs = ProgressRegistry()
@@ -1142,6 +1198,50 @@ def create_app(
 
     app.state.wiki_vault = vault_for_workspace(workspace, extractor=ConceptExtractor.from_env())
 
+    _register_health_routes(app)
+    _register_extension_routes(app)
+    _register_page_routes(app)
+    _register_wiki_routes(app)
+    _register_transcribe_route(app, workspace)
+    _register_ws_progress_route(app)
+    _register_job_control_routes(app)
+    _register_submit_jobs_route(app, workspace)
+    _register_job_result_route(app)
+    return app
+
+
+# ---------------------------------------------------------------------------
+# CLI (run via ``python -m mediascribe.web.app``)
+# ---------------------------------------------------------------------------
+def main(argv: Optional[List[str]] = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--reload", action="store_true")
+    parser.add_argument("--workspace", type=Path, default=None)
+    args = parser.parse_args(argv)
+
+    if not _FASTAPI_AVAILABLE:
+        print("FastAPI not installed. Run: pip install mediascribe[web]")
+        return 1
+    try:
+        import uvicorn
+    except ImportError:
+        print("uvicorn not installed. Run: pip install mediascribe[web]")
+        return 1
+    app = create_app(workspace=args.workspace)
+    uvicorn.run(app, host=args.host, port=args.port, reload=args.reload)
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover
+    sys.exit(main())
+
+
+def _register_health_routes(app: "FastAPI") -> None:
+    """Route registrar — create_app 装配时调用(2026-10-03 审查拆分, 路由逐字搬移)。"""
+    from mediascribe.pipeline import resolve_device
+
     @app.get("/api/health")
     def health() -> Dict[str, Any]:
         # v3.2.0c-fix: opportunistic purge of finished jobs older than
@@ -1192,6 +1292,10 @@ def create_app(
             "device_hint": resolve_device(os.environ.get("MEDIASCRIBE_DEVICE", "auto")),
             "gpu": gpu,
         }
+
+
+def _register_extension_routes(app: "FastAPI") -> None:
+    """Route registrar — create_app 装配时调用(2026-10-03 审查拆分, 路由逐字搬移)。"""
 
     @app.get("/extension", response_class=HTMLResponse)
     def extension_page() -> HTMLResponse:
@@ -1382,12 +1486,21 @@ def create_app(
         )
         return HTMLResponse(content=body)
 
+
+def _register_page_routes(app: "FastAPI") -> None:
+    """Route registrar — create_app 装配时调用(2026-10-03 审查拆分, 路由逐字搬移)。"""
+
     @app.get("/", response_class=HTMLResponse)
     def index() -> HTMLResponse:
         html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
         return HTMLResponse(content=html)
 
     # -------------------------------------------------------------------
+
+
+def _register_wiki_routes(app: "FastAPI") -> None:
+    """Route registrar — create_app 装配时调用(2026-10-03 审查拆分, 路由逐字搬移)。"""
+
     # 知识库视图 (Karpathy 式 vault 的 Web 浏览层)
     # -------------------------------------------------------------------
     @app.get("/wiki", response_class=HTMLResponse)
@@ -1445,6 +1558,10 @@ def create_app(
             raise HTTPException(status_code=404, detail="note not found")
         return {"deleted": removed}
 
+
+def _register_transcribe_route(app: "FastAPI", workspace: Path) -> None:
+    """Route registrar — create_app 装配时调用(2026-10-03 审查拆分, 路由逐字搬移)。"""
+
     @app.post(
         "/api/transcribe",
         response_model=TranscribeResponse,
@@ -1479,6 +1596,11 @@ def create_app(
     # -------------------------------------------------------------------------
     # Job progress (v3.2.0a) — WebSocket-friendly
     # -------------------------------------------------------------------------
+
+
+def _register_ws_progress_route(app: "FastAPI") -> None:
+    """Route registrar — create_app 装配时调用(2026-10-03 审查拆分, 路由逐字搬移)。"""
+
     @app.websocket("/ws/progress/{job_id}")
     async def ws_progress(websocket: WebSocket, job_id: str) -> None:
         """Stream per-stage progress events for a job.
@@ -1510,15 +1632,22 @@ def create_app(
         back to all listeners.
         """
         # P1-1: accept 之前完成鉴权 — 失败则握手拒绝, 不进入事件循环。
-        presented = websocket.query_params.get("token")
+        # token 首选 Sec-WebSocket-Protocol 子协议(不落 URL), query 参数
+        # 保留为兼容通道 — query 里的 token 会进 uvicorn/反代访问日志
+        # (2026-10-03 审查加固)。
+        protocol_header = websocket.headers.get("sec-websocket-protocol", "")
+        presented = protocol_header.split(",")[0].strip() or None
         if not presented:
-            protocol_header = websocket.headers.get("sec-websocket-protocol", "")
-            presented = protocol_header.split(",")[0].strip() or None
-        ws_authenticated = _verify_api_token(presented)
+            presented = websocket.query_params.get("token")
+        ws_authenticated = _verify_api_token(
+            presented,
+            websocket.client.host if websocket.client else None,
+        )
         if not ws_authenticated:
             await websocket.close(code=1008)
             return
-        await websocket.accept()
+        # 浏览器规范要求服务端在握手里回显选定的子协议, 否则客户端直接报错。
+        await websocket.accept(subprotocol=presented if protocol_header else None)
         try:
             from mediascribe.progress import ProgressRegistry
         except ImportError:
@@ -1653,6 +1782,10 @@ def create_app(
                         app.state.ws_bridges.pop(job.job_id, None)
         await websocket.close(code=1000)
 
+
+def _register_job_control_routes(app: "FastAPI") -> None:
+    """Route registrar — create_app 装配时调用(2026-10-03 审查拆分, 路由逐字搬移)。"""
+
     @app.post("/api/jobs/{job_id}/cancel", dependencies=[Depends(_require_api_token)])
     def cancel_job(job_id: str) -> Dict[str, Any]:
         """Cancel a running job (no-op if it doesn't exist).
@@ -1689,6 +1822,11 @@ def create_app(
     # -----------------------------------------------------------------
     # v3.2.0c Tier 1 — async job submission + result retrieval
     # -----------------------------------------------------------------
+
+
+def _register_submit_jobs_route(app: "FastAPI", workspace: Path) -> None:
+    """Route registrar — create_app 装配时调用(2026-10-03 审查拆分, 路由逐字搬移)。"""
+
     @app.post(
         "/api/jobs", dependencies=[Depends(_require_api_token), Depends(_require_json_content_type)]
     )
@@ -1792,6 +1930,10 @@ def create_app(
             "unique": len(urls),
         }
 
+
+def _register_job_result_route(app: "FastAPI") -> None:
+    """Route registrar — create_app 装配时调用(2026-10-03 审查拆分, 路由逐字搬移)。"""
+
     @app.get("/api/jobs/{job_id}/result", dependencies=[Depends(_require_api_token)])
     def job_result(job_id: str) -> Dict[str, Any]:
         """Return the markdown + metadata for a job.
@@ -1826,33 +1968,3 @@ def create_app(
             "stage_current": job.stage_current,
             "stage_total": job.stage_total,
         }
-
-    return app
-
-
-# ---------------------------------------------------------------------------
-# CLI (run via ``python -m mediascribe.web.app``)
-# ---------------------------------------------------------------------------
-def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8000)
-    parser.add_argument("--reload", action="store_true")
-    parser.add_argument("--workspace", type=Path, default=None)
-    args = parser.parse_args(argv)
-
-    if not _FASTAPI_AVAILABLE:
-        print("FastAPI not installed. Run: pip install mediascribe[web]")
-        return 1
-    try:
-        import uvicorn
-    except ImportError:
-        print("uvicorn not installed. Run: pip install mediascribe[web]")
-        return 1
-    app = create_app(workspace=args.workspace)
-    uvicorn.run(app, host=args.host, port=args.port, reload=args.reload)
-    return 0
-
-
-if __name__ == "__main__":  # pragma: no cover
-    sys.exit(main())

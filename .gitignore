@@ -75,6 +75,10 @@ $RECYCLE.BIN/
 .env.*.local
 
 # Local config overrides
+# config.json 是 config.example.json 的真实本地副本, 可能含 key —
+# 不该被 `git add .` 吞进仓库(2026-10-03 审查加固)。
+config.json
+!config.example.json
 config.local.json
 my_config.json
 *.local
