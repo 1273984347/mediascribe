@@ -390,11 +390,12 @@ class WikiVault:
             record = {
                 "name": path.stem,
                 "title": self._fm_get(block, "title") or path.stem,
-                "url": self._fm_get(block, "url"),
+                # _fm_get 可能返回 None, 统一收编为空串, 保持 Dict[str, str] 契约
+                "url": self._fm_get(block, "url") or "",
                 "platform": self._fm_get(block, "platform") or "未知平台",
-                "author": self._fm_get(block, "author"),
-                "duration": self._fm_get(block, "duration"),
-                "created": self._fm_get(block, "created"),
+                "author": self._fm_get(block, "author") or "",
+                "duration": self._fm_get(block, "duration") or "",
+                "created": self._fm_get(block, "created") or "",
             }
             records.append(record)
         records.sort(key=lambda r: r.get("created") or "", reverse=True)
@@ -525,7 +526,8 @@ class WikiVault:
         ledger_path = self.ledger_dir / self.LEDGER_NAME
         if ledger_path.exists():
             try:
-                return json.loads(ledger_path.read_text(encoding="utf-8"))
+                data: Dict[str, Any] = json.loads(ledger_path.read_text(encoding="utf-8"))
+                return data
             except (OSError, ValueError):
                 logger.warning("wiki 账本损坏, 以空账本重建")
         return {"concepts": {}}

@@ -123,7 +123,8 @@ def _load_index(cache_dir: Path, name: str) -> dict:
     if not p.exists():
         return {}
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
+        data: dict = json.loads(p.read_text(encoding="utf-8"))
+        return data
     except (json.JSONDecodeError, OSError):
         # Corrupt index — start fresh rather than crash.
         return {}
@@ -250,7 +251,8 @@ class PersistentDownloadCache:
         if entry is None:
             self._misses += 1
             return None
-        path = self._base / entry["filename"]
+        filename: str = entry["filename"]
+        path = self._base / filename
         if not path.exists():
             # Stale index — entry vanished.  Clean up (deferred flush).
             self._index.pop(key, None)
@@ -461,7 +463,11 @@ class PersistentChunkCache:
     def get(self, src: Path, params: dict) -> Optional[Path]:
         key = self._key(src, params)
         entry = self._index.get(key)
-        if entry is None or not (self._base / entry["filename"]).exists():
+        if entry is None:
+            self._misses += 1
+            return None
+        filename: str = entry["filename"]
+        if not (self._base / filename).exists():
             self._misses += 1
             return None
         # P2-4: LRU 触点只写内存,落盘时机收敛到 put/_evict/close
@@ -470,7 +476,7 @@ class PersistentChunkCache:
         entry["lru_seq"] = self._lru_seq  # 同毫秒触点用序号决胜
         self._dirty[0] = True
         self._hits += 1
-        return self._base / entry["filename"]
+        return self._base / filename
 
     def put(self, src: Path, params: dict, chunks_dir: Path) -> Path:
         """Snapshot ``chunks_dir`` (a directory of WAV files) into the cache.

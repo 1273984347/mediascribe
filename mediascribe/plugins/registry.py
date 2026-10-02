@@ -79,7 +79,7 @@ def get_downloader(name: str) -> Optional[Type[Downloader]]:
     """Look up a downloader class by name.  Returns the class, not an instance."""
     group = ENTRY_POINT_GROUPS["downloaders"]
     eps = _load_entry_points(group)
-    cls = eps.get(name)
+    cls: Optional[Type[Downloader]] = eps.get(name)
     if cls is None or isinstance(cls, Exception):
         return None
     return cls
@@ -89,7 +89,7 @@ def get_transcriber_cls(name: str) -> Optional[Type[Transcriber]]:
     """Look up a transcriber class by name."""
     group = ENTRY_POINT_GROUPS["transcribers"]
     eps = _load_entry_points(group)
-    cls = eps.get(name)
+    cls: Optional[Type[Transcriber]] = eps.get(name)
     if cls is None or isinstance(cls, Exception):
         return None
     return cls

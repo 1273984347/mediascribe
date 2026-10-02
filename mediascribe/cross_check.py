@@ -18,7 +18,10 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
+
+if TYPE_CHECKING:  # 仅类型检查需要, 运行时延迟导入避免循环依赖
+    from .pipeline_stages import PipelineContext
 
 logger = logging.getLogger(__name__)
 
@@ -198,11 +201,15 @@ def _build_prompt(source_kind: Optional[str]) -> Optional[str]:
     except Exception:
         return None
     try:
-        return TranscribeStage._auto_prompt(
+        # _auto_prompt 只读 ctx.source.kind; 传最小 duck-typed 桩避免为拼
+        # prompt 构造完整 PipelineContext, 这里用 cast 声明该意图。
+        stub = cast(
+            "PipelineContext",
             SimpleNamespace(
                 source=None if source_kind is None else SimpleNamespace(kind=source_kind)
-            )
+            ),
         )
+        return TranscribeStage._auto_prompt(stub)
     except Exception:
         return None
 

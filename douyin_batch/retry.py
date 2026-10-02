@@ -30,7 +30,7 @@ def retry(
         on_retry: 重试时的回调函数
     """
     current_delay = delay
-    last_exception = None
+    last_exception: Optional[BaseException] = None
 
     for attempt in range(max_retries + 1):
         try:
@@ -46,6 +46,8 @@ def retry(
             time.sleep(current_delay)
             current_delay *= backoff
 
+    # 循环要么 return 要么抛异常, 走到这里 last_exception 必非 None
+    assert last_exception is not None
     raise last_exception
 
 
@@ -92,7 +94,7 @@ def download_media_with_retry(
         print(f"      ⚠️ 第 {attempt} 次重试... ({type(exc).__name__})")
 
     try:
-        return retry(
+        result: bool = retry(
             _do_download,
             max_retries=max_retries,
             delay=1.0,
@@ -100,6 +102,7 @@ def download_media_with_retry(
             exceptions=(Exception,),
             on_retry=_on_retry,
         )
+        return result
     except Exception as e:
         print(f"      ❌ 下载最终失败: {e}")
         return False

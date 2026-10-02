@@ -60,13 +60,14 @@ def _pick_best_audio(dash: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]
     audios = (dash or {}).get("audio") or []
     if not audios:
         return None
-    return max(audios, key=lambda a: a.get("bandwidth") or 0)
+    best: dict[str, Any] = max(audios, key=lambda a: a.get("bandwidth") or 0)
+    return best
 
 
 def _api_get(session: Any, endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
     resp = session.get(endpoint, params=params, timeout=_API_TIMEOUT)
     resp.raise_for_status()
-    payload = resp.json()
+    payload: dict[str, Any] = resp.json()
     if payload.get("code") != 0:
         raise RuntimeError(
             f"B站 API {endpoint} 返回 code={payload.get('code')}: {payload.get('message')}"

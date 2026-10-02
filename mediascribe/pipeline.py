@@ -20,7 +20,7 @@ import platform
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Type
 
 from .audio_utils import extract_audio
 from .config import Settings
@@ -380,7 +380,12 @@ class Pipeline:
             cancel_event=cancel_event,
             source=source,
         )
-        return self._run_stage_chain(ctx).result
+        result = self._run_stage_chain(ctx).result
+        if result is None:
+            # AssembleStage 必然写入 result; 走到这里说明 stage 被旁路, 静默返回
+            # None 会把 None 解引用炸到调用方更深处, 不如在此显式失败。
+            raise RuntimeError("stage chain finished without producing a TranscriptResult")
+        return result
 
     # ------------------------------------------------------------------
     # v3.2.0b stage chain orchestrator
@@ -530,14 +535,21 @@ class Pipeline:
         - ``bilingual``：视频消息输出双语字幕标签（中英对照）
         """
         print("📥 下载公众号内容...")
+        from .downloaders.wechat_mp import WechatMpDownloader
+
         downloader = self._get_downloader(source)
-        downloaded = downloader.download(
-            source,
-            self.settings,
-            ocr_engine=ocr_engine,
-            ocr_lang=ocr_lang,
-            save_images=save_images,
-        )
+        # OCR 参数仅 WechatMpDownloader.download 支持; 其他下载器(如 WechatMp
+        # 初始化失败后回退的 yt-dlp)按基础接口调用, 否则会 TypeError。
+        if isinstance(downloader, WechatMpDownloader):
+            downloaded = downloader.download(
+                source,
+                self.settings,
+                ocr_engine=ocr_engine,
+                ocr_lang=ocr_lang,
+                save_images=save_images,
+            )
+        else:
+            downloaded = downloader.download(source, self.settings)
 
         meta = downloaded.metadata or {}
         base_name = downloaded.title or source.display_name
@@ -703,18 +715,20 @@ class Pipeline:
                     get_language,
                     set_language,
                 )
+
+                messages_cls: Optional[Type[Messages]] = Messages
             except Exception:
-                Messages = None
-            if Messages is not None:
+                messages_cls = None
+            if messages_cls is not None:
                 prev_lang = get_language()
                 labels_en: dict = {}
                 labels_zh: dict = {}
                 for lang in ("en", "zh"):
                     set_language(lang)
                     if lang == "en":
-                        labels_en["platform"] = Messages.PLATFORM_WECHAT_MP.get(lang, "")
+                        labels_en["platform"] = messages_cls.PLATFORM_WECHAT_MP.get(lang, "")
                     else:
-                        labels_zh["platform"] = Messages.PLATFORM_WECHAT_MP.get(lang, "")
+                        labels_zh["platform"] = messages_cls.PLATFORM_WECHAT_MP.get(lang, "")
                 set_language(prev_lang)
                 metadata["i18n_labels"] = {
                     "en": labels_en,
@@ -794,25 +808,27 @@ class Pipeline:
         if bilingual:
             # 引入 i18n 模块失败时优雅降级到基础模式
             try:
-                from douyin_batch.i18n import Messages  # noqa: F401
-            except Exception:
-                Messages = None
+                from douyin_batch.i18n import Messages
 
-            if Messages is not None:
+                messages_cls: Optional[Type[Messages]] = Messages
+            except Exception:
+                messages_cls = None
+
+            if messages_cls is not None:
                 diar = bool(transcription.get("speaker_diarization", False))
-                enabled_zh = Messages.LABEL_BILINGUAL_ENABLED.get("zh", "已启用")
-                enabled_en = Messages.LABEL_BILINGUAL_ENABLED.get("en", "Enabled")
-                disabled_zh = Messages.LABEL_BILINGUAL_DISABLED.get("zh", "未启用")
-                disabled_en = Messages.LABEL_BILINGUAL_DISABLED.get("en", "Disabled")
+                enabled_zh = messages_cls.LABEL_BILINGUAL_ENABLED.get("zh", "已启用")
+                enabled_en = messages_cls.LABEL_BILINGUAL_ENABLED.get("en", "Enabled")
+                disabled_zh = messages_cls.LABEL_BILINGUAL_DISABLED.get("zh", "未启用")
+                disabled_en = messages_cls.LABEL_BILINGUAL_DISABLED.get("en", "Disabled")
                 speaker_label = (
                     f"{enabled_zh} / {enabled_en}" if diar else f"{disabled_zh} / {disabled_en}"
                 )
-                platform_zh = Messages.PLATFORM_WECHAT_MP.get("zh", "微信公众号")
-                platform_en = Messages.PLATFORM_WECHAT_MP.get("en", "WeChat MP")
-                platform_label_zh = Messages.LABEL_BILINGUAL_PLATFORM.get("zh", "平台")
-                platform_label_en = Messages.LABEL_BILINGUAL_PLATFORM.get("en", "Platform")
-                speakers_label_zh = Messages.LABEL_BILINGUAL_SPEAKERS.get("zh", "说话人分离")
-                speakers_label_en = Messages.LABEL_BILINGUAL_SPEAKERS.get(
+                platform_zh = messages_cls.PLATFORM_WECHAT_MP.get("zh", "微信公众号")
+                platform_en = messages_cls.PLATFORM_WECHAT_MP.get("en", "WeChat MP")
+                platform_label_zh = messages_cls.LABEL_BILINGUAL_PLATFORM.get("zh", "平台")
+                platform_label_en = messages_cls.LABEL_BILINGUAL_PLATFORM.get("en", "Platform")
+                speakers_label_zh = messages_cls.LABEL_BILINGUAL_SPEAKERS.get("zh", "说话人分离")
+                speakers_label_en = messages_cls.LABEL_BILINGUAL_SPEAKERS.get(
                     "en", "Speaker Diarization"
                 )
                 lines.append(
@@ -823,11 +839,15 @@ class Pipeline:
                 lines.append("")
 
                 # 文末追加字幕说明块
-                engine_label_zh = Messages.LABEL_BILINGUAL_ENGINE.get("zh", "转录引擎")
-                engine_label_en = Messages.LABEL_BILINGUAL_ENGINE.get("en", "Transcription Engine")
-                lang_label_zh = Messages.LABEL_BILINGUAL_LANG.get("zh", "检测语言")
-                lang_label_en = Messages.LABEL_BILINGUAL_LANG.get("en", "Detected Language")
-                subtitle_header_zh = Messages.LABEL_BILINGUAL_SUBTITLE_HEADER.get("zh", "## 字幕")
+                engine_label_zh = messages_cls.LABEL_BILINGUAL_ENGINE.get("zh", "转录引擎")
+                engine_label_en = messages_cls.LABEL_BILINGUAL_ENGINE.get(
+                    "en", "Transcription Engine"
+                )
+                lang_label_zh = messages_cls.LABEL_BILINGUAL_LANG.get("zh", "检测语言")
+                lang_label_en = messages_cls.LABEL_BILINGUAL_LANG.get("en", "Detected Language")
+                subtitle_header_zh = messages_cls.LABEL_BILINGUAL_SUBTITLE_HEADER.get(
+                    "zh", "## 字幕"
+                )
                 lines.append(subtitle_header_zh)
                 lines.append("")
                 lines.append(
@@ -842,10 +862,10 @@ class Pipeline:
                 segments = transcription.get("segments") or []
                 if segments and isinstance(segments, list):
                     lines.append("")
-                    zh_prefix_template = Messages.LABEL_BILINGUAL_SEGMENT_PREFIX.get(
+                    zh_prefix_template = messages_cls.LABEL_BILINGUAL_SEGMENT_PREFIX.get(
                         "zh", "[片段 {idx}]"
                     )
-                    en_prefix_template = Messages.LABEL_BILINGUAL_SEGMENT_PREFIX.get(
+                    en_prefix_template = messages_cls.LABEL_BILINGUAL_SEGMENT_PREFIX.get(
                         "en", "[Segment {idx}]"
                     )
                     for idx, seg in enumerate(segments, 1):

@@ -577,6 +577,10 @@ class AssembleStage(Stage):
                 "AssembleStage requires ctx.transcription (run TranscribeStage first)"
             )
         ctx.raise_if_cancelled()  # 落盘前(LLM 后处理可能阻塞)
+        # P2-11: TranscribeStage 已保证 audio_path 非空; 校验放在取消检查之后,
+        # 取消请求优先于结构校验。
+        if ctx.audio_path is None:
+            raise RuntimeError("AssembleStage requires ctx.audio_path (run TranscribeStage first)")
         base_name = ctx.base_name or ctx.source.display_name
 
         # v3.2.0b: 自动后处理 (术语校正,含学习术语)

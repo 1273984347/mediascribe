@@ -57,6 +57,10 @@ jobs:
         run: ruff check . --output-format=github
       - name: ruff format (check only)
         run: ruff format --check --diff .
+      - name: mypy (blocking since 2026-10-03)
+        # dev extra 自带 mypy(pinned >=1.15,<3)。2026-10-03 全量类型错误
+        # 清零后设为 PR 阻断门禁, 防止类型债回流。
+        run: mypy mediascribe douyin_batch
 
   # -------------------------------------------------------------------------
   # 2. unit — fast unit-test feedback for PRs (~60s)

@@ -95,7 +95,7 @@ class WhisperTranscriber(Transcriber):
         if progress:
             print("转录中...")
 
-        options = {
+        options: dict[str, Any] = {
             "verbose": False,
         }
         if prompt:

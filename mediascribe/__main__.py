@@ -459,8 +459,13 @@ def _force_utf8_stdio() -> None:
     （不可编码字符降级替换,绝不因输出崩溃）。测试/管道场景同样受益。
     """
     for stream in (sys.stdout, sys.stderr):
+        # TextIO 协议本身没有 reconfigure, 只有真正的 TextIOWrapper 有
+        # (pytest 捕获流等则完全没有), 逐流探测而非假设都存在。
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
         try:
-            stream.reconfigure(encoding="utf-8", errors="replace")
+            reconfigure(encoding="utf-8", errors="replace")
         except Exception:  # pragma: no cover - 已重配/非常规流
             pass
 

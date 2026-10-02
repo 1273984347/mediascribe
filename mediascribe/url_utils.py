@@ -89,7 +89,7 @@ def resolve_short_url(url: str, timeout: int = 10) -> Optional[str]:
         # 白名单主机（b23.tv / v.douyin.com 等）会走到这里；解析短链重定向
         # 正是本函数的职责。
         with urllib.request.urlopen(req, timeout=timeout) as response:  # nosec B310
-            real_url = response.url
+            real_url: str = response.url
             logger.info("解析成功: %s", real_url)
             return real_url
 
