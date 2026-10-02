@@ -417,7 +417,7 @@ def get_prompt_terms(path: Optional[Path] = None) -> str:
 
     注入优先级 (2026-10-02): 按 **学习频次降序** — learn/复核命中
     越多的词越靠前; 同频时 **后播种的优先** (更贴近当前在录的系列)。
-    上限 30 条 — Whisper prompt 过长反而稀释识别效果; 未注入的术语
+    上限 40 条 — Whisper prompt(~224 tokens)安全上限内; 未注入的术语
     仍由 ``post_process_transcript`` 事后替换兜底。
     """
     db = _load_db(path)
@@ -433,7 +433,7 @@ def get_prompt_terms(path: Optional[Path] = None) -> str:
         if right and right not in seen:
             seen.add(right)
             rights.append(right)
-        if len(rights) >= 30:
+        if len(rights) >= 40:
             break
     return "视频中可能涉及以下专有名词：" + "、".join(rights)
 

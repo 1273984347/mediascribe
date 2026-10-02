@@ -131,22 +131,33 @@ def _normalize_sentence(unit: str) -> str:
 
 
 def _collapse_identical_runs(units: list, min_repeat: int) -> tuple:
-    """单元列表内连续 ``min_repeat`` 次以上归一化相同的收敛为 1。"""
-    out, i, removed = [], 0, 0
-    while i < len(units):
-        j = i
-        core = _normalize_sentence(units[i])
-        if len(core) >= 4:
-            while j + 1 < len(units) and _normalize_sentence(units[j + 1]) == core:
-                j += 1
-            if j - i + 1 >= min_repeat:
-                removed += j - i
-                out.append(units[i])
-                i = j + 1
-                continue
-        out.append(units[i])
-        i += 1
-    return out, removed
+    """单元列表内连续 ``min_repeat`` 次以上归一化相同的收敛为 1。
+
+    v3.4.3: 空白单元(纯空白定界符, 归一化为空)在连续性判断中透明 —
+    "A,␣A,␣B" 视作 A,A,B 相邻(2026-10-02 菜市场一集实锤); 被删除
+    的重复单元之间的空白单元一并移除, 重拼接保持原文其余部分不变。
+    """
+    out = list(units)
+    removed_total = 0
+    while True:
+        content = [(i, _normalize_sentence(u)) for i, u in enumerate(out) if _normalize_sentence(u)]
+        target = None
+        s = 0
+        while s < len(content):
+            e = s
+            while e + 1 < len(content) and content[e + 1][1] == content[s][1]:
+                e += 1
+            if e - s + 1 >= min_repeat and len(content[s][1]) >= 4:
+                target = (s, e)
+                break
+            s = e + 1
+        if target is None:
+            break
+        s, e = target
+        lo, hi = content[s][0], content[e][0]
+        removed_total += e - s
+        out = out[: lo + 1] + out[hi + 1 :]
+    return out, removed_total
 
 
 def collapse_hallucination_repeats(text: str, min_repeat: int = HALLUCINATION_MIN_REPEAT) -> tuple:
@@ -191,7 +202,7 @@ def _common_suffix_len(a: str, b: str) -> int:
 #   (人的寿命/刻舟求剑两集真伪影) — 所以/于是/然后 等承接词常跟在
 #   伪影后, 不作 echo 信号; 仅真转折词出现在后续句时才倾向 echo。
 _ECHO_SECOND_PERSON = ("你要", "你就", "你说", "你们", "请问", "各位")
-_ECHO_CONTRAST = ("但是", "但", "然而", "可是", "不过", "其实")
+_ECHO_CONTRAST = ("但是", "但", "然而", "可是", "不过")  # "其实"移出: 刻舟/菜市场两集反例, 它常跟在伪影后
 
 
 def _is_echo_suspect(prev_core: str, second_core: str, next_core: str) -> bool:
@@ -235,25 +246,29 @@ def detect_repeated_pairs_detailed(text: str, min_len: int = 6, suffix_len: int 
     unit_carry: list = [None]
 
     def _scan_run(seq_items: list, carry: list) -> None:
-        """恰好 2 连扫描(跨行由 carry 承接上一行末单元)。"""
+        """恰好 2 连扫描(跨行由 carry 承接上一行末单元; 空白单元透明)。"""
         seq = ([carry[0]] if carry and carry[0] else []) + seq_items
+        cores = [_normalize_sentence(u) for u in seq]
+        content = [i for i, c in enumerate(cores) if c]
         i = 0
-        while i < len(seq):
-            core = _normalize_sentence(seq[i])
+        while i < len(content):
+            idx = content[i]
+            core = cores[idx]
             if len(core) >= min_len:
                 j = i
-                while j + 1 < len(seq) and _normalize_sentence(seq[j + 1]) == core:
+                while j + 1 < len(content) and cores[content[j + 1]] == core:
                     j += 1
                 if j - i + 1 == 2:
-                    second = _normalize_sentence(seq[i + 1])
-                    nxt = _normalize_sentence(seq[j + 1]) if j + 1 < len(seq) else ""
-                    prev = _normalize_sentence(seq[i - 1]) if i > 0 else ""
-                    _report(seq[i], _echo(prev, second, nxt))
+                    second = cores[content[i + 1]]
+                    nxt = cores[content[j + 1]] if j + 1 < len(content) else ""
+                    prev = cores[content[i - 1]] if i > 0 else ""
+                    _report(seq[idx], _echo(prev, second, nxt))
                 i = j + 1
                 continue
             i += 1
+        last = content[-1] if content else None
         carry.clear()
-        carry.append(seq[-1] if seq else None)
+        carry.append(seq[last] if last is not None else (carry[0] if carry else None))
 
     for line in text.splitlines():
         # 1) 句级恰好 2 连(跨行由 carry 承接)
@@ -300,25 +315,32 @@ def detect_repeated_pairs(text: str, min_len: int = 6, suffix_len: int = 8) -> l
             suspects.append(unit.strip())
 
     def _scan_run(units: list, seen: set, suspects: list, carry: list) -> None:
-        """单元序列内恰好 2 连扫描; ``carry=[prev_unit]`` 承接跨行边界。"""
+        """单元序列内恰好 2 连扫描; ``carry=[prev_unit]`` 承接跨行边界。
+
+        空白单元(归一化为空)在连续性判断中透明 — "A,␣A" 视作相邻。
+        """
         seq = ([carry[0]] if carry and carry[0] else []) + units
+        cores = [_normalize_sentence(u) for u in seq]
+        content = [i for i, c in enumerate(cores) if c]
         i = 0
-        while i < len(seq):
-            core = _normalize_sentence(seq[i])
+        while i < len(content):
+            idx = content[i]
+            core = cores[idx]
             if len(core) >= min_len:
                 j = i
-                while j + 1 < len(seq) and _normalize_sentence(seq[j + 1]) == core:
+                while j + 1 < len(content) and cores[content[j + 1]] == core:
                     j += 1
                 if j - i + 1 == 2:
                     key = core
                     if key not in seen:
                         seen.add(key)
-                        suspects.append(seq[i].strip())
+                        suspects.append(seq[idx].strip())
                 i = j + 1
                 continue
             i += 1
+        last = content[-1] if content else None
         carry.clear()
-        carry.append(seq[-1] if seq else None)
+        carry.append(seq[last] if last is not None else (carry[0] if carry else None))
 
     for line in text.splitlines():
         # 1) 句级恰好 2 连(仅按句末标点切分) — 复读句常含逗号, 只在

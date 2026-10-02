@@ -255,14 +255,16 @@ class TestPromptTerms:
         prompt = get_prompt_terms(path=store)
         assert prompt.index("高频对") < prompt.index("低频词乙")
 
-    def test_prompt_cap_at_30(self, tmp_path: Path):
+    def test_prompt_cap_at_40(self, tmp_path: Path):
+        # v3.4.3: 频次降序+新近度优先排序后, 上限 30→40(Whisper prompt
+        # ~224 tokens 安全内), 提升当前在录系列的注入覆盖率
         store = tmp_path / "learned_terms.json"
-        pairs = [(f"错词{i:03d}", f"对词{i:03d}") for i in range(35)]
+        pairs = [(f"错词{i:03d}", f"对词{i:03d}") for i in range(45)]
         learn(pairs, path=store)
         learn(pairs, path=store)
         prompt = get_prompt_terms(path=store)
         body = prompt.replace("视频中可能涉及以下专有名词：", "")
-        assert len(body.split("、")) == 30
+        assert len(body.split("、")) == 40
 
 
 # ---------------------------------------------------------------------------
