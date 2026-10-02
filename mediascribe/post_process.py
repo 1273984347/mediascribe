@@ -202,7 +202,13 @@ def _common_suffix_len(a: str, b: str) -> int:
 #   (人的寿命/刻舟求剑两集真伪影) — 所以/于是/然后 等承接词常跟在
 #   伪影后, 不作 echo 信号; 仅真转折词出现在后续句时才倾向 echo。
 _ECHO_SECOND_PERSON = ("你要", "你就", "你说", "你们", "请问", "各位")
-_ECHO_CONTRAST = ("但是", "但", "然而", "可是", "不过")  # "其实"移出: 刻舟/菜市场两集反例, 它常跟在伪影后
+_ECHO_CONTRAST = (
+    "但是",
+    "但",
+    "然而",
+    "可是",
+    "不过",
+)  # "其实"移出: 刻舟/菜市场两集反例, 它常跟在伪影后
 
 
 def _is_echo_suspect(prev_core: str, second_core: str, next_core: str) -> bool:
