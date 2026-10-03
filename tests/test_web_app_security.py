@@ -296,6 +296,18 @@ class TestWsAuth(unittest.TestCase):
             msg = ws.receive_json()
         self.assertEqual(msg["event"], "snapshot")
 
+    def test_ws_query_token_passes_even_with_unrelated_subprotocol(self):
+        # review 修复: 无关子协议 + query token 的混合客户端不能因通道
+        # 优先级被误拒 — 两通道任一匹配即放行。
+        os.environ["MEDIASCRIBE_API_TOKEN"] = "tok-123"
+        job = self._make_job()
+        with self.client.websocket_connect(
+            f"/ws/progress/{job.job_id}?token=tok-123",
+            subprotocols=["chat"],
+        ) as ws:
+            msg = ws.receive_json()
+        self.assertEqual(msg["event"], "snapshot")
+
     def test_ws_cancel_works_with_valid_token(self):
         os.environ["MEDIASCRIBE_API_TOKEN"] = "tok-123"
         job = self._make_job()

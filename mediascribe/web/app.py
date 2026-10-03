@@ -1638,22 +1638,27 @@ def _register_ws_progress_route(app: "FastAPI") -> None:
         back to all listeners.
         """
         # P1-1: accept 之前完成鉴权 — 失败则握手拒绝, 不进入事件循环。
-        # token 首选 Sec-WebSocket-Protocol 子协议(不落 URL), query 参数
-        # 保留为兼容通道 — query 里的 token 会进 uvicorn/反代访问日志
-        # (2026-10-03 审查加固)。
+        # token 有两个通道: Sec-WebSocket-Protocol 子协议(首选, 不落
+        # uvicorn/反代访问日志)与 ?token= query(兼容旧客户端 / 子协议
+        # 字符集不安全的降级通道)。两通道候选**任一**匹配即放行 —
+        # 混合客户端(无关子协议 + query token)不会因通道优先级被误拒
+        # (2026-10-03 审查加固 + review 修复)。
+        client_host = websocket.client.host if websocket.client else None
         protocol_header = websocket.headers.get("sec-websocket-protocol", "")
-        presented = protocol_header.split(",")[0].strip() or None
-        if not presented:
-            presented = websocket.query_params.get("token")
-        ws_authenticated = _verify_api_token(
-            presented,
-            websocket.client.host if websocket.client else None,
-        )
+        header_tokens = [p.strip() for p in protocol_header.split(",") if p.strip()]
+        query_token = websocket.query_params.get("token")
+        candidates = header_tokens + ([query_token] if query_token else [])
+        if candidates:
+            ws_authenticated = any(_verify_api_token(t, client_host) for t in candidates)
+        else:
+            # 两通道都缺省: 无 token 模式看来源信任, 有 token 模式拒绝。
+            ws_authenticated = _verify_api_token(None, client_host)
         if not ws_authenticated:
             await websocket.close(code=1008)
             return
-        # 浏览器规范要求服务端在握手里回显选定的子协议, 否则客户端直接报错。
-        await websocket.accept(subprotocol=presented if protocol_header else None)
+        # 浏览器规范: 客户端请求了子协议时, 服务端必须从其列表中回显一个,
+        # 否则握手直接失败; query token 不是子协议, 绝不回显。
+        await websocket.accept(subprotocol=header_tokens[0] if header_tokens else None)
         try:
             from mediascribe.progress import ProgressRegistry
         except ImportError:
