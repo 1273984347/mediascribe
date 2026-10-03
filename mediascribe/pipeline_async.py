@@ -39,7 +39,7 @@ v3.2.0b Tier 1 — fully asynchronous pipeline.
 
 测试
 ----
-:mod:`douyin_batch.tests.test_pipeline_async` 覆盖并发数、
+:mod:`tests.test_pipeline_async` 覆盖并发数、
 ``asyncio.gather`` 隔离、cancellation 传播与 ``Pipeline`` 等价性。
 """
 
