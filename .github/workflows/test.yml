@@ -24,6 +24,7 @@ concurrency:
 
 permissions:
   contents: read
+  issues: write
 
 env:
   PYTHONDONTWRITEBYTECODE: "1"
@@ -185,6 +186,36 @@ jobs:
           python -m pytest tests/
           -m "not network or integration"
           -v --tb=short --maxfail=3
+
+      - name: Notify maintainer on cron failure
+        # cron-fail-notify 范式(用户技能库): schedule 失败主动建/评 issue, 杜绝静默 fail。
+        if: failure() && github.event_name == 'schedule'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const label = 'cron-failure';
+            const titlePrefix = 'MediaScribe nightly tests cron failed';
+            const runUrl = `${{context.serverUrl}}/${{context.repo.owner}}/${{context.repo.repo}}/actions/runs/${{context.runId}}`;
+            const body = `Cron run failed at ${{new Date().toISOString()}}. Run URL: ${{runUrl}}. Use gh run view ${{context.runId}} --log-failed to see what broke. Auto-created; close after triage.`;
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: label, per_page: 10,
+            });
+            const existing = issues.data.find(i => i.title.startsWith(titlePrefix));
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `Another failure at ${{new Date().toISOString()}}: ${{runUrl}}`,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title: titlePrefix + " (" + context.runId + ")",
+                labels: [label],
+                body: body,
+              });
+            }
         # NOTE: `network`-marked tests are intentionally excluded here
         # because the integration runner does not have outbound network
         # access in all CI environments. They can be opted in by
