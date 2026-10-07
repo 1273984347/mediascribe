@@ -186,7 +186,9 @@ class TestAsyncPipelineRunBatch(unittest.TestCase):
             transcriber = sync.transcriber
 
             def maybe_fail(audio_path, *a, **kw):
-                if "a1" in str(audio_path):
+                # 精确匹配文件名 — 子串匹配会被含 "a1" 的随机 tmpdir 名
+                # 误伤其他文件(实证: /tmp/tmpnjekca12/a0.wav 触发过 flake)
+                if Path(str(audio_path)).name == "a1.wav":
                     raise RuntimeError("boom")
                 return {
                     "text": "hello world",
