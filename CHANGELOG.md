@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (2026-10-08 存疑复核闭环)
+- **`verify` 子命令**: `python -m mediascribe verify <转录稿.md>` — 第三采样验证。
+  复用或按 metadata 来源 URL 重新下载音频 → 无术语注入 + 多档温度独立重采样
+  (与主稿形成解码级独立样本) → 写时间戳采样稿 `third-sample-*.md` → 对
+  `.crosscheck.json` 实词分歧逐条给出近似对齐证据(同主稿/同对照/第三读/未定位),
+  写 `<转录稿>.verify.md` 供人工裁决。配合"审校完再清理媒体"的工作流使用。
+- 清理中间媒体前打印存疑复核提示(stage 链与公众号兜底路径两处调用点)。
+
+### Changed
+- **faster-whisper 模型加载改本地优先**: 已缓存模型零网络请求, 消除受限
+  环境每次转录的 SSL 告警噪音; 仅本地缓存未命中才联网下载(新模型照常可下)。
+  `FasterWhisperTranscriber.transcribe` 支持 `temperature` 透传(verify 用)。
+
 ### Fixed (2026-10-03 全面审查)
 - **发布链修复**: release.yml lint 补装 bandit(dev extra 缺失导致 tag 一推必挂)、
   `--skip` 误用改 `--exclude`、Docker 多架构改单 job manifest list(原 amd64/arm64
