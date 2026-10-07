@@ -805,6 +805,20 @@ def cleanup_intermediate_media(settings: Settings, *paths: Optional[Path]) -> Li
     return deleted
 
 
+# 2026-10-08 复盘: cleanup 在 crosscheck 后即删媒体, 残余存疑(两模型同误处)
+# 将失去回听/第三采样复核路径 — 删除前明示, 审校场景建议先验证再清理。
+CLEANUP_REVIEW_HINT = (
+    "⚠️ 清理提示: 中间媒体删除后, 转录稿存疑处将无法回听复核; "
+    "审校场景建议先 `python -m mediascribe verify <转录稿>` 完成第三采样再清理"
+    "(删除后可按 metadata 里的来源 URL 重新下载)。"
+)
+
+
+def print_cleanup_review_hint() -> None:
+    """删除中间媒体前打印存疑复核提示(两个清理调用点共用)。"""
+    print(CLEANUP_REVIEW_HINT)
+
+
 class CleanupStage(Stage):
     """转录成功后删除本任务的中间媒体(settings.cleanup_media=True 时)。
 
@@ -821,6 +835,7 @@ class CleanupStage(Stage):
         return bool(getattr(ctx.settings, "cleanup_media", False)) and ctx.result is not None
 
     def run(self, ctx: PipelineContext) -> PipelineContext:
+        print_cleanup_review_hint()
         deleted = cleanup_intermediate_media(ctx.settings, ctx.audio_path, ctx.video_path)
         if deleted:
             print(f"🧹 已清理中间媒体 {len(deleted)} 个文件(转录稿与元数据不受影响)")
@@ -912,6 +927,8 @@ __all__ = [
     "AssembleStage",
     "CleanupStage",
     "cleanup_intermediate_media",
+    "CLEANUP_REVIEW_HINT",
+    "print_cleanup_review_hint",
     "default_chain",
     "URL_KINDS",
     "VIDEO_KINDS",

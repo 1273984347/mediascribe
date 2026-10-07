@@ -74,6 +74,8 @@ python -m mediascribe transcribe "video.mp4" --model auto
 python -m mediascribe transcribe "video.mp4" --timestamps
 
 # 双模型交叉校对(生成 <转录稿>.crosscheck.md 复核清单)+ 成功后自动清理中间媒体
+# 存疑复核(审校场景): 第三采样重转同一条音频, 对 crosscheck 分歧逐条给出第三方证据
+python -m mediascribe verify output/transcripts/<转录稿>.md
 python -m mediascribe transcribe "https://..." --cross-check small --cleanup-media
 
 # 常用参数持久化到配置文件（CLI 显式参数优先）
@@ -426,6 +428,8 @@ python -m mediascribe transcribe "video.mp4" --model auto
 python -m mediascribe transcribe "video.mp4" --timestamps
 
 # 双模型交叉校对(生成 .crosscheck.md 复核清单)+ 成功后自动清理中间媒体
+# 存疑复核(审校场景): 第三采样重转同一条音频, 对 crosscheck 分歧逐条给出第三方证据
+python -m mediascribe verify output/transcripts/<转录稿>.md
 python -m mediascribe transcribe "https://..." --cross-check small --cleanup-media
 
 # 常用参数持久化到配置文件（CLI 显式参数优先）

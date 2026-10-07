@@ -36,6 +36,7 @@ from .pipeline_stages import (
     _smart_pick_downloader,
     cleanup_intermediate_media,
     default_chain,
+    print_cleanup_review_hint,
 )
 from .transcribers import (
     FasterWhisperTranscriber,
@@ -747,6 +748,7 @@ class Pipeline:
         # v3.4.3: 公众号视频文章不走 stage chain,清理在这里补齐
         # (目录白名单保证只删托管目录内的文件)
         if getattr(self.settings, "cleanup_media", False):
+            print_cleanup_review_hint()
             deleted = cleanup_intermediate_media(self.settings, audio_path, video_path)
             if deleted:
                 print(f"🧹 已清理中间媒体 {len(deleted)} 个文件(转录稿与元数据不受影响)")

@@ -172,6 +172,9 @@ def _print_next_steps(result) -> None:
             "--original <原稿> --corrected <校对稿>"
         )
         print(
+            "   · 存疑项第三方复核(审校场景, 删媒体前跑):  python -m mediascribe verify <转录稿.md>"
+        )
+        print(
             "   · 开启 LLM 润色（标点/分段/专名）:  "
             "MEDIASCRIBE_LLM_ENABLED=1 + MEDIASCRIBE_LLM_API_BASE <endpoint>"
         )
@@ -521,6 +524,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return _run_doctor_cli(argv[1:])
     if argv and argv[0] == "archive":
         return _run_archive(argv[1:])
+    if argv and argv[0] == "verify":
+        return _run_verify(argv[1:])
     if not argv or argv[0] in ("-h", "--help"):
         if not argv:
             _print_quickstart()
@@ -533,12 +538,72 @@ def main(argv: Optional[List[str]] = None) -> int:
     if argv[0] not in ("transcribe", "t", "batch") and not argv[0].startswith("-"):
         print(f"mediascribe: unknown command {argv[0]!r}", file=sys.stderr)
         print(
-            "可用命令: transcribe / batch / archive / learn / profile / doctor\n"
+            "可用命令: transcribe / batch / archive / learn / profile / doctor / verify\n"
             "Try 'python -m mediascribe --help'",
             file=sys.stderr,
         )
         return 1
     return _run_legacy(argv)
+
+
+def _run_verify(argv: List[str]) -> int:
+    """``python -m mediascribe verify <转录稿.md>`` — 第三采样验证。
+
+    对已交付转录稿的存疑项做第三方重采样裁决: 复用或按 metadata 来源
+    URL 重新下载音频 → 无术语注入 + 多档温度独立重采样 → 写时间戳
+    采样稿 third-sample-*.md → 逐条分歧给出近似证据写 *.verify.md。
+    音频保留在盘, 由调用方在审校完成后自行清理。
+    """
+    parser = argparse.ArgumentParser(
+        prog="python -m mediascribe verify",
+        description=(
+            "第三采样验证 — 重转同一条音频, 对 crosscheck 实词分歧逐条"
+            "给出第三方证据(审校存疑项复核)"
+        ),
+    )
+    parser.add_argument("transcript", type=Path, help="转录稿 .md 路径(raw 或审校稿)")
+    parser.add_argument(
+        "--model",
+        "-m",
+        default="large-v3",
+        help="第三采样模型(默认 large-v3; 建议与主稿/对照稿不同的解码路径)",
+    )
+    parser.add_argument(
+        "--device",
+        "-d",
+        choices=["auto", "cuda", "cpu"],
+        default="auto",
+        help="运行设备(默认 auto)",
+    )
+    parser.add_argument("--language", "-l", default="zh", help="语言代码(默认 zh)")
+    parser.add_argument(
+        "--workspace",
+        "-w",
+        type=Path,
+        help="工作目录(默认: ./output 或 MEDIASCRIBE_WORKSPACE)",
+    )
+    args = parser.parse_args(argv)
+
+    from .config import Settings
+    from .pipeline import resolve_device
+    from .verify import run_verify
+
+    settings = Settings()
+    if args.workspace:
+        settings.workspace_root = args.workspace
+    device = resolve_device(args.device)
+    try:
+        run_verify(
+            args.transcript,
+            settings,
+            model=args.model,
+            device=device,
+            language=args.language,
+        )
+        return 0
+    except Exception as e:
+        print(f"❌ 第三采样验证失败: {type(e).__name__}: {e}", file=sys.stderr)
+        return 1
 
 
 def _run_doctor_cli(argv: List[str]) -> int:

@@ -135,54 +135,36 @@ def _resolve_compute_type(device: str) -> str:
     return "int8"
 
 
-def _is_network_error(exc: BaseException) -> bool:
-    """判断异常是否为网络类错误（SSL/连接/超时/DNS）。"""
-    try:
-        import requests
-
-        if isinstance(exc, requests.exceptions.RequestException):
-            return True
-    except ImportError:
-        pass
-    text = f"{type(exc).__name__}: {exc}".lower()
-    return any(
-        sig in text
-        for sig in (
-            "ssl",
-            "certificate",
-            "connection",
-            "max retries",
-            "timed out",
-            "name or service not known",
-        )
-    )
+def _is_local_cache_miss(exc: BaseException) -> bool:
+    """判断异常是否为"本地缓存没有该模型"类错误（可转联网下载重试）。"""
+    name = type(exc).__name__
+    if "LocalEntryNotFound" in name or "OfflineModeIsEnabled" in name:
+        return True
+    text = f"{exc}".lower()
+    return "cached" in text or "local entry" in text or ("snapshot" in text and "cache" in text)
 
 
 def _load_whisper_model(model_name: str, device: str, compute_type: str) -> Any:
-    """新建 ``WhisperModel``；联网校验失败时回退本地缓存。
+    """新建 ``WhisperModel``：本地缓存优先，未命中再联网下载。
 
-    模型已缓存时 faster-whisper 仍会请求 HuggingFace 校验 repo，网络
-    受限环境（SSL 拦截/离线）会整轮失败。此时以 ``local_files_only``
-    重试走本地缓存；若本地也没有，重试自身会抛出明确的缓存缺失错误。
+    模型已缓存时 faster-whisper 默认仍会请求 HuggingFace 校验 repo，
+    网络受限环境（SSL 拦截/离线）会整轮报 SSL 错再回退——每次转录刷两行
+    告警噪音（2026-10-08 复盘）。反转为 local-first：已缓存零网络请求；
+    仅当本地确实没有该模型时才联网下载（新模型照常可下）。显式设置
+    ``HF_HUB_OFFLINE=1`` 且缓存缺失时，联网重试会抛出离线模式错误，
+    属预期的快速失败。
     """
     from faster_whisper import WhisperModel
 
     try:
-        return WhisperModel(model_name, device=device, compute_type=compute_type)
-    except Exception as exc:
-        if not _is_network_error(exc):
-            raise
-        logger.warning(
-            "在线加载模型失败(%s: %s)，改用本地缓存重试 local_files_only=True",
-            type(exc).__name__,
-            exc,
-        )
         return WhisperModel(
-            model_name,
-            device=device,
-            compute_type=compute_type,
-            local_files_only=True,
+            model_name, device=device, compute_type=compute_type, local_files_only=True
         )
+    except Exception as exc:
+        if not _is_local_cache_miss(exc):
+            raise
+        logger.info("本地缓存未命中 %s，尝试联网下载模型", model_name)
+        return WhisperModel(model_name, device=device, compute_type=compute_type)
 
 
 def _get_cached_model(model_name: str, device: str, compute_type: str) -> Any:
@@ -274,6 +256,9 @@ class FasterWhisperTranscriber(Transcriber):
             logger.info("转录中...")
 
         language = kwargs.get("language")
+        # verify 等第三方采样场景: 多档温度让低置信段触发回退采样, 与主稿
+        # (贪心) 形成解码级独立样本; 默认 None 走 faster-whisper 内部默认。
+        temperature = kwargs.get("temperature")
         # Whisper 训练语料含大量繁体（维基、港台字幕），language="zh" 默认
         # 倾向繁体输出。当未显式传 prompt 且语言是中文时，注入简体中文
         # initial_prompt 引导模型输出简体。调用方显式传 prompt 时不覆盖
@@ -281,13 +266,15 @@ class FasterWhisperTranscriber(Transcriber):
         initial_prompt = prompt
         if initial_prompt is None and language == "zh":
             initial_prompt = "以下是简体中文的句子。"
-        segments, info = model.transcribe(
-            str(audio_path),
-            language=language,
-            initial_prompt=initial_prompt,
-            vad_filter=self.vad_filter,
-            vad_parameters={"min_silence_duration_ms": 500},
-        )
+        transcribe_kwargs: dict[str, Any] = {
+            "language": language,
+            "initial_prompt": initial_prompt,
+            "vad_filter": self.vad_filter,
+            "vad_parameters": {"min_silence_duration_ms": 500},
+        }
+        if temperature is not None:
+            transcribe_kwargs["temperature"] = temperature
+        segments, info = model.transcribe(str(audio_path), **transcribe_kwargs)
 
         seg_list = []
         text_parts = []

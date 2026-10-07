@@ -116,7 +116,9 @@ class TestFasterWhisperLRUCache(unittest.TestCase):
         created = []
 
         class FakeWhisperModel:
-            def __init__(self, name, device=None, compute_type=None):
+            # local_files_only: 2026-10-08 起 _load_whisper_model 本地优先,
+            # 首次构造即传该参数(fake 需镜像真实构造面)
+            def __init__(self, name, device=None, compute_type=None, local_files_only=False):
                 created.append(name)
 
         fake_mod.WhisperModel = FakeWhisperModel
