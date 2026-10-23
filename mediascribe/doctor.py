@@ -65,14 +65,8 @@ def _list_downloaded_models(cache_dir: Optional[Path]) -> List[str]:
     return sorted(p.name for p in cache_dir.iterdir() if p.is_dir() and not p.name.startswith("."))
 
 
-def run_doctor(workspace: Optional[Path] = None) -> int:
-    """执行环境自检并打印报告。返回进程退出码。"""
-    print("🩺 MediaScribe 环境自检")
-    print("=" * 50)
-
-    critical_ok = True
-
-    # ---- Python ----
+def _check_python() -> None:
+    """📌 Python — 版本下限 3.11。"""
     print("\n📌 Python")
     v = sys.version_info
     _check(
@@ -82,17 +76,20 @@ def run_doctor(workspace: Optional[Path] = None) -> int:
         "需要 Python 3.11+",
     )
 
-    # ---- ffmpeg ----
+
+def _check_av_tools() -> bool:
+    """📌 音视频工具 — ffmpeg 是转录硬依赖, 缺失即关键失败。
+
+    返回是否关键依赖就绪(供 run_doctor 决定退出码)。
+    """
     print("\n📌 音视频工具")
     ffmpeg = shutil.which("ffmpeg")
-    ok = _check(
+    critical_ok = _check(
         "ffmpeg",
         ffmpeg is not None,
         ffmpeg or "未在 PATH 中找到",
         "安装 ffmpeg 并加入 PATH（https://ffmpeg.org），转录硬依赖",
     )
-    if not ok:
-        critical_ok = False
     ffprobe = shutil.which("ffprobe")
     _check(
         "ffprobe",
@@ -100,8 +97,11 @@ def run_doctor(workspace: Optional[Path] = None) -> int:
         ffprobe or "未找到（--model auto 的时长探测会退回 small）",
         "随 ffmpeg 一起安装",
     )
+    return critical_ok
 
-    # ---- 设备 ----
+
+def _check_device() -> None:
+    """📌 运行设备 — CUDA / Metal / ROCm / CPU 探测。"""
     print("\n📌 运行设备")
     try:
         from .pipeline import gpu_health, resolve_device
@@ -129,7 +129,9 @@ def run_doctor(workspace: Optional[Path] = None) -> int:
     except Exception as exc:  # pragma: no cover - 探测自身异常
         _check("设备探测", False, f"异常: {exc!r}")
 
-    # ---- 引擎 ----
+
+def _check_engines() -> None:
+    """📌 转录引擎 — 三个可选引擎的安装状态。"""
     print("\n📌 转录引擎")
     engines = [
         ("whisper", "whisper（默认）", "pip install -r requirements.txt"),
@@ -140,7 +142,9 @@ def run_doctor(workspace: Optional[Path] = None) -> int:
         avail, detail = _engine_available(module)
         _check(label, avail, detail, hint)
 
-    # ---- 模型缓存 ----
+
+def _check_model_cache() -> None:
+    """📌 模型缓存 — 已下载哪些转录模型。"""
     print("\n📌 模型缓存")
     cache_dir = _model_cache_dir()
     models = _list_downloaded_models(cache_dir)
@@ -153,7 +157,9 @@ def run_doctor(workspace: Optional[Path] = None) -> int:
             f"{cache_dir}（空 — 首次转录时会自动下载模型）",
         )
 
-    # ---- 工作区 ----
+
+def _check_workspace(workspace: Optional[Path]) -> None:
+    """📌 工作区 — 目录存在且可写(写探针实测)。"""
     print("\n📌 工作区")
     ws = (
         Path(workspace)
@@ -169,7 +175,9 @@ def run_doctor(workspace: Optional[Path] = None) -> int:
     except Exception as exc:
         _check("可写", False, f"{ws} — {exc!r}", "检查目录权限或用 --workspace 换路径")
 
-    # ---- cookies ----
+
+def _check_cookies() -> None:
+    """📌 Cookies — 微信公众号 / 抖音的可选登录凭据。"""
     print("\n📌 Cookies（可选）")
     wechat_env = os.environ.get("MEDIASCRIBE_WECHAT_COOKIE", "").strip()
     wechat_local = [p for p in (Path("wechat_cookies.json"),) if p.exists()]
@@ -191,7 +199,9 @@ def run_doctor(workspace: Optional[Path] = None) -> int:
         "浏览器导出 cookies.txt 放到项目根目录（见 docs_site 平台文档）",
     )
 
-    # ---- 术语库 ----
+
+def _check_terms() -> None:
+    """📌 ASR 术语库 — learn 累积的条数(读不到按空处理, 不算失败)。"""
     print("\n📌 ASR 术语库（可选）")
     try:
         from .learn import _load_db  # type: ignore[attr-defined]
@@ -207,6 +217,26 @@ def run_doctor(workspace: Optional[Path] = None) -> int:
         )
     except Exception:
         _check("learn 术语", True, "无法读取（跳过）")
+
+
+def run_doctor(workspace: Optional[Path] = None) -> int:
+    """执行环境自检并打印报告。返回进程退出码。
+
+    各自检项拆分为 ``_check_*`` 系列函数(输出顺序即调用顺序);
+    退出码约定: ffmpeg 缺失返回 1, 其余情况一律 0 — doctor 的定位
+    是"诊断报告", 非关键项缺失不应阻断脚本调用方。
+    """
+    print("🩺 MediaScribe 环境自检")
+    print("=" * 50)
+
+    _check_python()
+    critical_ok = _check_av_tools()
+    _check_device()
+    _check_engines()
+    _check_model_cache()
+    _check_workspace(workspace)
+    _check_cookies()
+    _check_terms()
 
     print("\n" + "=" * 50)
     if critical_ok:

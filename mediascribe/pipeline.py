@@ -225,6 +225,118 @@ def _probe_audio_duration(path: Path) -> float:
         return 0.0
 
 
+def _print_transcript_done(transcript_path: Path, metadata_path: Path) -> None:
+    """交付物落盘后的统一完成提示(文本型/视频型公众号两条路径共用)。"""
+    print("\n✅ 完成！")
+    print(f"📝 转录文件: {transcript_path}")
+    print(f"📋 元数据: {metadata_path}")
+
+
+def _build_wechat_text_markdown(base_name: str, text: str, meta: dict) -> str:
+    """构建文本型公众号文章的 markdown(标题 + 基本信息 + 正文 + OCR 附录)。"""
+    lines = [f"# {base_name}", "", "## 基本信息", ""]
+    if meta.get("nickname"):
+        lines.append(f"- **公众号**: {meta['nickname']}")
+    if meta.get("author"):
+        lines.append(f"- **作者**: {meta['author']}")
+    if meta.get("url"):
+        lines.append(f"- **原文链接**: {meta['url']}")
+    lines.append("- **类型**: 微信公众号图文")
+    # OCR 状态
+    ocr_total = int(meta.get("ocr_total") or 0)
+    ocr_success = int(meta.get("ocr_success") or 0)
+    if ocr_total:
+        lines.append(f"- **图片 OCR**: {ocr_success}/{ocr_total}（已附在文末）")
+    wechat_status = meta.get("wechat_mp_status") or "success"
+    lines.append(f"- **状态**: {wechat_status}")
+    lines.append(f"- **生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append("")
+    lines.append("## 正文")
+    lines.append("")
+    # 段落分隔保留
+    for paragraph in text.split("\n\n"):
+        if paragraph.strip():
+            lines.append(paragraph.strip())
+            lines.append("")
+
+    # OCR 内容追加到文末（如果有）
+    ocr_texts = meta.get("ocr_texts") or []
+    if ocr_texts:
+        lines.append("## 图片 OCR 文本")
+        lines.append("")
+        for i, ocr in enumerate(ocr_texts, 1):
+            lines.append(f"### 图片 {i}")
+            lines.append("")
+            lines.append(ocr.strip())
+            lines.append("")
+    return "\n".join(lines)
+
+
+def _bilingual_video_label_lines(transcription: dict, messages_cls) -> list:
+    """视频型公众号消息的双语标签行(平台/说话人分离 + 字幕说明块)。
+
+    ``messages_cls`` 是 ``douyin_batch.i18n.Messages``; i18n 模块不可
+    用时由调用方降级为基础模式, 本函数不负责降级。
+    """
+    lines: list = []
+    diar = bool(transcription.get("speaker_diarization", False))
+    enabled_zh = messages_cls.LABEL_BILINGUAL_ENABLED.get("zh", "已启用")
+    enabled_en = messages_cls.LABEL_BILINGUAL_ENABLED.get("en", "Enabled")
+    disabled_zh = messages_cls.LABEL_BILINGUAL_DISABLED.get("zh", "未启用")
+    disabled_en = messages_cls.LABEL_BILINGUAL_DISABLED.get("en", "Disabled")
+    speaker_label = f"{enabled_zh} / {enabled_en}" if diar else f"{disabled_zh} / {disabled_en}"
+    platform_zh = messages_cls.PLATFORM_WECHAT_MP.get("zh", "微信公众号")
+    platform_en = messages_cls.PLATFORM_WECHAT_MP.get("en", "WeChat MP")
+    platform_label_zh = messages_cls.LABEL_BILINGUAL_PLATFORM.get("zh", "平台")
+    platform_label_en = messages_cls.LABEL_BILINGUAL_PLATFORM.get("en", "Platform")
+    speakers_label_zh = messages_cls.LABEL_BILINGUAL_SPEAKERS.get("zh", "说话人分离")
+    speakers_label_en = messages_cls.LABEL_BILINGUAL_SPEAKERS.get("en", "Speaker Diarization")
+    lines.append(f"- **{platform_label_zh} / {platform_label_en}**: {platform_zh} / {platform_en}")
+    lines.append(f"- **{speakers_label_zh} / {speakers_label_en}**: {speaker_label}")
+    lines.append("")
+
+    # 文末追加字幕说明块
+    engine_label_zh = messages_cls.LABEL_BILINGUAL_ENGINE.get("zh", "转录引擎")
+    engine_label_en = messages_cls.LABEL_BILINGUAL_ENGINE.get("en", "Transcription Engine")
+    lang_label_zh = messages_cls.LABEL_BILINGUAL_LANG.get("zh", "检测语言")
+    lang_label_en = messages_cls.LABEL_BILINGUAL_LANG.get("en", "Detected Language")
+    subtitle_header_zh = messages_cls.LABEL_BILINGUAL_SUBTITLE_HEADER.get("zh", "## 字幕")
+    lines.append(subtitle_header_zh)
+    lines.append("")
+    lines.append(
+        f"- **{engine_label_zh} / {engine_label_en}**: {transcription.get('model', 'unknown')}"
+    )
+    lines.append(
+        f"- **{lang_label_zh} / {lang_label_en}**: {transcription.get('language', 'unknown')}"
+    )
+    # 段级别标签
+    segments = transcription.get("segments") or []
+    if segments and isinstance(segments, list):
+        lines.append("")
+        zh_prefix_template = messages_cls.LABEL_BILINGUAL_SEGMENT_PREFIX.get("zh", "[片段 {idx}]")
+        en_prefix_template = messages_cls.LABEL_BILINGUAL_SEGMENT_PREFIX.get(
+            "en", "[Segment {idx}]"
+        )
+        for idx, seg in enumerate(segments, 1):
+            if not isinstance(seg, dict):
+                continue
+            seg_text = (seg.get("text") or "").strip()
+            if not seg_text:
+                continue
+            zh_prefix = zh_prefix_template.format(idx=idx)
+            en_prefix = en_prefix_template.format(idx=idx)
+            ts = seg.get("start")
+            if ts is None:
+                ts = seg.get("t0")
+            if ts is not None:
+                ts_str = f" @ {float(ts):.1f}s"
+            else:
+                ts_str = ""
+            lines.append(f"{zh_prefix} {seg_text} {en_prefix}{ts_str}")
+        lines.append("")
+    return lines
+
+
 class Pipeline:
     """核心工作流 Pipeline"""
 
@@ -571,44 +683,8 @@ class Pipeline:
         metadata_path = self._resolve_metadata_path(transcript_path)
         transcript_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # 构建 markdown
-        lines = [f"# {base_name}", "", "## 基本信息", ""]
-        if meta.get("nickname"):
-            lines.append(f"- **公众号**: {meta['nickname']}")
-        if meta.get("author"):
-            lines.append(f"- **作者**: {meta['author']}")
-        if meta.get("url"):
-            lines.append(f"- **原文链接**: {meta['url']}")
-        lines.append("- **类型**: 微信公众号图文")
-        # OCR 状态
-        ocr_total = int(meta.get("ocr_total") or 0)
-        ocr_success = int(meta.get("ocr_success") or 0)
-        if ocr_total:
-            lines.append(f"- **图片 OCR**: {ocr_success}/{ocr_total}（已附在文末）")
-        wechat_status = meta.get("wechat_mp_status") or "success"
-        lines.append(f"- **状态**: {wechat_status}")
-        lines.append(f"- **生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        lines.append("")
-        lines.append("## 正文")
-        lines.append("")
-        # 段落分隔保留
-        for paragraph in text.split("\n\n"):
-            if paragraph.strip():
-                lines.append(paragraph.strip())
-                lines.append("")
-
-        # OCR 内容追加到文末（如果有）
-        ocr_texts = meta.get("ocr_texts") or []
-        if ocr_texts:
-            lines.append("## 图片 OCR 文本")
-            lines.append("")
-            for i, ocr in enumerate(ocr_texts, 1):
-                lines.append(f"### 图片 {i}")
-                lines.append("")
-                lines.append(ocr.strip())
-                lines.append("")
-
-        _atomic_write_text(transcript_path, "\n".join(lines), encoding="utf-8")
+        markdown_content = _build_wechat_text_markdown(base_name, text, meta)
+        _atomic_write_text(transcript_path, markdown_content, encoding="utf-8")
 
         # metadata
         metadata = {
@@ -632,9 +708,7 @@ class Pipeline:
             encoding="utf-8",
         )
 
-        print("\n✅ 完成！")
-        print(f"📝 转录文件: {transcript_path}")
-        print(f"📋 元数据: {metadata_path}")
+        _print_transcript_done(transcript_path, metadata_path)
         return TranscriptResult(
             source=source,
             engine="wechat_mp_text",
@@ -690,8 +764,54 @@ class Pipeline:
         )
         _atomic_write_text(transcript_path, markdown_content, encoding="utf-8")
 
+        metadata = self._build_video_article_metadata(
+            source, downloaded, transcription, audio_path, video_path, bilingual=bilingual
+        )
+        _atomic_write_text(
+            metadata_path,
+            json.dumps(metadata, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        _print_transcript_done(transcript_path, metadata_path)
+        # v3.4.3: 公众号视频文章不走 stage chain,清理在这里补齐
+        # (目录白名单保证只删托管目录内的文件)
+        if getattr(self.settings, "cleanup_media", False):
+            print_cleanup_review_hint()
+            deleted = cleanup_intermediate_media(self.settings, audio_path, video_path)
+            if deleted:
+                print(f"🧹 已清理中间媒体 {len(deleted)} 个文件(转录稿与元数据不受影响)")
+        return TranscriptResult(
+            source=source,
+            engine=self.transcriber.name,
+            model=str(transcription.get("model", "")),
+            text=text,
+            audio_path=audio_path,
+            transcript_path=transcript_path,
+            video_path=video_path,
+            metadata_path=metadata_path,
+            metadata=metadata,
+            segments=transcription.get("segments"),
+            language=transcription.get("language"),
+            speaker_diarization=transcription.get("speaker_diarization", False),
+        )
+
+    def _build_video_article_metadata(
+        self,
+        source: SourceRef,
+        downloaded: DownloadResult,
+        transcription: dict,
+        audio_path: Path,
+        video_path: Path,
+        *,
+        bilingual: bool = False,
+    ) -> dict:
+        """组装视频型公众号消息的元数据 JSON(bilingual 时附 i18n 标签)。
+
+        ``bilingual`` 标签始终记录, 方便 Agent / 脚本直接读 JSON 判断
+        双语模式是否开启; ``i18n_labels`` 仅在 i18n 模块可用时补充。
+        """
         meta = downloaded.metadata or {}
-        # 始终在 metadata 中记录 bilingual 标签，方便 Agent 读取
         metadata = {
             "source": {
                 "raw_input": source.raw_input,
@@ -736,36 +856,7 @@ class Pipeline:
                     "zh": labels_zh,
                     "active_lang": prev_lang,
                 }
-        _atomic_write_text(
-            metadata_path,
-            json.dumps(metadata, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-
-        print("\n✅ 完成！")
-        print(f"📝 转录文件: {transcript_path}")
-        print(f"📋 元数据: {metadata_path}")
-        # v3.4.3: 公众号视频文章不走 stage chain,清理在这里补齐
-        # (目录白名单保证只删托管目录内的文件)
-        if getattr(self.settings, "cleanup_media", False):
-            print_cleanup_review_hint()
-            deleted = cleanup_intermediate_media(self.settings, audio_path, video_path)
-            if deleted:
-                print(f"🧹 已清理中间媒体 {len(deleted)} 个文件(转录稿与元数据不受影响)")
-        return TranscriptResult(
-            source=source,
-            engine=self.transcriber.name,
-            model=str(transcription.get("model", "")),
-            text=text,
-            audio_path=audio_path,
-            transcript_path=transcript_path,
-            video_path=video_path,
-            metadata_path=metadata_path,
-            metadata=metadata,
-            segments=transcription.get("segments"),
-            language=transcription.get("language"),
-            speaker_diarization=transcription.get("speaker_diarization", False),
-        )
+        return metadata
 
     def _build_video_article_markdown(
         self,
@@ -817,76 +908,7 @@ class Pipeline:
                 messages_cls = None
 
             if messages_cls is not None:
-                diar = bool(transcription.get("speaker_diarization", False))
-                enabled_zh = messages_cls.LABEL_BILINGUAL_ENABLED.get("zh", "已启用")
-                enabled_en = messages_cls.LABEL_BILINGUAL_ENABLED.get("en", "Enabled")
-                disabled_zh = messages_cls.LABEL_BILINGUAL_DISABLED.get("zh", "未启用")
-                disabled_en = messages_cls.LABEL_BILINGUAL_DISABLED.get("en", "Disabled")
-                speaker_label = (
-                    f"{enabled_zh} / {enabled_en}" if diar else f"{disabled_zh} / {disabled_en}"
-                )
-                platform_zh = messages_cls.PLATFORM_WECHAT_MP.get("zh", "微信公众号")
-                platform_en = messages_cls.PLATFORM_WECHAT_MP.get("en", "WeChat MP")
-                platform_label_zh = messages_cls.LABEL_BILINGUAL_PLATFORM.get("zh", "平台")
-                platform_label_en = messages_cls.LABEL_BILINGUAL_PLATFORM.get("en", "Platform")
-                speakers_label_zh = messages_cls.LABEL_BILINGUAL_SPEAKERS.get("zh", "说话人分离")
-                speakers_label_en = messages_cls.LABEL_BILINGUAL_SPEAKERS.get(
-                    "en", "Speaker Diarization"
-                )
-                lines.append(
-                    f"- **{platform_label_zh} / {platform_label_en}**: "
-                    f"{platform_zh} / {platform_en}"
-                )
-                lines.append(f"- **{speakers_label_zh} / {speakers_label_en}**: {speaker_label}")
-                lines.append("")
-
-                # 文末追加字幕说明块
-                engine_label_zh = messages_cls.LABEL_BILINGUAL_ENGINE.get("zh", "转录引擎")
-                engine_label_en = messages_cls.LABEL_BILINGUAL_ENGINE.get(
-                    "en", "Transcription Engine"
-                )
-                lang_label_zh = messages_cls.LABEL_BILINGUAL_LANG.get("zh", "检测语言")
-                lang_label_en = messages_cls.LABEL_BILINGUAL_LANG.get("en", "Detected Language")
-                subtitle_header_zh = messages_cls.LABEL_BILINGUAL_SUBTITLE_HEADER.get(
-                    "zh", "## 字幕"
-                )
-                lines.append(subtitle_header_zh)
-                lines.append("")
-                lines.append(
-                    f"- **{engine_label_zh} / {engine_label_en}**: "
-                    f"{transcription.get('model', 'unknown')}"
-                )
-                lines.append(
-                    f"- **{lang_label_zh} / {lang_label_en}**: "
-                    f"{transcription.get('language', 'unknown')}"
-                )
-                # 段级别标签
-                segments = transcription.get("segments") or []
-                if segments and isinstance(segments, list):
-                    lines.append("")
-                    zh_prefix_template = messages_cls.LABEL_BILINGUAL_SEGMENT_PREFIX.get(
-                        "zh", "[片段 {idx}]"
-                    )
-                    en_prefix_template = messages_cls.LABEL_BILINGUAL_SEGMENT_PREFIX.get(
-                        "en", "[Segment {idx}]"
-                    )
-                    for idx, seg in enumerate(segments, 1):
-                        if not isinstance(seg, dict):
-                            continue
-                        seg_text = (seg.get("text") or "").strip()
-                        if not seg_text:
-                            continue
-                        zh_prefix = zh_prefix_template.format(idx=idx)
-                        en_prefix = en_prefix_template.format(idx=idx)
-                        ts = seg.get("start")
-                        if ts is None:
-                            ts = seg.get("t0")
-                        if ts is not None:
-                            ts_str = f" @ {float(ts):.1f}s"
-                        else:
-                            ts_str = ""
-                        lines.append(f"{zh_prefix} {seg_text} {en_prefix}{ts_str}")
-                    lines.append("")
+                lines.extend(_bilingual_video_label_lines(transcription, messages_cls))
 
         # 转录内容
         lines.append("## 转录内容 / Transcript")

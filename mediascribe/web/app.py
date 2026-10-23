@@ -75,8 +75,11 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Any, Callable, Deque, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Deque, Dict, List, Optional, cast
 from urllib.parse import urlsplit
+
+if TYPE_CHECKING:  # pragma: no cover - 仅类型检查用
+    from mediascribe.progress import ProgressRegistry
 
 # FastAPI / Pydantic are optional dependencies.  The CLI may
 # still want to print the help without them, so we keep imports
@@ -1295,6 +1298,42 @@ def _register_health_routes(app: "FastAPI") -> None:
         }
 
 
+def _import_extension_builder():
+    """导入扩展打包模块, 兼容「包导入」与「脚本态裸模块」两种加载路径。
+
+    web/app.py 既可能被 ``mediascribe.web.app`` 正常导入, 也可能被
+    测试 client 以顶层脚本模块加载(此时 ``extension_builder`` 没有
+    包前缀) — 两种都试, 都失败才抛给调用方转 500。
+    """
+    import importlib
+
+    try:
+        return importlib.import_module("mediascribe.web.extension_builder")
+    except Exception:
+        return importlib.import_module("extension_builder")
+
+
+def _job_registry(app: "FastAPI") -> "ProgressRegistry":
+    """取当前 app 的任务注册表(app.state.jobs 的类型化访问)。
+
+    函数内 :func:`importlib.import_module` 兼作可导入性探测 —
+    ``mediascribe.progress`` 缺失时抛 ImportError, ws_progress 会
+    把它转成 WS 错误事件后关闭连接。
+    """
+    import importlib
+
+    importlib.import_module("mediascribe.progress")
+    return cast("ProgressRegistry", app.state.jobs)
+
+
+def _pipeline_init_error(exc: Exception) -> HTTPException:
+    """pipeline 初始化失败的统一 500 响应(细节只落服务端日志)。"""
+    return HTTPException(
+        status_code=500,
+        detail="internal error while initialising the pipeline; see server logs",
+    )
+
+
 def _register_extension_routes(app: "FastAPI") -> None:
     """Route registrar — create_app 装配时调用(2026-10-03 审查拆分, 路由逐字搬移)。"""
 
@@ -1388,14 +1427,7 @@ def _register_extension_routes(app: "FastAPI") -> None:
         """
         _enforce_rate_limit(app.state.rate_limiter, request)
         try:
-            # Tolerate both ``app`` (loaded as a script module by the
-            # test client) and the proper package import.
-            import importlib
-
-            try:
-                builder = importlib.import_module("mediascribe.web.extension_builder")
-            except Exception:
-                builder = importlib.import_module("extension_builder")
+            builder = _import_extension_builder()
             build_extension_zip = builder.build_extension_zip
             build_install_markdown = builder.build_install_markdown
         except Exception as exc:  # pragma: no cover - defensive
@@ -1443,12 +1475,7 @@ def _register_extension_routes(app: "FastAPI") -> None:
         ``/api/extension/install.md?raw=1``.
         """
         try:
-            import importlib
-
-            try:
-                builder = importlib.import_module("mediascribe.web.extension_builder")
-            except Exception:
-                builder = importlib.import_module("extension_builder")
+            builder = _import_extension_builder()
             build_install_markdown = builder.build_install_markdown
         except Exception as exc:  # pragma: no cover
             raise HTTPException(
@@ -1586,10 +1613,7 @@ def _register_transcribe_route(app: "FastAPI", workspace: Path) -> None:
         except Exception as exc:
             # P2-8: 内部异常细节(路径/stack)不回显客户端, 落服务端日志。
             logger.exception("pipeline init failed")
-            raise HTTPException(
-                status_code=500,
-                detail="internal error while initialising the pipeline; see server logs",
-            ) from exc
+            raise _pipeline_init_error(exc) from exc
         items: List[TranscribeItem] = []
         for url in req.urls:
             items.append(_run_one(pipeline, url, workspace / "out", req))
@@ -1656,12 +1680,11 @@ def _register_ws_progress_route(app: "FastAPI") -> None:
         # 否则握手直接失败; query token 不是子协议, 绝不回显。
         await websocket.accept(subprotocol=header_tokens[0] if header_tokens else None)
         try:
-            from mediascribe.progress import ProgressRegistry
+            registry = _job_registry(app)
         except ImportError:
             await websocket.send_json({"event": "error", "message": "progress module missing"})
             await websocket.close(code=1011)
             return
-        registry: ProgressRegistry = app.state.jobs  # type: ignore[attr-defined]
         job = registry.get(job_id)
         if job is None:
             await websocket.send_json({"event": "error", "message": "unknown job"})
@@ -1801,9 +1824,7 @@ def _register_job_control_routes(app: "FastAPI") -> None:
         so in-flight ``asyncio.Task``s are torn down, not just the
         cooperative ``job.cancelled`` flag.
         """
-        from mediascribe.progress import ProgressRegistry
-
-        registry: ProgressRegistry = app.state.jobs  # type: ignore[attr-defined]
+        registry = _job_registry(app)
         cancelled = registry.cancel(job_id)
         if not cancelled:
             raise HTTPException(status_code=404, detail=f"unknown job: {job_id}")
@@ -1818,9 +1839,7 @@ def _register_job_control_routes(app: "FastAPI") -> None:
     @app.get("/api/jobs/{job_id}", dependencies=[Depends(_require_api_token)])
     def job_status(job_id: str) -> Dict[str, Any]:
         """Return the current snapshot of a job's progress."""
-        from mediascribe.progress import ProgressRegistry
-
-        registry: ProgressRegistry = app.state.jobs  # type: ignore[attr-defined]
+        registry = _job_registry(app)
         job = registry.get(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail=f"unknown job: {job_id}")
@@ -1876,14 +1895,11 @@ def _register_submit_jobs_route(app: "FastAPI", workspace: Path) -> None:
         except Exception as exc:
             # P2-8: 内部异常细节不回显客户端, 落服务端日志。
             logger.exception("pipeline init failed")
-            raise HTTPException(
-                status_code=500,
-                detail="internal error while initialising the pipeline; see server logs",
-            ) from exc
+            raise _pipeline_init_error(exc) from exc
         from mediascribe.pipeline_async import AsyncPipeline
-        from mediascribe.progress import ProgressRegistry, with_progress
+        from mediascribe.progress import with_progress
 
-        registry: ProgressRegistry = app.state.jobs  # type: ignore[attr-defined]
+        registry = _job_registry(app)
         out_dir = workspace / "out"
         out_dir.mkdir(parents=True, exist_ok=True)
         # v3.2.0e wiring: 整批走一个 AsyncPipeline.run_batch,获得 GPU 感知并发
@@ -1950,9 +1966,7 @@ def _register_job_result_route(app: "FastAPI") -> None:
         optional ``engine`` / ``title``.  Cancelled jobs return
         ``cancelled=True`` with ``markdown=None``.
         """
-        from mediascribe.progress import ProgressRegistry
-
-        registry: ProgressRegistry = app.state.jobs  # type: ignore[attr-defined]
+        registry = _job_registry(app)
         job = registry.get(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail=f"unknown job: {job_id}")
