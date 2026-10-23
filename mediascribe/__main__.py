@@ -183,8 +183,8 @@ def _print_next_steps(result) -> None:
         pass
 
 
-def _run_legacy(argv: Optional[List[str]]) -> int:
-    """Original v3.1.0 CLI — ``transcribe`` / ``batch`` subcommands."""
+def _build_legacy_parser() -> argparse.ArgumentParser:
+    """构建 ``transcribe`` / ``batch`` 子命令的 v3.1.0 原版解析器。"""
     parser = argparse.ArgumentParser(
         description="🎬 MediaScribe - 视频转文字工具（深度整合版）",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -316,38 +316,50 @@ def _run_legacy(argv: Optional[List[str]]) -> int:
         help="微信公众号 cookies 文件路径（Netscape / JSON / key=value）",
     )
 
-    args = parser.parse_args(argv)
+    return parser
 
-    # 解析 --wechat-cookies（CLI 形式：skey=abc,uin=12345）
-    wechat_cookies_dict: dict = {}
-    raw_cookies = getattr(args, "wechat_cookies", None)
-    if raw_cookies:
-        for kv in raw_cookies.split(","):
-            kv = kv.strip()
-            if "=" in kv:
-                k, v = kv.split("=", 1)
-                wechat_cookies_dict[k.strip()] = v.strip()
 
-    # v3.4.0: JSON 配置文件 — 优先级「CLI 显式参数 > 配置文件 > 内置默认」。
-    # 公共选项 default=argparse.SUPPRESS，因此 getattr 取不到即
-    # 「CLI 未显式指定」，可以安全地用配置文件值回填。
-    file_cfg: dict = {}
-    cli_config = getattr(args, "config", None)
-    if cli_config:
-        import json as _json
+def _parse_wechat_cookie_string(raw: Optional[str]) -> dict:
+    """解析 CLI 形式的 cookies（``skey=abc,uin=12345``）为字典。"""
+    cookies: dict = {}
+    if not raw:
+        return cookies
+    for kv in raw.split(","):
+        kv = kv.strip()
+        if "=" in kv:
+            k, v = kv.split("=", 1)
+            cookies[k.strip()] = v.strip()
+    return cookies
 
-        cfg_path = Path(cli_config).expanduser()
-        try:
-            file_cfg = _json.loads(cfg_path.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            print(f"❌ 配置文件不存在: {cfg_path}")
-            sys.exit(1)
-        except ValueError as exc:
-            print(f"❌ 配置文件不是合法 JSON: {cfg_path} — {exc}")
-            sys.exit(1)
-        if not isinstance(file_cfg, dict):
-            print(f"❌ 配置文件顶层必须是 JSON 对象: {cfg_path}")
-            sys.exit(1)
+
+def _load_json_config(cli_config) -> dict:
+    """读取 ``--config`` 指向的 JSON 配置文件; 文件不可用时直接退出。
+
+    v3.4.0: 优先级「CLI 显式参数 > 配置文件 > 内置默认」。公共选项
+    ``default=argparse.SUPPRESS``, 因此 getattr 取不到即「CLI 未显式
+    指定」, 可以安全地用配置文件值回填。
+    """
+    if not cli_config:
+        return {}
+    import json as _json
+
+    cfg_path = Path(cli_config).expanduser()
+    try:
+        file_cfg = _json.loads(cfg_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        print(f"❌ 配置文件不存在: {cfg_path}")
+        sys.exit(1)
+    except ValueError as exc:
+        print(f"❌ 配置文件不是合法 JSON: {cfg_path} — {exc}")
+        sys.exit(1)
+    if not isinstance(file_cfg, dict):
+        print(f"❌ 配置文件顶层必须是 JSON 对象: {cfg_path}")
+        sys.exit(1)
+    return file_cfg
+
+
+def _settings_from_args(args, file_cfg: dict) -> Settings:
+    """按「CLI 显式参数 > --config JSON > 内置默认」装配 Settings。"""
 
     def _from_cli_or_cfg(cli_value, cfg_key: str, fallback):
         if cli_value is not None:
@@ -355,8 +367,7 @@ def _run_legacy(argv: Optional[List[str]]) -> int:
         v = file_cfg.get(cfg_key)
         return fallback if v is None else v
 
-    # 创建配置
-    settings = Settings(
+    return Settings(
         workspace_root=_from_cli_or_cfg(args.workspace, "workspace", None) or None,
         model=_from_cli_or_cfg(getattr(args, "model", None), "model", "small"),
         device=_from_cli_or_cfg(getattr(args, "device", None), "device", None),
@@ -370,80 +381,100 @@ def _run_legacy(argv: Optional[List[str]]) -> int:
         or bool(file_cfg.get("audio_only", False)),
         cleanup_media=bool(getattr(args, "cleanup_media", False))
         or bool(file_cfg.get("cleanup_media", False)),
-        wechat_cookies=wechat_cookies_dict or None,
+        wechat_cookies=_parse_wechat_cookie_string(getattr(args, "wechat_cookies", None)) or None,
         wechat_cookies_file=getattr(args, "wechat_cookie_file", None),
     )
 
-    # 创建 Pipeline
-    pipeline = Pipeline(settings)
 
-    # 执行命令
+def _execute_transcribe(pipeline: Pipeline, args, settings: Settings) -> int:
+    """执行 transcribe 子命令: 转录 → LATEST 指针 → 交叉校对 → 延迟清理。"""
+    # v3.4.3: --cross-check 要用同一条音频重转第二遍, 若开了
+    # cleanup_media 则先在 Settings 上临时关闭(清理推迟到校对
+    # 之后手动补做), 否则交叉校对会拿不到音频。
+    cross_check_model = getattr(args, "cross_check", None)
+    deferred_cleanup = bool(settings.cleanup_media) and bool(cross_check_model)
+    if deferred_cleanup:
+        settings.cleanup_media = False
+    result = pipeline.transcribe(
+        args.input,
+        output=args.output,
+        language=getattr(args, "language", None),
+        timestamps=bool(getattr(args, "timestamps", False)),
+    )
+    _write_latest_pointer(settings, result, output=args.output)
+    _run_cross_check(pipeline, result, cross_check_model)
+    if deferred_cleanup:
+        from .pipeline_stages import cleanup_intermediate_media
+
+        deleted = cleanup_intermediate_media(settings, result.audio_path, result.video_path)
+        if deleted:
+            print(f"🧹 已清理中间媒体 {len(deleted)} 个文件(转录稿与元数据不受影响)")
+    _print_next_steps(result)
+    return 0
+
+
+def _execute_batch(pipeline: Pipeline, args) -> int:
+    """执行 batch 子命令: AsyncPipeline.run_batch + 逐条结果汇总。
+
+    v3.2.0e: 批量走 :class:`AsyncPipeline`.run_batch — GPU 感知并发 +
+    单视频失败隔离(某个失败不影响其他)。失败位置返回 :class:`_FailedResult`。
+    """
+    inputs = list(args.inputs)
+    if args.file:
+        with open(args.file, "r", encoding="utf-8") as f:
+            inputs.extend([line.strip() for line in f if line.strip()])
+    if not inputs:
+        print("❌ 没有提供输入")
+        sys.exit(1)
+    print(f"🚀 批量处理 {len(inputs)} 个输入...")
+    ap = AsyncPipeline(pipeline)
     try:
-        if args.command in ["transcribe", "t"]:
-            # v3.4.3: --cross-check 要用同一条音频重转第二遍, 若开了
-            # cleanup_media 则先在 Settings 上临时关闭(清理推迟到校对
-            # 之后手动补做), 否则交叉校对会拿不到音频。
-            cross_check_model = getattr(args, "cross_check", None)
-            deferred_cleanup = bool(settings.cleanup_media) and bool(cross_check_model)
-            if deferred_cleanup:
-                settings.cleanup_media = False
-            result = pipeline.transcribe(
-                args.input,
-                output=args.output,
+        raw = asyncio.run(
+            ap.run_batch(
+                inputs,
                 language=getattr(args, "language", None),
                 timestamps=bool(getattr(args, "timestamps", False)),
             )
-            _write_latest_pointer(settings, result, output=args.output)
-            _run_cross_check(pipeline, result, cross_check_model)
-            if deferred_cleanup:
-                from .pipeline_stages import cleanup_intermediate_media
+        )
+    except KeyboardInterrupt:
+        print("\n\n⏹️ 用户中断")
+        sys.exit(130)
+    results = []
+    for i, (src, r) in enumerate(zip(inputs, raw, strict=False), 1):
+        print(f"\n--- [{i}/{len(inputs)}] ---")
+        if isinstance(r, _FailedResult):
+            print(f"❌ 处理失败: {r.exc}")
+            results.append((src, False, str(r.exc)))
+        else:
+            results.append((src, True, r))
+    # 总结
+    print(f"\n{'=' * 50}")
+    print("📊 批量处理完成")
+    success = sum(1 for _, ok, _ in results if ok)
+    print(f"✅ 成功: {success}/{len(results)}")
+    for source, ok, _result in results:
+        status = "✅" if ok else "❌"
+        print(f"{status} {source}")
+    if success < len(results):
+        # 有输入失败：以非零退出码暴露，供脚本/CI 判断（此前误返回 0）
+        return 1
+    return 0
 
-                deleted = cleanup_intermediate_media(settings, result.audio_path, result.video_path)
-                if deleted:
-                    print(f"🧹 已清理中间媒体 {len(deleted)} 个文件(转录稿与元数据不受影响)")
-            _print_next_steps(result)
+
+def _run_legacy(argv: Optional[List[str]]) -> int:
+    """Original v3.1.0 CLI — ``transcribe`` / ``batch`` subcommands."""
+    parser = _build_legacy_parser()
+    args = parser.parse_args(argv)
+
+    file_cfg = _load_json_config(getattr(args, "config", None))
+    settings = _settings_from_args(args, file_cfg)
+    pipeline = Pipeline(settings)
+
+    try:
+        if args.command in ["transcribe", "t"]:
+            return _execute_transcribe(pipeline, args, settings)
         elif args.command == "batch":
-            inputs = list(args.inputs)
-            if args.file:
-                with open(args.file, "r", encoding="utf-8") as f:
-                    inputs.extend([line.strip() for line in f if line.strip()])
-            if not inputs:
-                print("❌ 没有提供输入")
-                sys.exit(1)
-            print(f"🚀 批量处理 {len(inputs)} 个输入...")
-            # v3.2.0e: 批量走 AsyncPipeline.run_batch — GPU 感知并发 +
-            # 单视频失败隔离(某个失败不影响其他)。失败位置返回 _FailedResult。
-            ap = AsyncPipeline(pipeline)
-            try:
-                raw = asyncio.run(
-                    ap.run_batch(
-                        inputs,
-                        language=getattr(args, "language", None),
-                        timestamps=bool(getattr(args, "timestamps", False)),
-                    )
-                )
-            except KeyboardInterrupt:
-                print("\n\n⏹️ 用户中断")
-                sys.exit(130)
-            results = []
-            for i, (src, r) in enumerate(zip(inputs, raw, strict=False), 1):
-                print(f"\n--- [{i}/{len(inputs)}] ---")
-                if isinstance(r, _FailedResult):
-                    print(f"❌ 处理失败: {r.exc}")
-                    results.append((src, False, str(r.exc)))
-                else:
-                    results.append((src, True, r))
-            # 总结
-            print(f"\n{'=' * 50}")
-            print("📊 批量处理完成")
-            success = sum(1 for _, ok, _ in results if ok)
-            print(f"✅ 成功: {success}/{len(results)}")
-            for source, ok, _result in results:
-                status = "✅" if ok else "❌"
-                print(f"{status} {source}")
-            if success < len(results):
-                # 有输入失败：以非零退出码暴露，供脚本/CI 判断（此前误返回 0）
-                return 1
+            return _execute_batch(pipeline, args)
     except KeyboardInterrupt:
         print("\n\n⏹️ 用户中断")
         sys.exit(130)

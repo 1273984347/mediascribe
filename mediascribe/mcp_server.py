@@ -301,24 +301,19 @@ def _tool_sanitize_filename(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _tool_detect_platform(args: Dict[str, Any]) -> Dict[str, Any]:
-    url = (args.get("url", "") or "").lower()
-    platform = "unknown"
-    if not url:
+    """detect_platform 工具 — 用 url_utils 指纹表识别平台。
+
+    与指纹表不同的两个单列值: 空 URL → ``empty``, 无指纹的
+    http(s) URL → ``other``; 其余无指纹输入 → ``unknown``。
+    """
+    from mediascribe.url_utils import match_platform
+
+    raw_url = args.get("url", "") or ""
+    platform = match_platform(raw_url) or "unknown"
+    if not raw_url:
         platform = "empty"
-    elif "bilibili.com" in url or "b23.tv" in url:
-        platform = "bilibili"
-    elif "douyin.com" in url or "iesdouyin.com" in url:
-        platform = "douyin"
-    elif "youtube.com" in url or "youtu.be" in url or "youtube-nocookie.com" in url:
-        platform = "youtube"
-    elif "xiaohongshu.com" in url or "xhslink.com" in url:
-        platform = "xiaohongshu"
-    elif "tiktok.com" in url:
-        platform = "tiktok"
-    elif "mp.weixin.qq.com" in url:
-        platform = "wechat_mp"
-    elif url.startswith("http://") or url.startswith("https://"):
-        platform = "other"
+    elif platform == "unknown":
+        platform = "other" if raw_url.lower().startswith(("http://", "https://")) else "unknown"
     return {"url": args.get("url", ""), "platform": platform}
 
 

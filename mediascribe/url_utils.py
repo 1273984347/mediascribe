@@ -24,6 +24,37 @@ _RESOLVABLE_SHORT_DOMAINS = ("b23.tv", "v.douyin.com")
 # 常见短链域名（is_short_url 判断用）
 _SHORT_DOMAINS = ("b23.tv", "v.douyin.com", "t.cn", "youtu.be")
 
+# 平台 URL 指纹（单一事实来源）：平台名 → URL 子串特征。
+#
+# batch_cli._detect_platform / mcp_server._tool_detect_platform /
+# inputs.parse_source 三处平台识别共用这张表，避免各自维护一份
+# 域名清单后渐渐漂移。检测是「小写 URL 子串匹配」，与历史行为
+# 一致；按主机名的精确校验由各下载器层负责。表中顺序即匹配优先级。
+_PLATFORM_FINGERPRINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("bilibili", ("bilibili.com", "b23.tv")),
+    ("douyin", ("douyin.com", "iesdouyin.com")),
+    ("youtube", ("youtube.com", "youtu.be", "youtube-nocookie.com")),
+    ("xiaohongshu", ("xiaohongshu.com", "xhslink.com")),
+    ("wechat_mp", ("mp.weixin.qq.com",)),
+    ("tiktok", ("tiktok.com",)),
+)
+
+
+def match_platform(url: str) -> Optional[str]:
+    """按 :data:`_PLATFORM_FINGERPRINTS` 检测 URL 所属平台。
+
+    返回平台标识符（``bilibili`` / ``douyin`` / …）；无指纹命中或
+    ``url`` 为空时返回 ``None``。仅做子串识别，不解析 URL、不发
+    网络请求；「是不是真的该平台资源」由下载器校验。
+    """
+    if not url:
+        return None
+    lowered = url.lower()
+    for platform, needles in _PLATFORM_FINGERPRINTS:
+        if any(needle in lowered for needle in needles):
+            return platform
+    return None
+
 
 def _hostname(url: str) -> str:
     """取 URL 的主机名（小写）；解析失败返回空串。

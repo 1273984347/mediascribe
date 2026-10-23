@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 
 from .models import SourceRef
-from .url_utils import normalize_bilibili_url, resolve_short_url
+from .url_utils import match_platform, normalize_bilibili_url, resolve_short_url
 
 
 def parse_source(raw_input: str) -> SourceRef:
@@ -32,37 +32,31 @@ def parse_source(raw_input: str) -> SourceRef:
         else:
             raw_url = raw_input
 
-        # 检查是否是 Bilibili 相关 URL
-        if "bilibili.com" in raw_url or "b23.tv" in raw_url:
+        # 平台识别共用 url_utils 指纹表；douyin 的媒体直链
+        # (douyinvod.com) 与公众号文章路径(/s) 是本路由独有补充。
+        platform = match_platform(raw_url)
+
+        if platform == "bilibili":
             standard_url, bvid = normalize_bilibili_url(raw_url)
             if bvid:
                 return SourceRef(raw_input=raw_input, kind="bilibili", bv=bvid, url=standard_url)
             return SourceRef(raw_input=raw_input, kind="bilibili", url=standard_url or raw_url)
 
-        # 检查是否是抖音相关 URL（包括 douyinvod 媒体链接）
-        if "douyin.com" in raw_url or "v.douyin.com" in raw_url or "douyinvod.com" in raw_url:
+        if platform == "douyin" or "douyinvod.com" in raw_url:
             return SourceRef(raw_input=raw_input, kind="douyin", url=raw_url)
 
-        # 检查是否是 YouTube 相关 URL
-        if (
-            "youtube.com" in raw_url
-            or "youtu.be" in raw_url
-            or "youtube-nocookie.com" in raw_url
-            or "m.youtube.com" in raw_url
-        ):
+        if platform == "youtube":
             return SourceRef(raw_input=raw_input, kind="youtube", url=raw_url)
 
-        # 检查是否是 TikTok 相关 URL
-        if "tiktok.com" in raw_url:
+        if platform == "tiktok":
             return SourceRef(raw_input=raw_input, kind="tiktok", url=raw_url)
 
-        # 检查是否是小红书相关 URL
-        if "xiaohongshu.com" in raw_url or "xhslink.com" in raw_url:
+        if platform == "xiaohongshu":
             return SourceRef(raw_input=raw_input, kind="xiaohongshu", url=raw_url)
 
-        # 检查是否是微信公众号文章
+        # 微信公众号文章
         # 真实 URL 形如 `mp.weixin.qq.com/s?__biz=...` 或 `mp.weixin.qq.com/s/abc?__biz=...`
-        if "mp.weixin.qq.com" in raw_url and ("/s?" in raw_url or "/s/" in raw_url):
+        if platform == "wechat_mp" and ("/s?" in raw_url or "/s/" in raw_url):
             return SourceRef(raw_input=raw_input, kind="wechat_mp", url=raw_url)
 
         # 其他 URL（用 yt-dlp 处理）
