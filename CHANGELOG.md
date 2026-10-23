@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (2026-10-23 技术选型对比与基准基建)
+- **技术选型对比报告**: `docs/tech-selection-report-2026-10.md` —— 前端框架 / 工作台壳 / 推理引擎
+  三层候选的完整对比（定位与生态 / 核心能力覆盖 / 性能与成本 / 上手成本与踩坑 / 维护活跃度），
+  含本机实测数据与跨硬件适用矩阵。
+- **真实语音基准语料生成器**: `scripts/benchmark_corpus/gen_corpus_real.py` + `sapi_tts.ps1` —— 用 Windows SAPI
+  **完全离线**合成 10 条真实语音语料（中文 3 音色 + 术语密集 + 口语 + 英文 + 中英混说 + 轻噪 + 两档重度退化，
+  合计 10.2 分钟）。参考文本天然已知 ⇒ CER 可精确计算。`anoisesrc` 固定种子 ⇒ 两次生成 SHA-256 一致
+  （修复前同参数重建错误率可在 23.8% ↔ 45.9% 间漂移）。
+- **L3 推理引擎基准**: `scripts/bench/asr/bench_asr.py` —— 硬件自适应（显存/内存不足自动降档或跳过）、
+  资源护栏（GPU 温度硬阈值、CPU 持续占用、系统内存紧急线/就绪线分离、磁盘余量、单轮熔断）、
+  进度提示（轮内心跳 + `progress.json` + ETA）、**断点续跑**（安全中止不丢已完成轮次）。
+- **L1 前端框架基准**: `scripts/bench/frontend/scaffold_candidates.py` + `bench_frontend.py` —— 模板化生成
+  vanilla / React / Vue / Svelte / Solid 五个候选（统一 DOM 结构与埋点协议，保证口径一致），实测
+  构建时长 / 产物体积 / 依赖规模 / 冷启动 / 首屏渲染 / 筛选响应 / 滚动帧率。
+- **L2 工作台壳基准**: `scripts/bench/shell/` —— B1 FastAPI+浏览器 / B2 预构建静态站点 / B3 Tauri /
+  B4 Electron / B5 浏览器 WASM 的冷启动、驻留内存、分发体积、离线自包含、跨平台五维实测。
+- **中文繁简归一化**: `scripts/bench/asr/zh_normalize.py` —— 用 Windows `LCMapStringW` 做繁→简转换，零第三方依赖。
+  **不归一化会把字形差异误判成识别错误**：实测 openai-whisper 与 whisper.cpp 中文输出繁体，
+  同一段音频的字级 CER 虚高到 33.61% / 81.56%，归一化后为 0.41% / 1.19%。
+- **基准汇总与重算工具**: `scripts/bench/asr/summarize_asr.py`（严格区分成功轮与未完成轮，
+  避免失败轮的 RTF 污染统计）、`scripts/bench/asr/recompute_cer.py`（口径修正后**无需重跑推理**即可重算 CER）。
+
+### Fixed (2026-10-23 Web UI 启动路径)
+- **`python -m mediascribe.web.app` 此前必然失败**（`NameError: name '_register_health_routes' is not defined`）——
+  `__main__` 块位于文件中部，早于路由注册函数的定义。已移至文件末尾。
+- **`uvicorn mediascribe.web.app:app` 此前必然失败**（`Attribute "app" not found in module`）—— 模块没有模块级
+  `app` 对象，而模块 docstring 与 `scripts/one_click_up.py` 一直宣称该启动方式。已补 `app = create_app()`
+  （仅导入时创建，避免 `python -m` 路径重复建实例）。
+
 ### Added (2026-10-08 存疑复核闭环)
 - **`verify` 子命令**: `python -m mediascribe verify <转录稿.md>` — 第三采样验证。
   复用或按 metadata 来源 URL 重新下载音频 → 无术语注入 + 多档温度独立重采样

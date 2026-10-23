@@ -1,0 +1,44 @@
+{
+  "name": "mediascribe-b4-electron-shell",
+  "productName": "MediaScribe",
+  "version": "3.2.0",
+  "description": "B4 候选 —— Electron 桌面壳 + FastAPI sidecar (L2 交付形态层基准)",
+  "author": "MediaScribe",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --win --x64"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.mediascribe.workbench",
+    "productName": "MediaScribe",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "MediaScribe-${version}-setup.${ext}"
+    }
+  }
+}

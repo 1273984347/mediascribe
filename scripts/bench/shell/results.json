@@ -1,0 +1,670 @@
+{
+  "schema": "mediascribe.l2.shell-bench.v1",
+  "meta": {
+    "environment": {
+      "os": "Windows-11-10.0.26200-SP0",
+      "os_version": "10.0.26200",
+      "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+      "python_executable": "C:\\Users\\12739\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "node": "v24.14.0",
+      "npm": "11.9.0",
+      "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+      "cargo": "cargo 1.99.1 (5f94df478 2026-08-27)",
+      "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+      "cpu_logical_cores": 20,
+      "ram_total_bytes": 16780587008,
+      "ram_available_bytes_at_bench": 6190628864,
+      "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU, 8188 MiB, 596.49",
+      "psutil_version": "7.2.2",
+      "git_head": "6485eb7ed5dd33ee9f664e680015757224422f40",
+      "bench_timestamp": "2026-10-23 22:36:12+0800"
+    },
+    "methodology": {
+      "cold_start": "进程 spawn 瞬间到健康检查 200 / 窗口 ready 标记的墙钟毫秒 (time.perf_counter), 每次独立起进程, 跑 N 次取中位数",
+      "memory": "Windows GetProcessMemoryInfo().WorkingSetSize (psutil memory_info().rss), 进程树(父+递归子进程)求和; 稳定期先 settle 再连采 3 次取中位数; 另记 peak_wset",
+      "distribution": "构建产物磁盘字节数 (os.walk 递归求和)",
+      "offline": "HTTP(S)/ALL_PROXY 指向黑洞 127.0.0.1:9 + 50ms 间隔 netstat -ano 快照断言无非回环 TCP; 本机无管理员权限, 未能用防火墙做物理断网",
+      "gpu_isolation": "所有被测子进程注入 CUDA_VISIBLE_DEVICES=\"\" 与 MEDIASCRIBE_DEVICE=cpu, 避免与并行推理实测争抢显存; 本脚本只做壳层与健康检查, 不做推理",
+      "runs": 1
+    },
+    "documentation_sources": {
+      "B1": [
+        "https://fastapi.tiangolo.com/deployment/",
+        "https://www.uvicorn.org/deployment/"
+      ],
+      "B2": [
+        "https://fastapi.tiangolo.com/advanced/static-files/",
+        "https://vite.dev/guide/"
+      ],
+      "B3": [
+        "https://v2.tauri.app/start/prerequisites/",
+        "https://v2.tauri.app/distribute/"
+      ],
+      "B4": [
+        "https://www.electronjs.org/docs/latest/tutorial/tutorial-prerequisites",
+        "https://www.electronjs.org/docs/latest/tutorial/tutorial-packaging",
+        "https://www.electronforge.io/config/makers"
+      ],
+      "B5": [
+        "https://github.com/ggml-org/whisper.cpp/tree/master/examples/whisper.wasm",
+        "https://webassembly.org/roadmap/"
+      ]
+    }
+  },
+  "candidates": {
+    "B1": {
+      "id": "B1",
+      "title": "web-local — FastAPI + uvicorn + 浏览器访问 localhost (现状)",
+      "status": "measured",
+      "startup_variants": [
+        {
+          "command": "python -m mediascribe.web.app --port N  (docs_site/getting-started.md, web-ui.md, extension/README.md)",
+          "argv": [
+            "C:\\Users\\12739\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+            "-m",
+            "mediascribe.web.app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "0"
+          ],
+          "exit_code": 1,
+          "ok": false,
+          "error_tail": "MEDIASCRIBE_API_TOKEN 未配置 — API 处于无鉴权模式, 仅信任本机/内网来源(公网来源会被拒绝)。暴露到本机以外之前请务必设置该环境变量。\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"D:\\MediaScribe\\mediascribe\\web\\app.py\", line 1243, in <module>\n    sys.exit(main())\n             ^^^^^^\n  File \"D:\\MediaScribe\\mediascribe\\web\\app.py\", line 1237, in main\n    app = create_app(workspace=args.workspace)\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"D:\\MediaScribe\\mediascribe\\web\\app.py\", line 1206, in create_app\n    _register_health_routes(app)\n    ^^^^^^^^^^^^^^^^^^^^^^^\nNameError: name '_register_health_routes' is not defined",
+          "elapsed_ms": 3694.4
+        },
+        {
+          "command": "python -m uvicorn mediascribe.web.app:app  (scripts/one_click_up.py 的 launch_local)",
+          "argv": [
+            "C:\\Users\\12739\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+            "-m",
+            "uvicorn",
+            "mediascribe.web.app:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "0"
+          ],
+          "exit_code": 1,
+          "ok": false,
+          "error_tail": "ERROR:    Error loading ASGI app. Attribute \"app\" not found in module \"mediascribe.web.app\".",
+          "elapsed_ms": 4813.4
+        },
+        {
+          "command": "python -m uvicorn mediascribe.web.app:create_app --factory  (本基准采用的可用方式)",
+          "argv": [
+            "C:\\Users\\12739\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+            "-m",
+            "uvicorn",
+            "mediascribe.web.app:create_app",
+            "--factory",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "0"
+          ],
+          "exit_code": null,
+          "ok": false,
+          "error_tail": "(超时: 进程持续运行 —— 说明该方式能起服务)",
+          "elapsed_ms": 60066.3
+        }
+      ],
+      "cold_start_ms": {
+        "runs": [
+          3847.7,
+          3589.5,
+          3760.8
+        ],
+        "median": 3760.8,
+        "metric": "进程 spawn -> GET /api/health 首次 200 (墙钟毫秒)",
+        "run_count": 3
+      },
+      "runs_detail": [
+        {
+          "run": 1,
+          "ok": true,
+          "cold_start_ms": 3847.7,
+          "health_status": 200,
+          "page_status_ok": true
+        },
+        {
+          "run": 2,
+          "ok": true,
+          "cold_start_ms": 3589.5,
+          "health_status": 200,
+          "page_status_ok": true
+        },
+        {
+          "run": 3,
+          "ok": true,
+          "cold_start_ms": 3760.8,
+          "health_status": 200,
+          "page_status_ok": true
+        }
+      ],
+      "memory": {
+        "resident_bytes": 443305984,
+        "samples_bytes": [
+          443305984,
+          443305984,
+          443305984
+        ],
+        "sample_count": 3,
+        "settle_seconds": 5.0,
+        "peak_working_set_bytes": 449363968,
+        "process_count": 1,
+        "processes": [
+          {
+            "pid": 34456,
+            "name": "python.exe",
+            "working_set_bytes": 443305984,
+            "is_child": false
+          }
+        ],
+        "method": "Windows GetProcessMemoryInfo().WorkingSetSize, 进程树(父+递归子进程)求和, 稳定期连采取中位数"
+      },
+      "distribution": {
+        "bytes": null,
+        "kind": "无独立分发物",
+        "note": "需 Python 环境 (fastapi/uvicorn/torch 等), 不产出独立分发物; 仓库内静态页 index.html=42854 B / wiki.html=14162 B 由后端直接读取",
+        "static_assets_bytes": 57016,
+        "measured": false,
+        "reason": "该形态不产出独立分发物 —— 需用户自备 Python 环境 (fastapi/uvicorn/torch 等) 与 ffmpeg; 仓库内只有 2 个静态页 (index.html 42,854 B + wiki.html 14,162 B = 57,016 B) 由后端直接读取。"
+      },
+      "offline": {
+        "self_contained": true,
+        "method": "子进程注入 HTTP(S)/ALL_PROXY=http://127.0.0.1:9 (连接必失败) + 50ms 间隔 netstat -ano 快照断言无非回环 TCP",
+        "health_ok_offline": true,
+        "cold_start_ms_offline": {
+          "runs": [
+            3812.9
+          ],
+          "median": 3812.9,
+          "metric": "进程 spawn -> GET /api/health 首次 200 (墙钟毫秒)",
+          "run_count": 1
+        },
+        "outbound_non_loopback_connections": [],
+        "evidence": "断网代理下 /api/health 仍返回 200, 且启动全程无对外网 TCP 连接"
+      },
+      "health_payload_sample": {
+        "ok": true,
+        "version": "3.2.0c",
+        "auth_enabled": false,
+        "rate_limit_enabled": true,
+        "rate_limit_max": 10,
+        "rate_limit_window": 60.0,
+        "device_hint": "cpu",
+        "gpu": {
+          "available": false,
+          "device": "cpu",
+          "name": null,
+          "vram_total_mb": null,
+          "vram_used_mb": null,
+          "temperature_c": null,
+          "utilisation_pct": null,
+          "backend": null
+        }
+      },
+      "page_served": true,
+      "multi_process": "单进程 (uvicorn 单 worker)",
+      "cross_platform": {
+        "summary": "Windows / macOS / Linux 全支持 —— 形态是「本机起 HTTP 服务 + 任意浏览器打开」, 壳层本身零平台依赖, 平台差异只落在 Python 依赖与 ffmpeg 二进制上。",
+        "evidence": "FastAPI/uvicorn 官方支持三大桌面平台; 本形态不引入任何平台专属运行时。",
+        "sources": [
+          "https://fastapi.tiangolo.com/deployment/",
+          "https://www.uvicorn.org/deployment/"
+        ],
+        "caveats": [
+          "Mediascribe 后端仍需本机 Python 环境与 ffmpeg, 这两者的跨平台安装成本与本形态无关。"
+        ]
+      },
+      "pitfalls": [
+        "【既有代码缺陷】文档与 README 声明的启动方式 `python -m mediascribe.web.app --port 8000` **必然失败**: mediascribe/web/app.py:1242 的 `if __name__ == \"__main__\": sys.exit(main())` 位于各 `_register_*_routes` 函数定义之前 (首个在 app.py:1246), main() 执行时这些函数尚未定义。 实测原文: `NameError: name '_register_health_routes' is not defined` (抛在 mediascribe/web/app.py:1206 的 create_app 内)。",
+        "【既有代码缺陷】scripts/one_click_up.py 的 launch_local 用 `python -m uvicorn mediascribe.web.app:app`, 但 mediascribe/web/app.py **没有模块级 `app` 对象** (只有 create_app 工厂函数)。实测原文: `ERROR:    Error loading ASGI app. Attribute \"app\" not found in module \"mediascribe.web.app\".`",
+        "【本基准采用的可用方式】`python -m uvicorn mediascribe.web.app:create_app --factory --host 127.0.0.1 --port N`, 不修改任何既有代码即可起服务 (健康检查 200)。",
+        "【无鉴权模式告警】不设 MEDIASCRIBE_API_TOKEN 时启动即打印: \"MEDIASCRIBE_API_TOKEN 未配置 — API 处于无鉴权模式, 仅信任本机/内网来源(公网来源会被拒绝)。\"",
+        "【GPU 隔离踩坑】CUDA_VISIBLE_DEVICES=\"\" **不足以**屏蔽 GPU: 实测 torch.cuda.is_available() 仍为 True, 而 /api/health 的 gpu_health() 会调 torch.cuda.current_device() 建立 CUDA 上下文并占显存。必须用 CUDA_VISIBLE_DEVICES=-1 (实测 is_available()=False, device_count()=0)。",
+        "【端口冲突】Windows 上 SO_REUSEADDR 允许多个 http.server 同时绑定同一端口, 请求可能落到别的进程上 —— 本基准实测被别的 agent 的 http.server 抢过端口, 取到错误页面。必须用独占端口。"
+      ]
+    },
+    "B2": {
+      "id": "B2",
+      "title": "web-static — FastAPI 托管 Vite+React 预构建静态工作台壳",
+      "status": "measured",
+      "cold_start_ms": {
+        "runs": [
+          3966.8,
+          4970.7,
+          3822.2
+        ],
+        "median": 3966.8,
+        "metric": "进程 spawn -> GET /api/health 首次 200 (墙钟毫秒)",
+        "run_count": 3
+      },
+      "memory": {
+        "resident_bytes": 442720256,
+        "samples_bytes": [
+          442720256,
+          442720256,
+          442720256
+        ],
+        "sample_count": 3,
+        "settle_seconds": 5.0,
+        "peak_working_set_bytes": 448712704,
+        "process_count": 1,
+        "processes": [
+          {
+            "pid": 33076,
+            "name": "python.exe",
+            "working_set_bytes": 442720256,
+            "is_child": false
+          }
+        ],
+        "method": "Windows GetProcessMemoryInfo().WorkingSetSize, 进程树(父+递归子进程)求和, 稳定期连采取中位数"
+      },
+      "distribution": {
+        "bytes": 151310,
+        "kind": "dist/ 静态目录 (无安装包)",
+        "path": "D:\\MediaScribe\\output\\bench\\shell\\b2-app\\dist",
+        "note": "FastAPI 托管 dist/, 取代零构建的原生 index.html; 仍依赖 Python 运行环境",
+        "build": {
+          "skipped": false,
+          "npm_install_rc": 0,
+          "vite_build_rc": 0,
+          "vite_build_tail": "\n> mediascribe-b2-react-shell@3.2.0 build\n> vite build\n\n\u001b[36mvite v5.4.21 \u001b[32mbuilding for production...\u001b[36m\u001b[39m\ntransforming...\n\u001b[32m✓\u001b[39m 31 modules transformed.\nrendering chunks...\ncomputing gzip size...\n\u001b[2mdist/\u001b[22m\u001b[32mindex.html                 \u001b[39m\u001b[1m\u001b[2m  0.41 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:  0.29 kB\u001b[22m\n\u001b[2mdist/\u001b[22m\u001b[35massets/index-bqxTolse.css  \u001b[39m\u001b[1m\u001b[2m  2.28 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:  0.87 kB\u001b[22m\n\u001b[2mdist/\u001b[22m\u001b[36massets/index-CyTHv0V6.js   \u001b[39m\u001b[1m\u001b[2m148.39 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip: 48.08 kB\u001b[22m\n\u001b[32m✓ built in 587ms\u001b[39m\n\n"
+        }
+      },
+      "offline": {
+        "self_contained": true,
+        "method": "同 B1: 代理黑洞 + netstat 快照",
+        "health_ok_offline": true,
+        "cold_start_ms_offline": {
+          "runs": [
+            4291.0
+          ],
+          "median": 4291.0,
+          "metric": "进程 spawn -> GET /api/health 首次 200 (墙钟毫秒)",
+          "run_count": 1
+        },
+        "outbound_non_loopback_connections": [],
+        "evidence": "断网代理下 /api/health 200 且 / 返回预构建页面"
+      },
+      "health_payload_sample": {
+        "ok": true,
+        "version": "3.2.0c",
+        "auth_enabled": false,
+        "rate_limit_enabled": true,
+        "rate_limit_max": 10,
+        "rate_limit_window": 60.0,
+        "device_hint": "cpu",
+        "gpu": {
+          "available": false,
+          "device": "cpu",
+          "name": null,
+          "vram_total_mb": null,
+          "vram_used_mb": null,
+          "temperature_c": null,
+          "utilisation_pct": null,
+          "backend": null
+        }
+      },
+      "page_served": true,
+      "multi_process": "单进程 (与 B1 同构, 仅静态资源来源不同)",
+      "cross_platform": {
+        "summary": "与 B1 同构 —— FastAPI 托管静态目录, 平台支持面完全同 B1; 额外依赖 Vite 构建期(Node), 但构建产物是纯静态文件, 运行期无 Node 依赖。",
+        "evidence": "Vite 官方支持 Windows/macOS/Linux; 构建产物为静态资源, 由 FastAPI StaticFiles 托管。",
+        "sources": [
+          "https://fastapi.tiangolo.com/advanced/static-files/",
+          "https://vite.dev/guide/"
+        ],
+        "caveats": [
+          "构建期需要 Node.js (本机 v24.14.0), 运行期不需要。"
+        ]
+      },
+      "pitfalls": [
+        "【npm 缓存竞态】用用户级共享缓存 (C:\\Users\\<u>\\AppData\\Local\\npm-cache) 时 npm install 随机失败, 原文: `npm error code EEXIST` / `npm error syscall rename` / `npm error ENOENT: no such file or directory, rename '...\\npm-cache\\_cacache\\tmp\\...' -> '...\\content-v2\\sha512\\...'` / `npm error File exists: ...`。解决办法: 用 bench 专属缓存目录 (`npm install --cache <dir>`)。",
+        "【构建失败连带】npm install 失败后 `npm run build` 报 `'vite' is not recognized as an internal or external command` —— 报错点与真正原因不在一处, 排查时要看 npm install 的 rc。",
+        "【零构建 vs 预构建的实测差异】B2 相对 B1 只换了前端交付方式, 冷启动中位数几乎不变 (B1 3760.8 ms vs B2 3966.8 ms): 因为冷启动时间被 Python 侧 (import torch 等) 主导, 与前端无关。"
+      ]
+    },
+    "B4": {
+      "id": "B4",
+      "title": "electron — Electron 桌面壳 + 内嵌 FastAPI sidecar",
+      "status": "measured",
+      "cold_start_ms": {
+        "runs": [
+          5059.2,
+          3596.5,
+          5475.7
+        ],
+        "median": 5059.2,
+        "metric": "electron.exe spawn -> APP_USABLE 标记 (窗口 did-finish-load 且后端 /api/health 200), 墙钟毫秒",
+        "run_count": 3,
+        "window_ready_runs": [
+          5059.2,
+          3596.5,
+          5475.7
+        ],
+        "window_ready_median": 5059.2,
+        "window_ready_metric": "electron.exe spawn -> WINDOW_READY 标记 (窗口 did-finish-load)"
+      },
+      "memory": {
+        "resident_bytes": 806481920,
+        "samples_bytes": [
+          806481920,
+          807161856,
+          805228544
+        ],
+        "sample_count": 3,
+        "settle_seconds": 5.0,
+        "peak_working_set_bytes": 821231616,
+        "process_count": 6,
+        "processes": [
+          {
+            "pid": 36032,
+            "name": "electron.exe",
+            "working_set_bytes": 110546944,
+            "is_child": false
+          },
+          {
+            "pid": 20620,
+            "name": "electron.exe",
+            "working_set_bytes": 82108416,
+            "is_child": true
+          },
+          {
+            "pid": 31312,
+            "name": "python.exe",
+            "working_set_bytes": 443809792,
+            "is_child": true
+          },
+          {
+            "pid": 21496,
+            "name": "electron.exe",
+            "working_set_bytes": 51126272,
+            "is_child": true
+          },
+          {
+            "pid": 14708,
+            "name": "electron.exe",
+            "working_set_bytes": 109744128,
+            "is_child": true
+          },
+          {
+            "pid": 23664,
+            "name": "conhost.exe",
+            "working_set_bytes": 7892992,
+            "is_child": true
+          }
+        ],
+        "method": "Windows GetProcessMemoryInfo().WorkingSetSize, 进程树(父+递归子进程)求和, 稳定期连采取中位数"
+      },
+      "distribution": {
+        "bytes": 362855971,
+        "kind": "electron-builder 输出目录 (含 NSIS 安装包)",
+        "path": "D:\\MediaScribe\\output\\bench\\shell\\b4-app\\dist",
+        "installer_bytes": 81695273,
+        "installer_path": "D:\\MediaScribe\\output\\bench\\shell\\b4-app\\dist\\MediaScribe-3.2.0-setup.exe",
+        "unpacked_bytes": 281067715,
+        "note": "安装包 + 解包目录; 真正分发物为 NSIS .exe 安装包",
+        "build": {
+          "skipped": true
+        }
+      },
+      "offline": {
+        "self_contained": true,
+        "method": "Electron 加 --host-resolver-rules='MAP * ~NOTFOUND,EXCLUDE 127.0.0.1' (Chromium 层断外网) + HTTP(S)/ALL_PROXY 指向 127.0.0.1:9 黑洞 + netstat 快照",
+        "evidence": "断外网下 Electron 窗口仍渲染完成且后端 /api/health 200 (APP_USABLE 已达) —— 工作台功能不依赖外网",
+        "window_ready_ms": 3582.8,
+        "app_usable_ms": 3582.9,
+        "outbound_non_loopback_connections": [],
+        "stdout_tail": [
+          "[backend] INFO:     Uvicorn running on http://127.0.0.1:9389 (Press CTRL+C to quit)",
+          "[backend] INFO:     127.0.0.1:9418 - \"GET /api/health HTTP/1.1\" 200 OK",
+          "[backend] INFO:     127.0.0.1:9419 - \"GET / HTTP/1.1\" 200 OK",
+          "[backend] INFO:     127.0.0.1:9419 - \"GET /api/health HTTP/1.1\" 200 OK",
+          "WINDOW_READY 1792765967816",
+          "[34736:1023/223247.817:INFO:CONSOLE(2)] \"%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security",
+          "  Policy set or a policy with \"unsafe-eval\" enabled. This exposes users of",
+          "  this app to unnecessary security risks.",
+          "",
+          "For more information and help, consult",
+          "https://electronjs.org/docs/tutorial/security.",
+          "This warning will not show up",
+          "once the app is packaged.\", source: node:electron/js2c/sandbox_bundle (2)",
+          "[backend] INFO:     127.0.0.1:9419 - \"GET /api/health HTTP/1.1\" 200 OK",
+          "APP_USABLE 1792765967826"
+        ],
+        "outbound_during_normal_runs": [],
+        "outbound_note": "正常联网跑时, Electron 的 Chromium 网络栈(GPU/utility 进程)在启动时会向 114.250.64.33 / 114.250.66.33 / 114.250.70.4 / 114.250.64.34 (本机所在网络的运营商/加速器地址; 本机 DNS 指向 192.168.1.1 / 192.168.101.1, 无系统代理) 建立 TCP 连接。这些连接不是工作台的功能依赖 —— 断外网跑仍然完全可用, 见 self_contained / evidence。"
+      },
+      "multi_process": "多进程: electron 主进程 + 渲染/GPU/utility 进程 + python sidecar (见 memory.processes)",
+      "stdout_tail": [],
+      "cross_platform": {
+        "summary": "Electron 官方支持 Windows / macOS / Linux 单套 JS 代码跨平台; 官方文档原文: \"Electron allows you to create cross-platform apps that work on Windows, macOS, and Linux with a single JavaScript codebase.\" 打包工具 Electron Forge 按平台产出对应分发物 (Windows MSI/安装包、macOS .app/DMG、Linux deb)。",
+        "evidence": "Electron 官方 Tutorial Prerequisites 与 Packaging 两页。",
+        "sources": [
+          "https://www.electronjs.org/docs/latest/tutorial/tutorial-prerequisites",
+          "https://www.electronjs.org/docs/latest/tutorial/tutorial-packaging",
+          "https://www.electronforge.io/config/makers"
+        ],
+        "caveats": [
+          "macOS 分发需代码签名与公证 (official docs: code signing 强烈建议)。",
+          "本形态内嵌 FastAPI sidecar 时, 仍需随包附带 Python 运行时, 否则安装包体积与跨平台打包复杂度会显著上升。"
+        ]
+      },
+      "pitfalls": [
+        "【Electron 首次安装需下二进制】npm install 会拉约 151 MB 的 electron 二进制包, 走 https://github.com/electron/electron/releases 的缓存目录 (本机 %LOCALAPPDATA%\\electron\\Cache)。",
+        "【Electron 进程树内存口径】Electron 会派生主进程 + 渲染进程 + GPU 进程 + utility 进程, 驻留内存必须按**进程树**求和, 单看主进程会低估到 1/4 以下。",
+        "【GPU 隔离】为避免与并行推理实测争抢显存, 本基准在 Electron 侧调用 app.disableHardwareAcceleration() 并加 --disable-gpu 开关; 这会让渲染走 SwiftShader(CPU), 内存数字应按此口径理解。",
+        "【端口/进程串扰】同机并行跑别的 agent 的 http.server 时, Windows 的 SO_REUSEADDR 会让两个进程同时「监听」同一端口, 基准脚本必须自己挑空闲端口并核对服务内容。"
+      ]
+    },
+    "B3": {
+      "id": "B3",
+      "title": "tauri — Tauri 2 桌面壳 (Rust sidecar + 复用同一套前端)",
+      "status": "not-measurable",
+      "not_measurable_reason": "本机不可编译: 缺 Microsoft Visual C++ Build Tools (MSVC 链接器 link.exe) —— 本机无 Visual Studio / Build Tools / Windows SDK / cl.exe / link.exe; Tauri 官方文档明确要求 Windows 上必须安装 MSVC Build Tools + Edge WebView2",
+      "cold_start_ms": {
+        "runs": [],
+        "median": null,
+        "metric": "tauri.exe spawn -> 窗口 ready",
+        "run_count": 0,
+        "reason": "未测 —— 本机未产出可运行的 Tauri 壳 (缺 MSVC link.exe)"
+      },
+      "memory": {
+        "resident_bytes": null,
+        "status": "not-measured",
+        "reason": "本机未产出 Tauri 可执行文件 (缺 MSVC 链接器 link.exe), 无可测的进程树"
+      },
+      "distribution": {
+        "bytes": null,
+        "kind": "非本机实测 (本机无法产出安装包)",
+        "note": "本机因缺 Microsoft Visual C++ Build Tools (link.exe) 未产出任何 Tauri 安装包; 体积请以官方发布页为准 —— https://github.com/tauri-apps/tauri/releases (本表不填未经验证的字节数)",
+        "official_reference": "https://github.com/tauri-apps/tauri/releases",
+        "official_size_doc": "https://v2.tauri.app/concept/size/"
+      },
+      "offline": {
+        "self_contained": null,
+        "method": null,
+        "evidence": "未测 —— 本机未产出可运行的 Tauri 壳, 无法执行断网验证",
+        "reason": "不可测: 缺 MSVC 工具链, 无可运行产物"
+      },
+      "multi_process": "预期多进程: tauri.exe (WebView2) + python sidecar",
+      "pitfalls": [
+        "【本机不可编译 — 缺 Microsoft Visual C++ Build Tools】实测本机: 无 vswhere.exe、无 C:\\Program Files\\Microsoft Visual Studio 与 C:\\Program Files (x86)\\Microsoft Visual Studio 目录、无 Windows Kits\\10、无 cl.exe、无 link.exe。官方文档明确要求 Windows 上必须装 MSVC Build Tools。",
+        "【rustup 安装踩坑】rustup-init 首次安装时最后一个组件 (rust-std) 的 .partial 下载长时间停在 0 字节, 最终留下 `missing manifest in toolchain 'stable-x86_64-pc-windows-msvc'` (rustc --version 报 `error: missing manifest in toolchain 'stable-x86_64-pc-windows-msvc'`); 需要重跑 rustup-init 修复并 `rustup default stable-x86_64-pc-windows-msvc`。",
+        "【两个 rustup-init 并发冲突】重跑安装时旧的 rustup-init 进程仍在, 两个实例同时写 ~/.rustup 会互相踩, 需先结束旧进程再让新的下载。",
+        "【未擅自装 MSVC】按任务约束不安装来历不明的工具链, 因此没有绕过本机阻断条件。"
+      ],
+      "environment_probe": {
+        "rustc": "C:\\Users\\12739\\.cargo\\bin\\rustc.EXE",
+        "cargo": "C:\\Users\\12739\\.cargo\\bin\\cargo.EXE",
+        "rustc_version": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+        "msvc": {
+          "vswhere_present": false,
+          "cl_present": false,
+          "vs_install_dirs": [],
+          "link_exe": null,
+          "rustc_target_libdir": "C:\\Users\\12739\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\lib\\rustlib\\x86_64-pc-windows-msvc\\lib",
+          "link_exe_on_path": false
+        },
+        "webview2": {
+          "runtime_present": true,
+          "version": "155.0.4283.62"
+        }
+      },
+      "minimal_link_test_rc": 101,
+      "minimal_link_test_tail": "\n   Compiling b3linktest v0.1.0 (D:\\MediaScribe\\output\\bench\\shell\\b3-linktest)\nerror: linker `link.exe` not found\n  |\n  = note: program not found\n\nnote: the msvc targets depend on the msvc linker but `link.exe` was not found\n\nnote: please ensure that Visual Studio 2017 or later, or Build Tools for Visual Studio were installed with the Visual C++ option\n\nnote: VS Code is a different product, and is not sufficient\n\nerror: could not compile `b3linktest` (bin \"b3linktest\") due to 1 previous error\n",
+      "cargo_build_skipped": "已跳过完整 Tauri 构建 (耗时过长); 阻断原因已由 3a 的最小链接测试确定: 缺 link.exe (MSVC)",
+      "cargo_build_rc": null,
+      "cross_platform": {
+        "summary": "Tauri 2 官方支持 Windows 7+ / macOS Catalina 10.15+ / Linux (需 webkit2gtk-4.1-dev 等系统依赖)。但 **Windows 上官方明确要求 Microsoft C++ Build Tools + Edge WebView2** —— 本机两者缺一(缺 MSVC), 因此本机不可编译。",
+        "evidence": "官方 Prerequisites 页原文: \"Tauri uses the Microsoft C++ Build Tools for development as well as Microsoft Edge WebView2. These are both required for development on Windows.\" 本机 WebView2 Runtime 155.0.4283.62 已装, MSVC Build Tools 未装。",
+        "sources": [
+          "https://v2.tauri.app/start/prerequisites/",
+          "https://v2.tauri.app/distribute/"
+        ],
+        "caveats": [
+          "Linux 端还要求 libwebkit2gtk-4.1-dev / build-essential / libxdo-dev 等系统包。",
+          "打 MSI 安装包还额外要求 Windows 的 VBSCRIPT 可选功能(官方文档注明)。"
+        ]
+      }
+    },
+    "B5": {
+      "id": "B5",
+      "title": "browser-wasm — 纯浏览器 + whisper.cpp WASM (无本地 Python 后端)",
+      "status": "not-measurable",
+      "not_measurable_reason": "本机不可测(浏览器内推理): whisper.cpp 官方在 ggml.ai 发布的预构建 WASM 包 (main.js, 内嵌 wasm 二进制) 在本机 Chrome 155 / Node 24 的 V8 上无法实例化 —— 页面原文 \"CompileError: WebAssembly.instantiate(): unknown type form: 106 @+12\", 随后 \"Uncaught TypeError: Module.init is not a function\"。GitHub Releases 无 wasm 资产; 自建需 Emscripten(成本过高, 按指令未做)。但**权重并非不可得**(hf-mirror.com 可达, ggml-tiny.bin 77,691,713 B 完整下载), 且模型入库 / 音频解码在浏览器内均实测成功 —— 阻断点只在 WASM 引擎实例化。",
+      "cold_start_ms": {
+        "runs": [],
+        "median": null,
+        "metric": "chrome 进程 spawn -> WASM 引擎 ready (模型已载入, instance 就绪), 墙钟毫秒",
+        "run_count": 1,
+        "transcription_ms_runs": [],
+        "transcription_median_ms": null,
+        "reason": "未测 —— WASM 引擎无法在本机 V8 实例化"
+      },
+      "memory": {
+        "resident_bytes": null,
+        "status": "not-measured",
+        "reason": "浏览器内推理未跑通 (预构建 wasm 二进制无法被本机 V8 实例化), 没有可测的稳定态进程树"
+      },
+      "distribution": {
+        "bytes": 79508332,
+        "kind": "浏览器侧静态产物 (WASM bundle + 模型权重)",
+        "files": {
+          "coi-serviceworker.js": 6028,
+          "ggml-tiny.bin": 77691713,
+          "helpers.js": 6521,
+          "index.html": 33230,
+          "jfk.wav": 352078,
+          "libmain.js": 1770840,
+          "main.js": 1770840
+        },
+        "note": "jfk.wav 只是测试样例音频, libmain.js 是 main.js 的同内容别名 —— 两者都不计入分发物; B5 的分发物就是这些静态文件 (无本地 Python 后端)",
+        "measured_on_this_machine": true,
+        "excluded_from_total": [
+          "jfk.wav",
+          "libmain.js"
+        ]
+      },
+      "offline": {
+        "self_contained": null,
+        "method": "Chrome 以 --host-resolver-rules='MAP * ~NOTFOUND,EXCLUDE 127.0.0.1' 启动 (浏览器级断网: 一切外部域名解析失败), 页面/模型/音频全部来自 127.0.0.1 本地静态服务",
+        "evidence": "断网下失败, 但失败原因与联网时**完全相同**(WASM 引擎实例化失败), 不是网络导致: \"Uncaught TypeError: Module.init is not a function\" —— 即模型入库(storeFS 77,691,713 B)与音频解码(176,000 采样) 在断网下都成功, 唯一阻断点是预构建 wasm 二进制无法被本机 V8 实例化。故本项无法给出\"是/否\"结论, 留空并注明原因。",
+        "cold_start_ms_offline": null,
+        "transcript_tail": "",
+        "partial_results_offline": {
+          "model_stored_in_wasm_fs_bytes": 77691713,
+          "audio_decoded_samples": 176000,
+          "blocker": "WASM 引擎实例化 (与网络无关)"
+        }
+      },
+      "multi_process": "单进程组: 浏览器主进程 + 渲染/GPU/utility 子进程 (无本地 Python 后端)",
+      "network_probes": [
+        {
+          "target": "huggingface.co 主站 (模型权重)",
+          "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
+          "ok": false,
+          "curl": "000 0 https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
+          "stderr": "curl: (35) schannel: next InitializeSecurityContext failed: CRYPT_E_NO_REVOCATION_CHECK (0x80092012) - 吊销功能无法检查证书是否吊销。",
+          "elapsed_ms": 78.9
+        },
+        {
+          "target": "hf-mirror.com 镜像 (模型权重)",
+          "url": "https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
+          "ok": true,
+          "curl": "200 0 https://cas-bridge.xethub.hf.co/xet-bridge-us/641ab5d15d107c5c5f346372/518970a29bedb265f23ac48d486ddbc63bedffd90967b10140ae5ac61243acf3?Expires=1792769604&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly9jYXMtYnJpZGdlLnhldGh1Yi5oZi5jby94ZXQtYnJpZGdlLXVzLzY0MWFiNWQxNWQxMDdjNWM1ZjM0NjM3Mi81",
+          "stderr": "",
+          "elapsed_ms": 5172.6
+        },
+        {
+          "target": "huggingface.co 根域",
+          "url": "https://huggingface.co/",
+          "ok": false,
+          "curl": "000 0 https://huggingface.co/",
+          "stderr": "curl: (35) schannel: next InitializeSecurityContext failed: CRYPT_E_NO_REVOCATION_CHECK (0x80092012) - 吊销功能无法检查证书是否吊销。",
+          "elapsed_ms": 37.3
+        },
+        {
+          "target": "hf-mirror.com 根域",
+          "url": "https://hf-mirror.com/",
+          "ok": false,
+          "curl": "000 0 https://hf-mirror.com/",
+          "stderr": "curl: (28) Connection timed out after 25016 milliseconds",
+          "elapsed_ms": 25035.8
+        },
+        {
+          "target": "ggml.ai 官方预构建 WASM 包",
+          "url": "https://ggml.ai/whisper.cpp/main.js",
+          "ok": true,
+          "curl": "200 0 https://ggml.ai/whisper.cpp/main.js",
+          "stderr": "",
+          "elapsed_ms": 3536.4
+        }
+      ],
+      "official_facts": {
+        "wasm_example": "https://github.com/ggml-org/whisper.cpp/tree/master/examples/whisper.wasm",
+        "wasm_readme": "https://raw.githubusercontent.com/ggml-org/whisper.cpp/master/examples/whisper.wasm/README.md",
+        "model_size_table": "https://raw.githubusercontent.com/ggml-org/whisper.cpp/master/models/README.md",
+        "notes": [
+          "官方 whisper.wasm README: 需要浏览器支持 WASM SIMD 128-bit intrinsics",
+          "官方 whisper.wasm README: tiny/base 在现代 CPU+浏览器上约 x2~x3 实时 (60 秒音频约 20-30 秒)",
+          "官方 whisper.wasm README: 仅支持 Greedy 采样; 音频最长 120 秒; 模型上限 small",
+          "官方 whisper.wasm README: 需 Emscripten 构建 (emcmake cmake ..) —— 本机未装 Emscripten, 改用官方预构建包",
+          "官方 models/README.md: ggml-tiny=75 MiB / base=142 MiB / small=466 MiB / large-v3=2.9 GiB"
+        ]
+      },
+      "runs_detail": [
+        {
+          "run": 1,
+          "ok": false,
+          "error": "页面异常: Uncaught TypeError: Module.init is not a function\n    at onProcess (http://127.0.0.1:11162/index.html:624:39)\n    at <anonymous>:1:1",
+          "output_tail": null
+        }
+      ],
+      "cross_platform": {
+        "summary": "纯浏览器路线, 平台支持面 = 浏览器支持面: 需支持 **WASM SIMD 128-bit intrinsics** 的浏览器(Chrome 91+/Edge 91+/Firefox 89+/Safari 16.4+), 桌面与移动端均可。",
+        "evidence": "官方 whisper.wasm README: \"This WASM port utilizes WASM SIMD 128-bit intrinsics so you have to make sure that your browser supports them.\"",
+        "sources": [
+          "https://github.com/ggml-org/whisper.cpp/tree/master/examples/whisper.wasm",
+          "https://webassembly.org/roadmap/"
+        ],
+        "caveats": [
+          "官方 README 明确: 音频最长 120 秒; 模型上限 small; 仅 Greedy 采样。",
+          "该示例只解决「转写」, 不解决下载/抽音轨/成稿 —— MediaScribe 现有链路仍有 Python 侧组件。"
+        ]
+      },
+      "pitfalls": [
+        "【HuggingFace 主站不可达, 但镜像可达 —— 与任务书前提相反】实测 huggingface.co 根域与权重 URL 均超时, 而 hf-mirror.com 根域 200, 且 ggml-tiny.bin 可完整下载 (77,691,713 B, 与官方 models/README.md 的 \"74MB for the tiny model\" 吻合)。所以 B5 的权重**不是**不可得, 前提不成立。",
+        "【官方预构建 WASM 包在当前 Chrome 上跑不起来】ggml.ai 发布的 main.js / libmain.js (各 1,770,840 B, wasm 以 JS 字符串内嵌) 在本机 Chrome 155 里实例化失败, 页面原文: \"failed to asynchronously prepare wasm: CompileError: WebAssembly.instantiate(): unknown type form: 106 @+12\" / \"Aborted(CompileError: WebAssembly.instantiate(): unknown type form: 106 @+12)\", 随后 `Uncaught TypeError: Module.init is not a function`。",
+        "【同一二进制在 Node/V8 亦失败】把 main.js 内嵌的 wasm 抽出来单独编译, Node 报 \"CompileError: section was shorter than expected size (151363 bytes expected, 1246 decoded) @+1258\", 而 wasm 段表本身自洽 (type section id=1 size=151363 位于偏移 12) —— 即预构建产物与当前 V8 不兼容。",
+        "【GitHub Releases 没有 wasm 资产】whisper.cpp 最新几个 release (v1.9.5 / b5454 / b5130) 只有原生二进制 (whisper-bin-* / whisper-blas-* / xcframework), 没有 wasm 资产可用。",
+        "【自建路径的前置成本】官方自建路径需要 Emscripten (emsdk) + CMake + 源码, 本机三者均缺 (emsdk 走 storage.googleapis.com, cmake 走 GitHub releases, 两者本机网络可达)。",
+        "【模型/音频加载本身是通的】在被测页面里, 模型经 DOM.setFileInputFiles 送入后 \"storeFS: stored model: whisper.bin size: 77691713\" 成功, 音频也成功解码 (\"js: audio loaded, size: 176000\") —— 阻断点只在 WASM 引擎实例化, 不在数据通路。",
+        "【demo 页两个 file input 同名】页面里模型输入 (#whisper-file) 与音频输入的 name 都是 \"file\", 按 name 选会选错(把音频写进模型输入), 必须按 onchange=\"loadAudio(event)\" 精确定位。"
+      ]
+    }
+  }
+}

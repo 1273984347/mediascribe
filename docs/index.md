@@ -39,6 +39,7 @@ python -m mediascribe.mcp_server
 | [lint-report.md](lint-report.md) | Output of `make lint` / `make verify` |
 | [cli-screenshots/index.md](cli-screenshots/index.md) | Captured CLI help output (text snapshots) |
 | [e2e-results.md](e2e-results.md) | Manual E2E run results (real URLs, real ASR) |
+| [tech-selection-report-2026-10.md](tech-selection-report-2026-10.md) | 工作台技术选型对比报告（前端框架 / 工作台壳 / 推理引擎三层，含本机实测与跨硬件矩阵） |
 
 ## Source layout
 
