@@ -192,6 +192,78 @@ class TestWhisperXModelCache(unittest.TestCase):
         self.assertEqual(len(wx._ALIGN_MODEL_CACHE), 0)
 
 
+class TestWhisperXDiarizeCache(unittest.TestCase):
+    """whisperx 说话人分离管线跨 transcribe 调用复用，不再每次重建。"""
+
+    def test_diarize_pipeline_reused_across_calls(self):
+        from mediascribe.transcribers import whisperx as wx
+
+        wx.clear_model_cache()
+        self.addCleanup(wx.clear_model_cache)
+
+        fake_whisperx = mock.MagicMock()
+        fake_model = mock.MagicMock()
+        fake_model.transcribe.return_value = {
+            "segments": [{"start": 0.0, "end": 1.0, "text": "hi"}],
+            "language": "zh",
+        }
+        fake_whisperx.load_model.return_value = fake_model
+        fake_whisperx.load_audio.return_value = "fake-audio"
+        fake_whisperx.load_align_model.return_value = ("align-model", {"d": 1})
+        fake_whisperx.align.side_effect = lambda segments, align_model, meta, audio, device: {
+            "segments": [{"start": 0.0, "end": 1.0, "text": "hi"}],
+            "language": "zh",
+        }
+        fake_diarize_cls = mock.MagicMock()
+        fake_pipeline = mock.MagicMock()
+        fake_pipeline.return_value = []  # diarize_segments
+        fake_diarize_cls.return_value = fake_pipeline
+        fake_whisperx.DiarizationPipeline = fake_diarize_cls
+        fake_whisperx.assign_word_speakers.side_effect = lambda ds, res: res
+
+        tx = wx.WhisperXTranscriber(model="small", device="cpu", hf_token="tok", diarization=True)
+        with mock.patch.dict(sys.modules, {"whisperx": fake_whisperx}):
+            r1 = tx.transcribe(Path("a.wav"), language="zh")
+            r2 = tx.transcribe(Path("b.wav"), language="zh")
+
+        # 分离管线只构建一次; 两次转录都标记成功分离
+        self.assertEqual(fake_diarize_cls.call_count, 1)
+        self.assertTrue(r1["speaker_diarization"])
+        self.assertTrue(r2["speaker_diarization"])
+        self.assertEqual(len(wx._DIARIZE_CACHE), 1)
+        wx.clear_model_cache()
+        self.assertEqual(len(wx._DIARIZE_CACHE), 0)
+
+
+class TestWhisperModelCache(unittest.TestCase):
+    """whisper(.pt) 模型跨 Pipeline 实例复用 — 与 fw/wx 同款缓存语义。"""
+
+    def setUp(self):
+        from mediascribe.transcribers import whisper as wmod
+
+        self.wmod = wmod
+        wmod.clear_model_cache()
+        self.addCleanup(wmod.clear_model_cache)
+
+    def test_model_reused_for_same_model_device(self):
+        fake_whisper = mock.MagicMock()
+        fake_model = mock.MagicMock()
+        fake_model.transcribe.return_value = {"text": "hi", "segments": [], "language": "zh"}
+        fake_whisper.load_model.return_value = fake_model
+
+        t1 = self.wmod.WhisperTranscriber(model="small", device="cpu")
+        t2 = self.wmod.WhisperTranscriber(model="small", device="cpu")
+        with mock.patch.dict(sys.modules, {"whisper": fake_whisper}):
+            r1 = t1.transcribe(Path("a.wav"))
+            r2 = t2.transcribe(Path("b.wav"))
+
+        # 两个实例同 (model, device): 磁盘加载只发生一次
+        self.assertEqual(fake_whisper.load_model.call_count, 1)
+        self.assertEqual(r1["text"], "hi")
+        self.assertEqual(r2["text"], "hi")
+        self.assertEqual(len(self.wmod._MODEL_CACHE), 1)
+
+
 class TestWhisperTorchLoadPatch(unittest.TestCase):
     """P2-10: torch.load 只在模型加载窗口内被临时替换，不污染全局。"""
 
