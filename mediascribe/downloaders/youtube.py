@@ -13,6 +13,7 @@ from typing import Any
 
 from ..config import Settings
 from ..models import SourceRef
+from ._http_download import CHROME_UA
 from .ytdlp import YtDlpDownloader
 
 
@@ -37,7 +38,7 @@ class YouTubeDownloader(YtDlpDownloader):
         opts = super()._build_ydl_opts(source, settings)
         # 用 YouTube 头替换默认头（不同 Referer/UA）
         opts["http_headers"] = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "User-Agent": CHROME_UA,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7",
             # 不带 Referer 走 web_safari / ios 客户端

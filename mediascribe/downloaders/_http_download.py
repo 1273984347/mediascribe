@@ -27,6 +27,15 @@ logger = logging.getLogger(__name__)
 _HTTP_MAX_RETRIES = 3
 _HTTP_BACKOFF_FACTOR = 1.0  # 1s, 2s, 4s
 
+# 各平台下载器共用的桌面 Chrome UA — 单一来源(2026-10-23 起, 原先在
+# youtube/ytdlp/douyin/xiaohongshu/wechat_mp 共 10 处内联重复)。
+# 站点封 UA 需要整体升级时只改这里。url_utils.py 的短链解析仍用历史
+# Chrome/91 串, 未并入 — 保持其外发请求字节不变。
+CHROME_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+
 
 def build_http_session() -> requests.Session:
     """构造带重试的 ``requests.Session``。

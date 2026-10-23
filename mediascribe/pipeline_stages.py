@@ -46,7 +46,6 @@ from __future__ import annotations
 import logging
 import os
 import threading
-import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -373,6 +372,21 @@ class DownloadStage(Stage):
         return _smart_pick_downloader(source)
 
 
+# 平台 → (构造工厂, 日志中文名) 路由表 — 各平台初始化失败时记警告
+# 并回退 yt-dlp, 与历史逐平台 if 分支行为一致。
+#
+# 工厂必须是 lambda 而非直接存类对象: 直接存类会在 import 时固化
+# 引用, 之后 monkey-patch 本模块属性(如测试 patch
+# ``pipeline_stages.XiaohongshuDownloader`` 模拟构造失败)不再可达;
+# lambda 体内的名字在调用时才从模块全局解析, patch 照常生效。
+_DOWNLOADER_ROUTES = (
+    ("xiaohongshu", lambda: XiaohongshuDownloader(), "小红书下载器"),
+    ("douyin", lambda: DouyinDownloader(), "抖音专用下载器"),
+    ("youtube", lambda: YouTubeDownloader(), "YouTube 下载器"),
+    ("wechat_mp", lambda: WechatMpDownloader(), "微信公众号下载器"),
+)
+
+
 def _smart_pick_downloader(source: SourceRef) -> Downloader:
     """与 v3.2.0a ``Pipeline._get_downloader`` 行为兼容的路由函数。
 
@@ -380,27 +394,14 @@ def _smart_pick_downloader(source: SourceRef) -> Downloader:
     直接委托到这里,删除旧副本;fallback 提示从 print 改 logger。
 
     抽出来便于 stage 测试中独立 mock 任一具体 downloader。
+    路由本体表驱动(:data:`_DOWNLOADER_ROUTES`)。
     """
-    if source.kind == "xiaohongshu":
-        try:
-            return XiaohongshuDownloader()
-        except Exception as e:  # pragma: no cover - 真实 fallback
-            logger.warning("小红书下载器初始化失败: %s — 将回退到 yt-dlp", e)
-    if source.kind == "douyin":
-        try:
-            return DouyinDownloader()
-        except Exception as e:  # pragma: no cover
-            logger.warning("抖音专用下载器初始化失败: %s — 将回退到 yt-dlp", e)
-    if source.kind == "youtube":
-        try:
-            return YouTubeDownloader()
-        except Exception as e:  # pragma: no cover
-            logger.warning("YouTube 下载器初始化失败: %s — 将回退到 yt-dlp", e)
-    if source.kind == "wechat_mp":
-        try:
-            return WechatMpDownloader()
-        except Exception as e:  # pragma: no cover
-            logger.warning("微信公众号下载器初始化失败: %s — 将回退到 yt-dlp", e)
+    for kind, make_downloader, label in _DOWNLOADER_ROUTES:
+        if source.kind == kind:
+            try:
+                return make_downloader()
+            except Exception as e:  # pragma: no cover - 真实 fallback
+                logger.warning("%s初始化失败: %s — 将回退到 yt-dlp", label, e)
     return YtDlpDownloader()
 
 
@@ -856,33 +857,15 @@ def _json_dump(obj: Any) -> str:
 
 
 def _atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> None:
-    """v3.2.0e+: 原子写文件 — 写临时文件 → ``os.replace`` 原子替换。
+    """原子写文本文件的稳定委托 — 实现见 :mod:`mediascribe.atomic_io`。
 
-    避免大文件半写时进程崩溃留下部分内容污染下次运行（读取半写 markdown
-    会让 LLM 后处理 / 下游消费方拿到截断文本）。Windows (``MoveFileEx``
-    带 ``MOVEFILE_REPLACE_EXISTING``) 与 POSIX (``rename``) 上均原子。
-
-    临时文件与最终文件同目录保证 ``os.replace`` 是同卷操作（跨卷会触发
-    copy + delete，失去原子性）。tmp 名含 pid + uuid8 避免并发请求
-    写同一 target 时的 tmp 碰撞。
-
-    内部走 ``Path.write_text`` 而非 ``open()+f.write()``，保持测试 mock
-    兼容性（测试 monkey-patch ``Path.write_text`` 验证 AssembleStage 落盘
-    行为）。不调 ``fsync``，依赖 OS page cache flush — 对开发态单机场景
-    足够；若未来需强持久性可在 settings 加 ``fsync=True`` 选项。
+    保留本模块级名字: pipeline / chunked / 多个测试都从这里 import
+    或 monkey-patch 该符号。约束(Path.write_text mock 兼容、同目录
+    tmp、pid+uuid8 防碰撞)的完整说明在 atomic_io 模块 docstring。
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.parent / (f".{path.stem}.{os.getpid()}.{uuid.uuid4().hex[:8]}{path.suffix}.tmp")
-    try:
-        tmp_path.write_text(content, encoding=encoding)
-        os.replace(tmp_path, path)
-    except Exception:
-        # 写失败时清理 tmp,避免污染目录
-        try:
-            tmp_path.unlink(missing_ok=True)
-        except Exception:
-            pass
-        raise
+    from .atomic_io import atomic_write_text
+
+    atomic_write_text(path, content, encoding=encoding)
 
 
 # ---------------------------------------------------------------------------

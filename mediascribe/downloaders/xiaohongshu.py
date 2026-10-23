@@ -32,7 +32,7 @@ import requests
 
 from ..config import Settings
 from ..models import DownloadResult, SourceRef
-from ._http_download import stream_download
+from ._http_download import CHROME_UA, stream_download
 from .base import Downloader
 
 logger = logging.getLogger(__name__)
@@ -139,11 +139,7 @@ class XiaohongshuDownloader(Downloader):
                 allow_redirects=True,
                 timeout=15,
                 headers={
-                    "User-Agent": (
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) "
-                        "Chrome/120.0.0.0 Safari/537.36"
-                    ),
+                    "User-Agent": CHROME_UA,
                 },
             )
             if resp.url and resp.url != url:
@@ -189,11 +185,7 @@ class XiaohongshuDownloader(Downloader):
         with sync_playwright() as pw:
             browser = pw.chromium.launch(headless=True)
             context = browser.new_context(
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/120.0.0.0 Safari/537.36"
-                ),
+                user_agent=CHROME_UA,
                 viewport={"width": 1280, "height": 800},
             )
             page = context.new_page()
@@ -293,11 +285,7 @@ class XiaohongshuDownloader(Downloader):
         失败清理），文件名用 uuid 短后缀避免同秒碰撞。
         """
         headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
+            "User-Agent": CHROME_UA,
             "Referer": "https://www.xiaohongshu.com/",
             "Accept": "*/*",
         }

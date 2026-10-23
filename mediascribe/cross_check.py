@@ -171,23 +171,26 @@ def divergences_to_payload(
     (2026-10-02 复盘: 长视频 189 处实词分歧只列前 100, 后半段只能
     通读 raw 稿人工兜底 — 落一份完整机读清单。)
     """
+    # 噪声判定先算一次: content/noise 计数与逐条 type 共用,
+    # 谓词做正则替换, 避免每条分歧重复计算 3 次。
+    noise_flags = [is_noise_divergence(d) for d in divergences]
     return {
         "main_model": main_model,
         "cross_model": cross_model,
         "audio": str(audio_path) if audio_path else None,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "total": len(divergences),
-        "content_count": sum(1 for d in divergences if not is_noise_divergence(d)),
-        "noise_count": sum(1 for d in divergences if is_noise_divergence(d)),
+        "content_count": sum(1 for flag in noise_flags if not flag),
+        "noise_count": sum(noise_flags),
         "divergences": [
             {
                 "index": i,
-                "type": "noise" if is_noise_divergence(d) else "content",
+                "type": "noise" if flag else "content",
                 "main": d.main,
                 "cross": d.cross,
                 "context": d.context,
             }
-            for i, d in enumerate(divergences, 1)
+            for i, (d, flag) in enumerate(zip(divergences, noise_flags, strict=True), 1)
         ],
     }
 

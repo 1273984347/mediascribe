@@ -18,7 +18,6 @@ import json
 import logging
 import os
 import threading
-import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -58,20 +57,12 @@ class ProcessCache:
 
     def _save(self):
         """原子保存缓存（tmp + os.replace，中断不会损坏既有缓存）"""
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        tmp = self.cache_file.with_name(
-            f"{self.cache_file.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
+        from .atomic_io import atomic_write_text
+
+        atomic_write_text(
+            self.cache_file,
+            json.dumps(self._cache_data, ensure_ascii=False, indent=2),
         )
-        try:
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(self._cache_data, f, ensure_ascii=False, indent=2)
-            os.replace(tmp, self.cache_file)
-        finally:
-            if tmp.exists():  # replace 失败时清理临时文件
-                try:
-                    tmp.unlink()
-                except OSError:
-                    pass
 
     def is_processed(self, video_id: str) -> bool:
         """检查视频是否已成功处理（失败记录不算，下一轮可重试）"""

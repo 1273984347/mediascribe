@@ -317,6 +317,18 @@ def collect_evidence(
 # ---------------------------------------------------------------------------
 
 
+def _verdict_counts(evidences: Sequence[DivergenceEvidence]) -> dict:
+    """四类裁决(同主稿/同对照/第三读/未定位)的计数。
+
+    build_verify_report 与 run_verify 共用; 未知 verdict 不崩,
+    计入自身键(与报告渲染的 counts.get 语义一致)。
+    """
+    counts = {"同主稿": 0, "同对照": 0, "第三读": 0, "未定位": 0}
+    for e in evidences:
+        counts[e.verdict] = counts.get(e.verdict, 0) + 1
+    return counts
+
+
 def build_verify_report(
     evidences: Sequence[DivergenceEvidence],
     *,
@@ -329,9 +341,7 @@ def build_verify_report(
     cross_model: Optional[str],
 ) -> str:
     """渲染 .verify.md — 逐条分歧 + 第三采样近似证据。"""
-    counts = {"同主稿": 0, "同对照": 0, "第三读": 0, "未定位": 0}
-    for e in evidences:
-        counts[e.verdict] = counts.get(e.verdict, 0) + 1
+    counts = _verdict_counts(evidences)
     total = len(evidences)
     audio_note = "复用磁盘音频" if audio_reused else "验证轮重新下载"
     lines = [
@@ -446,9 +456,7 @@ def run_verify(
     report_path = transcript_path.with_suffix(".verify.md")
     report_path.write_text(report, encoding="utf-8")
 
-    counts = {"同主稿": 0, "同对照": 0, "第三读": 0, "未定位": 0}
-    for e in evidences:
-        counts[e.verdict] += 1
+    counts = _verdict_counts(evidences)
     print(
         f"✅ 验证完成: {len(evidences)} 处分歧 = "
         f"同主稿 {counts['同主稿']} / 同对照 {counts['同对照']} / "

@@ -324,6 +324,28 @@ def _tool_get_cache_stats(_: Dict[str, Any]) -> Dict[str, Any]:
     return cache.get_stats()
 
 
+# MCP 工具读文件的大小上限(5 MiB) — get_transcript 与 wiki_read_note 共用。
+_MCP_READ_CAP_BYTES = 5 * 1024 * 1024
+
+
+def _read_text_capped(target: Path, max_bytes: int = _MCP_READ_CAP_BYTES):
+    """限长 + UTF-8 文本读取 — 两个读文件工具的共用尾部。
+
+    返回 ``(text, size, error)``: 成功时 ``error`` 为 ``None``;
+    超限 ``"too_large"``; 非 UTF-8 ``"bad_utf8"``。错误 payload 的
+    键名(path/name)与文案由调用方组装 — 两个工具的历史输出略有
+    差异, 逐字保留。
+    """
+    size = target.stat().st_size
+    if size > max_bytes:
+        return None, size, "too_large"
+    try:
+        text = target.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return None, size, "bad_utf8"
+    return text, size, None
+
+
 def _tool_get_transcript(args: Dict[str, Any]) -> Dict[str, Any]:
     """Return the contents of a transcript file, with safety constraints.
 
@@ -346,7 +368,7 @@ def _tool_get_transcript(args: Dict[str, Any]) -> Dict[str, Any]:
         * File must be at most 5 MiB; larger files return ``truncated``
           metadata without the full content.
     """
-    max_bytes = 5 * 1024 * 1024  # 5 MiB
+    max_bytes = _MCP_READ_CAP_BYTES
     root = (
         Path(os.environ.get("MEDIASCRIBE_TRANSCRIPT_ROOT", "output/transcripts"))
         .expanduser()
@@ -384,8 +406,8 @@ def _tool_get_transcript(args: Dict[str, Any]) -> Dict[str, Any]:
             "error": "not a regular file",
         }
 
-    size = candidate.stat().st_size
-    if size > max_bytes:
+    text, size, read_err = _read_text_capped(candidate, max_bytes)
+    if read_err == "too_large":
         return {
             "path": str(candidate),
             "exists": True,
@@ -394,17 +416,13 @@ def _tool_get_transcript(args: Dict[str, Any]) -> Dict[str, Any]:
             "max_bytes": max_bytes,
             "error": f"file is larger than {max_bytes} bytes; refusing to inline",
         }
-
-    try:
-        text = candidate.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
+    if read_err == "bad_utf8":
         return {
             "path": str(candidate),
             "exists": True,
             "size_bytes": size,
             "error": "file is not valid utf-8; refusing to inline",
         }
-
     return {
         "path": str(candidate),
         "exists": True,
@@ -563,7 +581,7 @@ def _tool_wiki_list(_: Dict[str, Any]) -> Dict[str, Any]:
 
 def _tool_wiki_read_note(args: Dict[str, Any]) -> Dict[str, Any]:
     """返回单篇笔记原文。与 web 层相同的路径校验(相对 .md、防穿越)。"""
-    max_bytes = 5 * 1024 * 1024  # 5 MiB, 与 get_transcript 一致
+    max_bytes = _MCP_READ_CAP_BYTES  # 与 get_transcript 一致
     vault = _mcp_vault()
     if vault is None:
         return {"name": args.get("name", ""), "enabled": False, "error": "wiki disabled"}
@@ -587,8 +605,8 @@ def _tool_wiki_read_note(args: Dict[str, Any]) -> Dict[str, Any]:
     if not target.is_file():
         return {"name": raw, "exists": False, "error": "note not found"}
 
-    size = target.stat().st_size
-    if size > max_bytes:
+    text, size, read_err = _read_text_capped(target, max_bytes)
+    if read_err == "too_large":
         return {
             "name": raw,
             "exists": True,
@@ -597,9 +615,7 @@ def _tool_wiki_read_note(args: Dict[str, Any]) -> Dict[str, Any]:
             "max_bytes": max_bytes,
             "error": f"file is larger than {max_bytes} bytes; refusing to inline",
         }
-    try:
-        text = target.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
+    if read_err == "bad_utf8":
         return {"name": raw, "exists": True, "error": "file is not valid utf-8"}
     return {"name": raw, "exists": True, "size_bytes": size, "content": text}
 
