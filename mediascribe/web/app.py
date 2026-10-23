@@ -1239,10 +1239,6 @@ def main(argv: Optional[List[str]] = None) -> int:
     return 0
 
 
-if __name__ == "__main__":  # pragma: no cover
-    sys.exit(main())
-
-
 def _register_health_routes(app: "FastAPI") -> None:
     """Route registrar — create_app 装配时调用(2026-10-03 审查拆分, 路由逐字搬移)。"""
     from mediascribe.pipeline import resolve_device
@@ -1979,3 +1975,25 @@ def _register_job_result_route(app: "FastAPI") -> None:
             "stage_current": job.stage_current,
             "stage_total": job.stage_total,
         }
+
+
+# ---------------------------------------------------------------------------
+# 模块级 ASGI 入口
+# ---------------------------------------------------------------------------
+# ``uvicorn mediascribe.web.app:app`` 是本模块 docstring 与
+# ``scripts/one_click_up.py`` 一直宣称的启动方式，但**模块级 ``app``
+# 从来不存在** ⇒ 该命令必然报
+# ``ERROR: Error loading ASGI app. Attribute "app" not found``。
+#
+# 这里补上它。仅在被**导入**时创建（``__main__`` 路径由 main() 自己建
+# app），避免 ``python -m mediascribe.web.app`` 创建两个实例。
+if _FASTAPI_AVAILABLE and __name__ != "__main__":
+    app = create_app()
+
+
+# ``__main__`` 块必须放在**所有路由注册函数定义之后** —— 放在文件中部
+# 时，``create_app()`` 调用 ``_register_health_routes`` 等函数时它们尚未
+# 定义，``python -m mediascribe.web.app`` 会直接抛
+# ``NameError: name '_register_health_routes' is not defined``。
+if __name__ == "__main__":  # pragma: no cover
+    sys.exit(main())
