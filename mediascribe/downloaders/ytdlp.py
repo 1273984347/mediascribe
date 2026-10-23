@@ -25,6 +25,7 @@ from typing import Any, Optional
 
 from ..config import Settings
 from ..models import DownloadResult, SourceRef
+from ._http_download import CHROME_UA
 from .base import Downloader
 
 logger = logging.getLogger(__name__)
@@ -33,10 +34,7 @@ _BV_RE = re.compile(r"(BV1[0-9A-Za-z]{9})", re.IGNORECASE)
 _PAGE_RE = re.compile(r"[?&]p=(\d+)")
 _API_TIMEOUT = 15
 _BILI_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    ),
+    "User-Agent": CHROME_UA,
     "Referer": "https://www.bilibili.com/",
 }
 # 低于该大小的音轨响应视为无效（10 分钟音频 ≈ 8 MB）
@@ -345,7 +343,7 @@ class YtDlpDownloader(Downloader):
             "no_warnings": False,
             # 添加 headers 绕过 Bilibili 412 错误
             "http_headers": {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "User-Agent": CHROME_UA,
                 "Referer": "https://www.bilibili.com/",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
                 "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",

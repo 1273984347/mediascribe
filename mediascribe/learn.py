@@ -193,6 +193,27 @@ def learned_terms_path() -> Path:
     return persistent_cache_dir() / "learned_terms.json"
 
 
+def _db_payload(db: LearnedTermsDB) -> dict:
+    """术语库的序列化结构 — _save_db 与 export_terms 共用。"""
+    return {
+        "version": db.version,
+        "terms": {key: asdict(c) for key, c in db.terms.items()},
+    }
+
+
+def _restore_terms(db: LearnedTermsDB, raw: dict) -> None:
+    """把 JSON ``terms`` 映射重建进 db — _load_db 与 import_terms 共用。
+
+    单条损坏(字段缺失/类型不符)跳过, 不影响其余条目。
+    """
+    for val in raw.get("terms", {}).values():
+        try:
+            c = Correction(**val)
+            db.terms[db._key(c.wrong, c.right)] = c
+        except (TypeError, KeyError):
+            continue
+
+
 def _load_db(path: Optional[Path] = None) -> LearnedTermsDB:
     """从文件加载术语库。"""
     store = path or learned_terms_path()
@@ -204,42 +225,17 @@ def _load_db(path: Optional[Path] = None) -> LearnedTermsDB:
         return LearnedTermsDB()
 
     db = LearnedTermsDB()
-    for val in raw.get("terms", {}).values():
-        try:
-            c = Correction(**val)
-            db.terms[db._key(c.wrong, c.right)] = c
-        except (TypeError, KeyError):
-            continue
+    _restore_terms(db, raw)
     return db
 
 
 def _save_db(db: LearnedTermsDB, path: Optional[Path] = None) -> None:
-    """保存术语库到文件 (原子写入)。
-
-    v3.2.0e+: tmp 名含 PID + UUID8 避免并发碰撞，写失败时清理 tmp
-    （原 ``.tmp`` 名固定，多进程同时写会互相覆盖）。"""
-    import os
-    import uuid
+    """保存术语库到文件 (原子写入, 实现见 mediascribe.atomic_io)。"""
+    from .atomic_io import atomic_write_text
 
     store = path or learned_terms_path()
-    data = {
-        "version": db.version,
-        "terms": {key: asdict(c) for key, c in db.terms.items()},
-    }
-    store.parent.mkdir(parents=True, exist_ok=True)
-    tmp = store.with_suffix(f".{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
-    try:
-        tmp.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        tmp.replace(store)
-    except Exception:
-        try:
-            tmp.unlink(missing_ok=True)
-        except Exception:
-            pass
-        raise
+    data = _db_payload(db)
+    atomic_write_text(store, json.dumps(data, ensure_ascii=False, indent=2))
 
 
 # ---------------------------------------------------------------------------
@@ -287,6 +283,28 @@ def _edit_distance(s1: str, s2: str) -> int:
 # ---------------------------------------------------------------------------
 # 公共 API
 # ---------------------------------------------------------------------------
+def _iter_correction_pairs(reference: str, transcript: str):
+    """diff 两段文本, 产出 (wrong, right, context) 修正对生成器。
+
+    :func:`compare` 与 :func:`learn_from_edit` 共用的核心循环:
+    difflib 序列匹配 → 只保留 2-6 字、拼音相似的替换(ASR 典型错误
+    模式), 过滤 n-gram 拼接产生的长串。
+    """
+    ref_tokens = _tokenize(reference)
+    trans_tokens = _tokenize(transcript)
+
+    matcher = difflib.SequenceMatcher(None, ref_tokens, trans_tokens)
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag != "replace":
+            continue
+        wrong = "".join(trans_tokens[j1:j2])
+        right = "".join(ref_tokens[i1:i2])
+        if wrong and right and wrong != right:
+            if 2 <= len(wrong) <= 6 and 2 <= len(right) <= 6:
+                if _is_phonetically_similar(wrong, right):
+                    yield wrong, right, right[:30]
+
+
 def compare(
     reference: str,
     transcript: str,
@@ -310,24 +328,7 @@ def compare(
     -------
     ``[(wrong, right, context), ...]`` 列表。
     """
-    ref_tokens = _tokenize(reference)
-    trans_tokens = _tokenize(transcript)
-
-    matcher = difflib.SequenceMatcher(None, ref_tokens, trans_tokens)
-
-    corrections: list[tuple[str, str, str]] = []
-    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-        if tag == "replace":
-            wrong = "".join(trans_tokens[j1:j2])
-            right = "".join(ref_tokens[i1:i2])
-            if wrong and right and wrong != right:
-                # 只保留 2-6 字的替换,过滤 n-gram 拼接产生的长串
-                if 2 <= len(wrong) <= 6 and 2 <= len(right) <= 6:
-                    # 拼音相似度过滤
-                    if _is_phonetically_similar(wrong, right):
-                        context = right[:30]
-                        corrections.append((wrong, right, context))
-    return corrections
+    return list(_iter_correction_pairs(reference, transcript))
 
 
 def learn_from_edit(
@@ -358,22 +359,9 @@ def learn_from_edit(
     更新后的术语库。
     """
     # diff 编辑前后文本
-    ref_tokens = _tokenize(corrected)
-    trans_tokens = _tokenize(original)
-
-    matcher = difflib.SequenceMatcher(None, ref_tokens, trans_tokens)
-
     db = _load_db(path)
-    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-        if tag == "replace":
-            wrong = "".join(trans_tokens[j1:j2])
-            right = "".join(ref_tokens[i1:i2])
-            if wrong and right and wrong != right:
-                # 只保留 2-6 字的替换,过滤 n-gram 拼接产生的长串
-                if 2 <= len(wrong) <= 6 and 2 <= len(right) <= 6:
-                    if _is_phonetically_similar(wrong, right):
-                        context = right[:30]
-                        db.add(wrong, right, context=context, source=source)
+    for wrong, right, context in _iter_correction_pairs(corrected, original):
+        db.add(wrong, right, context=context, source=source)
 
     _save_db(db, path)
     return db
@@ -473,12 +461,8 @@ def remove_term(wrong: str, right: str, path: Optional[Path] = None) -> bool:
 def export_terms(output_path: Path, db_path: Optional[Path] = None) -> None:
     """导出术语库到指定路径。"""
     db = _load_db(db_path)
-    data = {
-        "version": db.version,
-        "terms": {key: asdict(c) for key, c in db.terms.items()},
-    }
     output_path.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2),
+        json.dumps(_db_payload(db), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
@@ -491,12 +475,7 @@ def import_terms(
     """从文件导入术语库。"""
     raw = json.loads(input_path.read_text(encoding="utf-8"))
     db = _load_db(db_path) if merge else LearnedTermsDB()
-    for val in raw.get("terms", {}).values():
-        try:
-            c = Correction(**val)
-            db.terms[db._key(c.wrong, c.right)] = c
-        except (TypeError, KeyError):
-            continue
+    _restore_terms(db, raw)
     _save_db(db, db_path)
     return db
 

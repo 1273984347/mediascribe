@@ -24,8 +24,8 @@ from typing import Any, Optional
 
 from ..config import Settings
 from ..models import DownloadResult, SourceRef
+from ._http_download import CHROME_UA, stream_download
 from ._http_download import build_http_session as _build_http_session
-from ._http_download import stream_download
 from .base import Downloader
 
 logger = logging.getLogger(__name__)
@@ -192,11 +192,7 @@ class DouyinDownloader(Downloader):
             browser = p.chromium.launch(headless=True)
             try:
                 context = browser.new_context(
-                    user_agent=(
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) "
-                        "Chrome/120.0.0.0 Safari/537.36"
-                    ),
+                    user_agent=CHROME_UA,
                     locale="zh-CN",
                 )
                 page = context.new_page()
@@ -264,7 +260,7 @@ class DouyinDownloader(Downloader):
         save_dir.mkdir(parents=True, exist_ok=True)
 
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "User-Agent": CHROME_UA,
             "Referer": "https://www.douyin.com/",
         }
 
