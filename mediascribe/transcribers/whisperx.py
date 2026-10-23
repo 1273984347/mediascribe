@@ -2,8 +2,9 @@
 WhisperX 转录器 - 真正参考 WhisperX 的实现流程
 
 模块级模型缓存：主模型按 ``(model_name, device, compute_type)``、对齐模型按
-``(language_code, device)`` 复用实例，同一转录器连转 N 个音频不再重复加载
-（模型加载约 5-10s/次）。``clear_model_cache()`` 可手动释放显存（含对齐模型）。
+``(language_code, device)``、说话人分离管线按 ``(hf_token, device)`` 复用实例，
+同一转录器连转 N 个音频不再重复加载（模型加载约 5-10s/次）。
+``clear_model_cache()`` 可手动释放显存（含对齐模型与分离管线）。
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from .base import Transcriber
 # ---------------------------------------------------------------------------
 _MODEL_CACHE: Dict[Tuple[str, str, str], Any] = {}
 _ALIGN_MODEL_CACHE: Dict[Tuple[str, str], Any] = {}
+_DIARIZE_CACHE: Dict[Tuple[str, str], Any] = {}
 _MODEL_CACHE_LOCK = threading.Lock()
 
 
@@ -72,11 +74,34 @@ def _get_cached_align_model(whisperx: Any, language_code: str, device: str) -> T
         return align_model, meta
 
 
+def _get_cached_diarize_pipeline(whisperx: Any, token: str, device: str) -> Any:
+    """取或加载说话人分离管线（按 ``(token, device)`` 缓存, 双检锁）。
+
+    pyannote 管线构建（权重加载 + HF 授权）为秒级开销, 此前每次
+    ``transcribe()`` 都重建一个 — 连转 N 个音频复用同一实例。
+    仅成功构建的管线进缓存; 构建失败照旧抛给调用方的 except,
+    失败路径行为不变。
+    """
+    key = (token, device)
+    cached = _DIARIZE_CACHE.get(key)
+    if cached is not None:
+        return cached
+    with _MODEL_CACHE_LOCK:
+        # 双检锁
+        cached2 = _DIARIZE_CACHE.get(key)
+        if cached2 is not None:
+            return cached2
+        pipeline = whisperx.DiarizationPipeline(token=token, device=device)
+        _DIARIZE_CACHE[key] = pipeline
+        return pipeline
+
+
 def clear_model_cache() -> None:
-    """清空模型缓存（含对齐模型），释放显存。测试与显存紧张时用。"""
+    """清空模型缓存（含对齐模型与分离管线），释放显存。测试与显存紧张时用。"""
     with _MODEL_CACHE_LOCK:
         _MODEL_CACHE.clear()
         _ALIGN_MODEL_CACHE.clear()
+        _DIARIZE_CACHE.clear()
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
@@ -150,10 +175,7 @@ class WhisperXTranscriber(Transcriber):
                 print("执行说话人分离...")
 
             try:
-                diarize_model = whisperx.DiarizationPipeline(
-                    token=self.hf_token,
-                    device=self.device,
-                )
+                diarize_model = _get_cached_diarize_pipeline(whisperx, self.hf_token, self.device)
                 diarize_segments = diarize_model(str(audio_path))
                 result = whisperx.assign_word_speakers(diarize_segments, result)
                 speaker_diarization = True

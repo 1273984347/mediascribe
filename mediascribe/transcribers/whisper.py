@@ -8,13 +8,20 @@ torch 2.6+ 兼容补丁（仅作用于模型加载窗口，不污染全局）：
 加载模型时通过 :func:`_whisper_load_patch` 上下文管理器**临时**替换
 ``torch.load`` / ``default_restore_location``，finally 恢复原函数，
 进程内其他库不受影响。
+
+模块级模型缓存（与 faster_whisper / whisperx 同款复用模式）：按
+``(model_name, device)`` 复用已加载的 .pt 实例 — openai-whisper 的
+``load_model`` 每次都从磁盘反序列化 checkpoint（几百 MB、秒级），
+同进程再建同配置 Pipeline（cross-check 对照、verify 重采样、Web 管线
+缓存淘汰重建）时不再重复走磁盘。
 """
 
 from __future__ import annotations
 
 import contextlib
+import threading
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any, Dict, Iterator, Optional, Tuple
 
 import torch
 
@@ -69,6 +76,39 @@ def _whisper_load_patch() -> Iterator[None]:
         torch.load = original_load
         if original_restore is not None:
             torch.serialization.default_restore_location = original_restore
+
+
+# ---------------------------------------------------------------------------
+# 模块级模型缓存 — 双检锁, 与 whisperx 的 _MODEL_CACHE 同款
+# ---------------------------------------------------------------------------
+_MODEL_CACHE: Dict[Tuple[str, str], Any] = {}
+_MODEL_CACHE_LOCK = threading.Lock()
+
+
+def _get_cached_model(whisper_module: Any, model_name: str, device: str) -> Any:
+    """按 ``(model_name, device)`` 取或加载 whisper 模型（双检锁）。
+
+    torch 2.6+ 兼容补丁只在真正走磁盘加载的窗口内生效, 命中缓存
+    不进入补丁窗口。
+    """
+    key = (model_name, device)
+    cached = _MODEL_CACHE.get(key)
+    if cached is not None:
+        return cached
+    with _MODEL_CACHE_LOCK:
+        cached2 = _MODEL_CACHE.get(key)
+        if cached2 is not None:
+            return cached2
+        with _whisper_load_patch():
+            model = whisper_module.load_model(model_name, device=device)
+        _MODEL_CACHE[key] = model
+        return model
+
+
+def clear_model_cache() -> None:
+    """清空模型缓存，释放显存。测试与显存紧张时用。"""
+    with _MODEL_CACHE_LOCK:
+        _MODEL_CACHE.clear()
 
 
 class WhisperTranscriber(Transcriber):
@@ -129,7 +169,6 @@ class WhisperTranscriber(Transcriber):
 
         print(f"加载 Whisper 模型: {self.model_name} (设备: {self.device})")
 
-        # torch 2.6+ 兼容补丁仅在加载窗口内临时生效
-        with _whisper_load_patch():
-            self._model = whisper.load_model(self.model_name, device=self.device)
+        # torch 2.6+ 兼容补丁仅在加载窗口内临时生效; 实例走模块级缓存复用
+        self._model = _get_cached_model(whisper, self.model_name, self.device)
         return self._model
