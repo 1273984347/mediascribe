@@ -45,16 +45,42 @@ class TestOptionalFastAPIImport(unittest.TestCase):
 
 
 class TestStaticIndexHtml(unittest.TestCase):
-    """The bundled HTML must contain the form, the API path, and JS hooks."""
+    """The bundled front-end must contain the form, the API paths, and JS hooks.
+
+    2026-10-24 (P4): 前端拆成原生 ES modules 后,``/api/jobs`` 这类调用点
+    搬进了 ``static/modules/*.js`` ⇒ 断言的对象从「单个 HTML 文件」改成
+    「**前端资源集合**」。断言的**意图**（这些路径/钩子必须存在）不变。
+    """
+
+    @staticmethod
+    def _front_end_text() -> str:
+        static = ROOT / "mediascribe" / "web" / "static"
+        parts = [static / "index.html", static / "app.js", static / "styles.css"]
+        modules = static / "modules"
+        if modules.is_dir():
+            parts.extend(sorted(modules.glob("*.js")))
+        return "\n".join(p.read_text(encoding="utf-8") for p in parts if p.exists())
 
     def test_index_html_present(self):
         index = ROOT / "mediascribe" / "web" / "static" / "index.html"
         self.assertTrue(index.exists())
-        text = index.read_text(encoding="utf-8")
+        text = self._front_end_text()
         # v3.2.0c: form now POSTs to /api/jobs (async + cancel + WS).
         # /api/health is still referenced by the GPU pill polling loop.
         for needle in ("/api/jobs", "/api/health", "textarea", "engine", "model", "gpu-pill"):
             self.assertIn(needle, text)
+
+    def test_index_html_is_thin(self):
+        """拆分后的 index.html 不应再内联大段 CSS/JS（P4 的核心收益）。"""
+        index = ROOT / "mediascribe" / "web" / "static" / "index.html"
+        text = index.read_text(encoding="utf-8")
+        self.assertNotIn("<style", text, msg="CSS 应已抽到 styles.css")
+        self.assertLess(
+            len(text),
+            12000,
+            msg=f"index.html 仍有 {len(text)} 字节 —— 拆分未生效",
+        )
+        self.assertIn('<script type="module" src="./app.js">', text)
 
 
 class TestPydanticModelsIfAvailable(unittest.TestCase):

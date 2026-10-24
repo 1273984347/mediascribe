@@ -7,8 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added (2026-10-24 选型落地：权重预置 + 简繁统一 + whisper.cpp 第三条腿)
+### Added (2026-10-24 选型落地：权重预置 + 简繁统一 + whisper.cpp 第三条腿 + 运行时守卫 + 前端拆分)
 
+- **前端拆成原生 ES modules**（零构建、零依赖，不换框架）——
+  `index.html` 42,854 B → **7,329 B（−83%）**，冷启动 467.5 ms → **84.7 ms（−82%**，
+  拆分后 CSS/JS 可并行下载且可分别缓存）。拆为 `styles.css` + `app.js` +
+  `modules/{dom,theme,status,gpu,auth,jobs}.js`，知识库页同样拆出 `wiki.css`/`wiki.js`。
+  * **gzip 总量 +17.4%（+3 KB）** —— gzip 靠字典共享压缩单文件，拆多文件后各文件独立
+    压缩、字典无法共享 ⇒ gzip 必然上升。保留 6 个语义清晰的模块而非合并成 2–3 个
+    大文件；真要压缩传输体积，正解是服务端预压缩而非放弃拆分。
+  * **移除 Google Fonts 外链** ⇒ 页面**零外部网络请求**（此前每次打开都要连
+    fonts.googleapis.com，与「完全离线」硬约束冲突）。
 - **运行时资源守卫** `mediascribe/runtime_guard.py` —— 把基准侧的硬件自适应与
   过载护栏**下沉到产品运行时**（此前护栏只护基准脚本，转录产品本身无保护）：
   * 转录前按资源**自动降档**（`large-v3 → medium → small → base → tiny`）或换引擎
