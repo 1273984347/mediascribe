@@ -818,3 +818,74 @@ python scripts/bench/asr/recompute_cer.py                 # 繁简归一化后�
 | **whisper.cpp 启用 VAD 后 harsh 档错误率能否从 84–86% 降下来** | **推测会显著改善**（MediaScribe 管线自带 VAD，而 whisper.cpp 默认不做 VAD ⇒ 噪声段被当成语音产生幻觉），但**本次未完成对照实测**（VAD 对照任务超时）⇒ §8.4 的结论按「未启用 VAD」口径给出 |
 | whisper.cpp 的 CUDA 预编译包（653 MiB）实测 | GitHub 直连仅 ~47 KB/s，本机**未下载**；CUDA 档数据全部来自官方同源表 |
 | faster-whisper **medium** 档任何数据 | 本机无该模型权重且 HF 不可达 ⇒ **完全不可测**（不是引擎缺陷） |
+
+---
+
+## 13. 选型落地实施记录（2026-10-24）
+
+本节记录报告结论的**实际落地**（commit `39cbd50` / `877fd0d` 之后的一批），以及落地过程中改写的结论。
+
+### 13.1 落地了什么
+
+| 报告建议 | 落地内容 | 验证方式 |
+|---|---|---|
+| **P1** 预置全部模型权重 | `mediascribe/model_weights.py`：把「engine×model → 权重在哪、怎么预置」变成可查询数据；加载失败时把 HuggingFace/openai 的原始异常换成**带预置路径与命令**的中文报错；`mediascribe doctor` 新增「权重预置」自检段 | 本机实跑 doctor：faster-whisper 就绪 2/5 档、openai-whisper 4/5 档、whisper-cpp 0/5，逐档列明缺失 |
+| **P2** 输出繁简统一 | `mediascribe/zh_normalize.py` + `Settings.zh_simplify`（默认开）+ CLI `--no-zh-simplify` + env `MEDIASCRIBE_ZH_SIMPLIFY` | 繁体输入 → 简体输出实测通过；开关关闭时原样保留 |
+| **P3** whisper.cpp 第三条腿 | `mediascribe/transcribers/whisper_cpp.py`；`--engine whisper-cpp`；回退链在**内存压力**下自动提前 whisper.cpp | 本机用真实 whisper-cli + GGML 权重端到端转写成功，输出**简体**、segments 带时间戳 |
+
+### 13.2 落地过程中改写的两条结论
+
+**① 繁简问题不只在输出层 —— 「源头」才是主力防线。**
+报告 §8.3 把繁简归为「度量陷阱」。落地时发现：`mediascribe/transcribers/faster_whisper.py`
+**早就注入**简体 `initial_prompt`（"以下是简体中文的句子。"），而 openai-whisper / whisperx 没有。
+⇒ 这正是实测中 faster-whisper 输出简体、另两个输出繁体的**真正原因**。
+
+因此实现改为**双层防御**：
+
+* **源头（跨平台有效，主力）**：三个引擎统一注入简体 `initial_prompt` ⇒ 模型直接生成简体，
+  比事后转换自然（不会出现转换带来的用词差异）。
+* **兜底（仅 Windows 有效）**：输出层用 `LCMapStringW` 转换，零第三方依赖。
+  macOS / Linux 没有可用的零依赖转换器，兜底层退化为原样返回 —— 此时字形一致性
+  **完全依赖第 1 层**。
+
+实测佐证：接入 prompt 注入后，whisper.cpp 的同一段音频输出从繁体「各位觀眾大家好」
+变为简体「各位观众大家好」。
+
+**② 「换引擎会改变字形」的实际影响面比预估大。**
+报告里写的是"这是需要产品决策的事"。落地时确认：`whisperx` 走的是
+faster-whisper 后端但**自己调 `model.transcribe()` 且不传 prompt** ⇒ 即使底层是
+faster-whisper，whisperx 路径同样输出繁体。⇒ 三个引擎都要显式注入，不只是两个。
+
+### 13.3 落地过程中抓到的第三个「同名文件」陷阱
+
+`shutil.which("main.exe")` 在 Windows 上返回 **`C:\Windows\system32\main.CPL`**（控制面板），
+而不是 whisper.cpp 的二进制 ⇒ 引擎被误判为「可用」，fallback 会选到一个根本跑不起来的东西。
+
+修正：旧版 whisper.cpp 的 `main.exe` **只在 whisper.cpp 专属目录里找**（不走 PATH），
+且所有候选必须通过体积（≥100 KB）与系统目录（System32/SysWOW64）双重校验。
+
+> 这与 §8.5 的「`nvidia-smi` 返回 `[N/A]`」是同一类问题：**Windows 的文件名与工具
+> 语义不匹配时，「探测存在」不等于「这个东西能用」**。凡是用"文件在不在"做可用性
+> 判定的场合，都必须加一道「它是不是我要的那个」的校验。
+
+### 13.4 内存压力下的回退链自适应
+
+按 §8.1 的实测内存数据（whisper.cpp tiny **291 MiB** vs faster-whisper small
+952 MiB vs large-v3 3613 MiB），实现了一条**运行时自适应**规则：
+
+```
+可用内存 < 4 GB 且 device 为 cpu/auto  ⇒  whisper.cpp 排到 faster-whisper 之前
+```
+
+即：机器内存紧张时自动选最省内存的引擎，而不是让用户自己踩坑。
+
+### 13.5 本批的测试与门禁
+
+| 项 | 结果 |
+|---|---|
+| 新增测试 | 56 项（`test_zh_normalize.py` / `test_model_weights.py` / `test_whisper_cpp_transcriber.py`） |
+| 全量回归 | 见提交说明 |
+| ruff check / format | 全仓通过 |
+| mypy | 63 个源文件无问题 |
+| 新增依赖 | **0**（繁简转换走 Windows API、权重探测走标准库，全部零新增依赖） |
+

@@ -158,6 +158,47 @@ def _check_model_cache() -> None:
         )
 
 
+def _check_model_weights() -> None:
+    """📌 权重预置 — 离线产品必须**预先放置**的模型权重。
+
+    此前缺权重只能在跑到一半时炸（2026-10-23 实测：``faster-whisper medium``
+    在本机抛 ``LocalEntryNotFoundError``，因为只缓存了 small / large-v3）。
+    现在按引擎列出各档位的就绪情况，并给出预置指引。
+    """
+    print("\n📌 权重预置（离线必需）")
+    try:
+        from .model_weights import check_weights, known_weight_pairs
+    except Exception as exc:  # pragma: no cover - 模块缺失不应毁掉整个自检
+        _check("权重清单", False, f"无法加载 model_weights: {exc!r}")
+        return
+
+    by_engine: dict = {}
+    for engine, model in known_weight_pairs():
+        by_engine.setdefault(engine, []).append(check_weights(engine, model))
+
+    for engine, statuses in by_engine.items():
+        ready = [s.model for s in statuses if s.ok]
+        missing = [s for s in statuses if not s.ok]
+        if ready:
+            _check(
+                f"{engine} 权重",
+                True,
+                f"已预置 {len(ready)}/{len(statuses)} 档: {', '.join(ready)}",
+            )
+        else:
+            _check(
+                f"{engine} 权重",
+                False,
+                f"0/{len(statuses)} 档已预置（应位于 {missing[0].location}）",
+                missing[0].hint,
+            )
+        for st in missing:
+            if st.ok:
+                continue
+            # 逐档补一行「缺哪个」，指引只给一次（首个缺失项已带完整说明）
+            print(f"      · 缺 {st.engine}/{st.model} — {st.detail}")
+
+
 def _check_workspace(workspace: Optional[Path]) -> None:
     """📌 工作区 — 目录存在且可写(写探针实测)。"""
     print("\n📌 工作区")
@@ -234,6 +275,7 @@ def run_doctor(workspace: Optional[Path] = None) -> int:
     _check_device()
     _check_engines()
     _check_model_cache()
+    _check_model_weights()
     _check_workspace(workspace)
     _check_cookies()
     _check_terms()

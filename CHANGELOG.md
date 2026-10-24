@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (2026-10-23 选型落地：权重预置 + 简繁统一 + whisper.cpp 第三条腿)
+
+- **模型权重清单** `mediascribe/model_weights.py` —— 把「某 engine×model 需要什么权重、
+  在哪、怎么预置」变成可查询的数据。三个引擎的目录约定各不相同（faster-whisper /
+  whisperx 走 HuggingFace 缓存、openai-whisper 走 `~/.cache/whisper/*.pt`、
+  whisper.cpp 走 GGML 单文件），此前缺权重只能在跑到一半时炸。
+- **权重加载失败改为带指引的清晰报错** —— 此前 HuggingFace 的
+  `LocalEntryNotFoundError` / openai-whisper 的 `Model xxx not found` 对用户
+  没有可操作性；现在附带**具体预置路径与命令**。
+- **`mediascribe doctor` 新增「权重预置」自检段** —— 按引擎列出各档位就绪情况
+  与缺失明细，避免「跑到一半才发现权重没预置」。
+- **中文简繁统一** `mediascribe/zh_normalize.py` —— 双层防御：
+  ① **源头**（跨平台有效，主力）：openai-whisper / whisperx / whisper.cpp
+  在中文场景注入简体 `initial_prompt`（此前只有 faster-whisper 有，导致这
+  三个引擎输出**繁体**）；② **兜底**（Windows 有效）：输出层用
+  `LCMapStringW` 转简体，**零第三方依赖**。
+  实测依据：同一段音频字级 CER，openai-whisper **33.61% → 0.41%**、
+  whisper.cpp **81.56% → 1.19%**（差的是字形不是识别能力）。
+- **繁简开关** —— `Settings.zh_simplify`（默认**开**）/ CLI `--no-zh-simplify` /
+  环境变量 `MEDIASCRIBE_ZH_SIMPLIFY`；优先级：显式参数 > env > 默认。
+  关闭只关掉输出层兜底，引擎侧的简体引导仍生效。
+- **whisper.cpp 第三条引擎** `mediascribe/transcribers/whisper_cpp.py` ——
+  资源受限场景（无 GPU / 4 GB 内存老机器）的回退腿。实测依据（CPU 档峰值内存）：
+  whisper.cpp tiny **291 MiB** vs faster-whisper small 952 MiB vs
+  faster-whisper large-v3 3613 MiB。内置简体 prompt 注入、16 kHz 转码、
+  VAD（有模型则启用 —— 不启用时噪声音频幻觉严重），缺二进制/缺权重时给出
+  预置指引。`--engine whisper-cpp` 可显式选用。
+- **内存压力下的回退链自适应** —— 可用内存低于 4 GB 且设备为 CPU/auto 时，
+  `whisper-cpp` 自动排到 `faster-whisper` 之前（它最省内存）。
+- **新增 56 项测试**（`tests/test_zh_normalize.py` / `tests/test_model_weights.py` /
+  `tests/test_whisper_cpp_transcriber.py`），覆盖三层防线与二进制探测的
+  误命中防护。
+
 ### Added (2026-10-23 技术选型对比与基准基建)
 - **技术选型对比报告**: `docs/tech-selection-report-2026-10.md` —— 前端框架 / 工作台壳 / 推理引擎
   三层候选的完整对比（定位与生态 / 核心能力覆盖 / 性能与成本 / 上手成本与踩坑 / 维护活跃度），

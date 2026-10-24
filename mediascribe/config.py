@@ -12,7 +12,7 @@ from typing import Any, Dict, Optional
 _logger = logging.getLogger(__name__)
 
 # 合法转录引擎（与 mediascribe/transcribers/factory.py、web 层校验一致）
-_VALID_ENGINES = ("whisper", "faster-whisper", "whisperx")
+_VALID_ENGINES = ("whisper", "faster-whisper", "whisperx", "whisper-cpp")
 # 合法模型名（与 CLI --model choices、web 层 TranscribeRequest 校验一致）
 _VALID_MODELS = frozenset(
     {
@@ -49,6 +49,7 @@ class Settings:
         timestamps: bool = False,
         audio_only: bool = False,
         cleanup_media: bool = False,
+        zh_simplify: Optional[bool] = None,
     ):
         # workspace 根目录：显式参数 > MEDIASCRIBE_WORKSPACE 环境变量 > 默认 ./output
         # （Docker 镜像 ENV MEDIASCRIBE_WORKSPACE=/workspace 指向挂载卷；web 层读取
@@ -92,6 +93,24 @@ class Settings:
 
         # v3.4.0: Markdown 正文段落带 [mm:ss] 时间戳前缀（CLI --timestamps）
         self.timestamps = bool(timestamps)
+
+        # 中文简繁统一（2026-10-23 选型落地）：转写稿默认输出**简体**。
+        #
+        # 背景：Whisper 训练语料中文简繁混杂，不同引擎默认输出不同 ——
+        # openai-whisper / whisper.cpp 不注入简体 prompt 时输出繁体
+        # （实测同一段音频字级 CER：繁体 33.61% vs 简体 0.41%）。
+        # 对用户而言这意味着**换引擎就会改变转写稿字形**。
+        #
+        # 优先级：显式参数 > 环境变量 MEDIASCRIBE_ZH_SIMPLIFY > 默认开启。
+        # 关闭后：引擎侧仍会注入简体引导 prompt（那是从源头保证质量），
+        # 只是输出层不再做兜底转换。
+        env_zh_simplify = os.environ.get("MEDIASCRIBE_ZH_SIMPLIFY", "").strip().lower()
+        if zh_simplify is not None:
+            self.zh_simplify = bool(zh_simplify)
+        elif env_zh_simplify in ("0", "false", "no", "off"):
+            self.zh_simplify = False
+        else:
+            self.zh_simplify = True
 
         # v3.4.2: 只拉音轨(转录场景够用, 省 ~70% 带宽; B 站直走 API 音轨)
         self.audio_only = bool(audio_only) or os.environ.get(

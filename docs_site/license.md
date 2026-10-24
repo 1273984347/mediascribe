@@ -39,6 +39,7 @@ by `pip-licenses` or `python-licenses`.  Notable dependencies:
 |---------|---------|
 | openai-whisper | MIT |
 | faster-whisper | MIT |
+| whisper.cpp (C++ engine) | MIT |
 | whisperx | BSD-2-Clause |
 | yt-dlp | Unlicense |
 | FastAPI | MIT |

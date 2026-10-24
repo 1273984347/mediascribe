@@ -47,7 +47,7 @@ and a JSON sidecar at `output/metadata/<title>.json`.
 ```
 mediascribe/
 ├── pipeline.py              # main entry point
-├── transcribers/            # whisper, faster-whisper, whisperx, chunked
+├── transcribers/            # whisper, faster-whisper, whisperx, whisper-cpp, chunked
 ├── downloaders/             # one module per platform
 ├── plugins/                 # entry_points-based extension API
 └── web/                     # FastAPI app + static HTML

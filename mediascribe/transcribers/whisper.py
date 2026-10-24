@@ -25,6 +25,8 @@ from typing import Any, Dict, Iterator, Optional, Tuple
 
 import torch
 
+from ..model_weights import missing_hint
+from ..zh_normalize import simplified_initial_prompt
 from .base import Transcriber
 
 
@@ -100,7 +102,16 @@ def _get_cached_model(whisper_module: Any, model_name: str, device: str) -> Any:
         if cached2 is not None:
             return cached2
         with _whisper_load_patch():
-            model = whisper_module.load_model(model_name, device=device)
+            try:
+                model = whisper_module.load_model(model_name, device=device)
+            except Exception as exc:
+                # openai-whisper 的权重是单个 .pt 文件；缺失时它的报错是
+                # 「RuntimeError: Model {name} not found; available models = ...」
+                # —— 对用户没有可操作性。换成带预置指引的中文错误。
+                raise RuntimeError(
+                    f"模型 {model_name!r} 的权重未预置：{exc}\n"
+                    f"{missing_hint('whisper', model_name)}"
+                ) from exc
         _MODEL_CACHE[key] = model
         return model
 
@@ -138,14 +149,20 @@ class WhisperTranscriber(Transcriber):
         options: dict[str, Any] = {
             "verbose": False,
         }
-        if prompt:
-            options["initial_prompt"] = prompt
         if self.device == "cpu":
             options["fp16"] = False
 
         language = kwargs.get("language")
         if language:
             options["language"] = language
+
+        # 中文默认注入简体引导 prompt（跨平台有效的「源头」防线）。
+        # openai-whisper 不注入时输出**繁体**（2026-10-23 同源对比实测：
+        # 同一段音频字级 CER 繁体 33.61% vs 简体 0.41%）。
+        # 调用方显式传 prompt 时不覆盖（用户自定义 prompt 往往带术语表）。
+        effective_prompt = simplified_initial_prompt(prompt, language)
+        if effective_prompt:
+            options["initial_prompt"] = effective_prompt
 
         result = model.transcribe(str(audio_path), **options)
 
