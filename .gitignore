@@ -95,5 +95,8 @@ web-workspace/
 # Archive (development history, not tracked)
 archive/
 
+# mkdocs build output (docs_site/ is the source; site/ is the artifact)
+site/
+
 # Agent local data (WorkBuddy memory/skills/identity — local only, not version-controlled)
 .workbuddy/
