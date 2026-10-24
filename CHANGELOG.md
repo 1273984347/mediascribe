@@ -97,6 +97,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **基准汇总与重算工具**: `scripts/bench/asr/summarize_asr.py`（严格区分成功轮与未完成轮，
   避免失败轮的 RTF 污染统计）、`scripts/bench/asr/recompute_cer.py`（口径修正后**无需重跑推理**即可重算 CER）。
 
+### Fixed (2026-10-24 端到端集成验证暴露)
+- **前端拆分后静态资源全部 404 —— 生产环境下页面完全不可用**：FastAPI 侧只有 `/`
+  与 `/wiki` 两个路由（读 HTML 文本返回），**没有任何静态文件服务**，而拆分后的页面
+  引用了 `styles.css` / `app.js` / `modules/*.js`。已挂载 `StaticFiles` 到 `/static`
+  并把页面引用改为绝对路径。**既有测试一个都没红**（只读 HTML 文本、不验证资源可达）⇒
+  新增 `tests/test_web_app_static.py`（5 项），其中一条**通用断言**：解析页面里所有
+  本地 `href`/`src` 逐个断言 200，以后再加文件漏路由会立刻被抓住。
+- **Web UI 引擎下拉漏了 `whisper-cpp`**（CLI choices 改了、页面 `<select>` 没改）——
+  现已被 `test_engine_selector_lists_all_engines` 覆盖。
+- **转写稿的「转录引擎」字段错显模型名**（此前显示 `small`，而 metadata 里
+  `engine` 是 `faster-whisper`）⇒ 引擎名与模型名分两行显示。
+
+- **降档通知在提交响应里即时返回** —— `POST /api/jobs` 现在带回 `notices` 字段，
+  前端状态条**当场**显示「这次为什么用了小模型」（此前只能在转写完的 metadata 里看到）。
+  降档决策发生在 pipeline 构建时（= 提交那一刻），选提交响应而不是 WebSocket 事件：
+  此时 WS 还没连上，而提交响应是同步返回的。
+- **新增 7 项测试**（`tests/test_web_app_static.py`）—— 静态资源可达性（含「解析页面里
+  所有本地 href/src 逐个断言 200」的通用防回归）、页面无外部请求、引擎下拉齐全、
+  提交响应带回 notices。
+- **修两个既有标签 bug**：转写稿「转录引擎」字段错显模型名（此前显示 `small`，
+  而 metadata 里 `engine` 是 `faster-whisper`）⇒ 引擎名与模型名分两行显示。
+
 ### Fixed (2026-10-23 Web UI 启动路径)
 - **`python -m mediascribe.web.app` 此前必然失败**（`NameError: name '_register_health_routes' is not defined`）——
   `__main__` 块位于文件中部，早于路由注册函数的定义。已移至文件末尾。

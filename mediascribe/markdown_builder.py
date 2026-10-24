@@ -283,8 +283,12 @@ def build_markdown(
 
     lines.append(f"- **生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-    engine = (transcription or {}).get("model") or "unknown"
+    engine = (transcription or {}).get("engine") or (transcription or {}).get("model") or "unknown"
+    model_name = (transcription or {}).get("model") or ""
     lines.append(f"- **转录引擎**: {engine}")
+    # 模型名与引擎名分开列 —— 此前该字段错显模型名（如把 "small" 标成引擎）
+    if model_name and model_name != engine:
+        lines.append(f"- **模型**: {model_name}")
     language = (transcription or {}).get("language")
     if language:
         lines.append(f"- **识别语言**: {language}")

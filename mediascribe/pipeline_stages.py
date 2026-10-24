@@ -502,6 +502,10 @@ class TranscribeStage(Stage):
         if not text:
             raise RuntimeError("转录结果为空")
         ctx.transcription = transcription
+        # 引擎名随转写结果一起带下去 —— markdown 的「转录引擎」字段需要它
+        # (此前只有模型名, 导致该字段把 "small" 标成了引擎名)
+        if isinstance(transcription, dict):
+            transcription.setdefault("engine", self._transcriber.name)
         ctx.text = text
         # 把 transcriber name 存到 ctx,供 AssembleStage._transcriber_name 使用
         ctx.engine_name = self._transcriber.name

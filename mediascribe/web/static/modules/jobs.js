@@ -49,7 +49,11 @@ form.addEventListener("submit", async (e) => {
     const jobs = data.jobs || [];
     let msg = `已提交 ${jobs.length} 个任务,信号链启动…`;
     if (data.requested > data.unique) msg += `(已合并 ${data.requested - data.unique} 条重复链接)`;
-    setStatus(msg);
+    // 资源守卫的降档说明 —— 服务端在构建 pipeline 时就已决定降档(见
+    // mediascribe/runtime_guard.py),提交响应里直接带回,用户**当场**知道
+    // 「这次为什么用了小模型」,而不是转写完才在 metadata 里看到。
+    const notices = Array.isArray(data.notices) ? data.notices : [];
+    setStatus(notices.length ? `${msg} · ${notices.join("; ")}` : msg, notices.length > 0);
     emptyState.style.display = "none";
     for (const job of jobs) renderJobCard(job);
   } catch (err) {

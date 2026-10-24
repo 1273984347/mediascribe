@@ -80,7 +80,7 @@ class TestStaticIndexHtml(unittest.TestCase):
             12000,
             msg=f"index.html 仍有 {len(text)} 字节 —— 拆分未生效",
         )
-        self.assertIn('<script type="module" src="./app.js">', text)
+        self.assertIn('<script type="module" src="/static/app.js">', text)
 
 
 class TestPydanticModelsIfAvailable(unittest.TestCase):
