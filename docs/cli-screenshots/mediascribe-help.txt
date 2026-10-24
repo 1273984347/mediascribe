@@ -1,9 +1,10 @@
 usage: __main__.py [-h]
                    [--model {auto,tiny,base,small,medium,large,large-v1,large-v2,large-v3,distil-large-v2,distil-large-v3}]
                    [--device {auto,cpu,cuda}]
-                   [--engine {whisper,whisperx,faster-whisper}]
+                   [--engine {whisper,whisperx,faster-whisper,whisper-cpp}]
                    [--language LANGUAGE] [--config FILE] [--timestamps]
-                   [--audio-only] [--cleanup-media] [--workspace WORKSPACE]
+                   [--no-zh-simplify] [--audio-only] [--cleanup-media]
+                   [--workspace WORKSPACE]
                    {transcribe,t,batch} ...
 
 🎬 MediaScribe - 视频转文字工具（深度整合版）
@@ -16,13 +17,18 @@ options:
                         large-v3（推荐, 中文最佳） 速度+准确率平衡: distil-large-v3
   --device {auto,cpu,cuda}, -d {auto,cpu,cuda}
                         运行设备（默认: auto 自动检测 CUDA > CPU）
-  --engine {whisper,whisperx,faster-whisper}, -e {whisper,whisperx,faster-whisper}
-                        转录引擎（默认: whisper；faster-whisper 同质量更快）
+  --engine {whisper,whisperx,faster-whisper,whisper-cpp}, -e {whisper,whisperx,faster-whisper,whisper-cpp}
+                        转录引擎（默认: whisper；faster-whisper 同质量更快）。 whisper-cpp:
+                        C++/GGML 引擎，CPU 档最省内存（实测 291 MiB），适合无 GPU /
+                        小内存机器；需预置二进制与 GGML 权重。
   --language LANGUAGE, -l LANGUAGE
                         语言代码（如: zh, en, ja）
   --config FILE         JSON 配置文件（可含 model/engine/language/device/workspace/hf
                         _token/diarization/timestamps）。CLI 显式参数优先于配置文件。
   --timestamps          Markdown 正文按 ASR 分段并给每段加 [mm:ss] 时间戳前缀
+  --no-zh-simplify      转写稿不统一转简体（默认: 统一转简体）。 Whisper
+                        训练语料中文简繁混杂，不同引擎默认输出不同（openai-whisper / whisper.cpp
+                        默认繁体）。 本开关只关掉**输出层**的兜底转换，引擎侧的简体引导仍生效。
   --audio-only          下载只拉音轨（转录场景够用; B 站直走 playurl API 音轨, 更快更稳; 环境变量
                         MEDIASCRIBE_AUDIO_ONLY=1 同效）
   --cleanup-media       转录成功后自动删除本次任务的中间媒体（downloads/ 视频 + audio/
@@ -39,7 +45,7 @@ options:
 
 📦 更多命令：
   python -m mediascribe doctor    环境自检（ffmpeg/GPU/引擎/模型缓存）
-  python -m mediascribe archive   批量转录创作者主页（原 douyin_batch_v3.py）
+  python -m mediascribe archive   批量转录创作者主页
   python -m mediascribe learn     ASR 术语自动学习（越用越准）
   python -m mediascribe profile   渲染性能 profile 报告
 

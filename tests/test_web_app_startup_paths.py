@@ -15,7 +15,7 @@ Web UI 启动路径的回归测试（2026-10-23 新增）。
 2. ``uvicorn mediascribe.web.app:app``
    → ``ERROR: Error loading ASGI app. Attribute "app" not found in module``
    根因：模块没有模块级 ``app`` 对象，而模块 docstring 与
-   ``scripts/one_click_up.py`` 一直宣称该启动方式。
+   ``scripts/launch/one_click_up.py`` 一直宣称该启动方式。
 
 为什么要有这个测试
 ----------------

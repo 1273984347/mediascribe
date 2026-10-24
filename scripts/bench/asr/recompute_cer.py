@@ -32,7 +32,7 @@ from typing import Any, Dict, List, Optional
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "scripts" / "bench" / "asr"))
-sys.path.insert(0, str(REPO_ROOT / "scripts" / "benchmark_corpus"))
+sys.path.insert(0, str(REPO_ROOT / "scripts" / "bench" / "corpus"))
 
 from bench_asr import error_rate  # noqa: E402
 

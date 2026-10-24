@@ -179,7 +179,7 @@ https://v2.tauri.app/concept/size/ （**注意：本轮未逐项抓取该页数�
        _register_health_routes(app)
    NameError: name '_register_health_routes' is not defined
    ```
-2. `scripts/one_click_up.py` 的 `launch_local` 用 `python -m uvicorn mediascribe.web.app:app`，
+2. `scripts/launch/one_click_up.py` 的 `launch_local` 用 `python -m uvicorn mediascribe.web.app:app`，
    但 `mediascribe/web/app.py` **没有模块级 `app` 对象**（只有 `create_app` 工厂函数）。原文：
    ```
    ERROR:    Error loading ASGI app. Attribute "app" not found in module "mediascribe.web.app".

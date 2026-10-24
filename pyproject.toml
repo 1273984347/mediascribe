@@ -154,15 +154,14 @@ mediascribe = "mediascribe.__main__:main"
 mediascribe-batch = "mediascribe.batch_cli:main"
 
 [tool.setuptools]
-# 根级 douyin_batch_v3.py 已收编为包模块 mediascribe.batch_cli
-# (2026-10-03 审查), 不再需要 py-modules。
+# 旧根级 douyin_batch_v3.py 与 douyin_batch/ 包已于 2026-10-24 全量整理时
+# 并入 mediascribe 包(9 个模块 + 3 个转发壳删除), 不再需要 py-modules。
 packages = [
         "mediascribe",
         "mediascribe.downloaders",
         "mediascribe.transcribers",
         "mediascribe.web",
         "mediascribe.plugins",
-        "douyin_batch",
         "examples",
         "examples.plugins",
     ]
@@ -193,7 +192,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["mediascribe", "douyin_batch"]
+source = ["mediascribe"]
 omit = [
     "*/tests/*",
     "*/test_*.py",

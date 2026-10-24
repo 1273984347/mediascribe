@@ -58,7 +58,7 @@
       "status": "measured",
       "startup_variants": [
         {
-          "command": "python -m mediascribe.web.app --port N  (docs_site/getting-started.md, web-ui.md, extension/README.md)",
+          "command": "python -m mediascribe.web.app --port N  (docs/getting-started.md, web-ui.md, extension/README.md)",
           "argv": [
             "C:\\Users\\12739\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
             "-m",
@@ -74,7 +74,7 @@
           "elapsed_ms": 3694.4
         },
         {
-          "command": "python -m uvicorn mediascribe.web.app:app  (scripts/one_click_up.py 的 launch_local)",
+          "command": "python -m uvicorn mediascribe.web.app:app  (scripts/launch/one_click_up.py 的 launch_local)",
           "argv": [
             "C:\\Users\\12739\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
             "-m",
@@ -220,7 +220,7 @@
       },
       "pitfalls": [
         "【既有代码缺陷】文档与 README 声明的启动方式 `python -m mediascribe.web.app --port 8000` **必然失败**: mediascribe/web/app.py:1242 的 `if __name__ == \"__main__\": sys.exit(main())` 位于各 `_register_*_routes` 函数定义之前 (首个在 app.py:1246), main() 执行时这些函数尚未定义。 实测原文: `NameError: name '_register_health_routes' is not defined` (抛在 mediascribe/web/app.py:1206 的 create_app 内)。",
-        "【既有代码缺陷】scripts/one_click_up.py 的 launch_local 用 `python -m uvicorn mediascribe.web.app:app`, 但 mediascribe/web/app.py **没有模块级 `app` 对象** (只有 create_app 工厂函数)。实测原文: `ERROR:    Error loading ASGI app. Attribute \"app\" not found in module \"mediascribe.web.app\".`",
+        "【既有代码缺陷】scripts/launch/one_click_up.py 的 launch_local 用 `python -m uvicorn mediascribe.web.app:app`, 但 mediascribe/web/app.py **没有模块级 `app` 对象** (只有 create_app 工厂函数)。实测原文: `ERROR:    Error loading ASGI app. Attribute \"app\" not found in module \"mediascribe.web.app\".`",
         "【本基准采用的可用方式】`python -m uvicorn mediascribe.web.app:create_app --factory --host 127.0.0.1 --port N`, 不修改任何既有代码即可起服务 (健康检查 200)。",
         "【无鉴权模式告警】不设 MEDIASCRIBE_API_TOKEN 时启动即打印: \"MEDIASCRIBE_API_TOKEN 未配置 — API 处于无鉴权模式, 仅信任本机/内网来源(公网来源会被拒绝)。\"",
         "【GPU 隔离踩坑】CUDA_VISIBLE_DEVICES=\"\" **不足以**屏蔽 GPU: 实测 torch.cuda.is_available() 仍为 True, 而 /api/health 的 gpu_health() 会调 torch.cuda.current_device() 建立 CUDA 上下文并占显存。必须用 CUDA_VISIBLE_DEVICES=-1 (实测 is_available()=False, device_count()=0)。",

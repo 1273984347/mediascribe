@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'docs_site/**'
+      - 'docs/**'
       - 'mkdocs.yml'
   workflow_dispatch:
 

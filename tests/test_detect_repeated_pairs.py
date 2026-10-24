@@ -152,7 +152,9 @@ class TestSeedTermsDataHygiene:
     def test_seed_terms_are_wellformed(self):
         import importlib.util
 
-        script = Path(__file__).resolve().parents[1] / "scripts" / "seed_learned_terms.py"
+        script = (
+            Path(__file__).resolve().parents[1] / "scripts" / "pipeline" / "seed_learned_terms.py"
+        )
         spec = importlib.util.spec_from_file_location("seed_learned_terms", script)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)

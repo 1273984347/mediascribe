@@ -8,9 +8,10 @@ v3.2.0g:
   同时兼容读取旧 ``DOYIN_BATCH_*`` 并给出弃用警告
 - 删除全仓无消费者的死字段；``scroll_pause`` / ``max_scroll_rounds``
   保留并真正接线到 BrowserManager（get_user_videos 的滚动节奏）
-- ``merge_cli_args`` 被 douyin_batch_v3 真正调用（不再是死代码）
+- ``merge_cli_args`` 被 :mod:`mediascribe.batch_cli` 真正调用（不再是死代码）
 
-2026-10-03 审查自 douyin_batch/config.py 收编进 mediascribe 包, 旧路径保留转发壳。
+2026-10-03 审查自旧 ``douyin_batch/config.py`` 收编进 mediascribe 包；
+2026-10-24 全量整理时旧转发壳已删除，本模块为唯一实现。
 """
 
 import json
@@ -20,7 +21,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
 
-logger = logging.getLogger("douyin_batch.config")
+logger = logging.getLogger("mediascribe.batch_config")
 
 # 环境变量后缀 → (字段名, 类型)。主前缀 DOUYIN_BATCH_*，兼容旧 DOYIN_BATCH_*。
 _ENV_FIELDS = {

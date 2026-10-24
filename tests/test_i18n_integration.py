@@ -11,9 +11,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from douyin_batch.i18n import Messages, set_language, t  # noqa: E402
+from mediascribe.i18n import Messages, set_language, t  # noqa: E402
 
-# All the keys the batch CLI (douyin_batch_v3) uses
+# All the keys the batch CLI (mediascribe.batch_cli) uses
 REQUIRED_KEYS = [
     "CLI_DESCRIPTION",
     "CLI_EPILOG",

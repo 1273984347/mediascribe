@@ -56,9 +56,9 @@ format:
     {{python}} -m ruff check --fix .
     {{python}} -m ruff format .
 
-# Pre-push gate: lint + fast pytest (scripts/pre_push_gate.py)
+# Pre-push gate: lint + fast pytest (scripts/gates/pre_push_gate.py)
 gate:
-    {{python}} scripts/pre_push_gate.py
+    {{python}} scripts/gates/pre_push_gate.py
 
 # Gate then push — use this instead of raw `git push`
 push: gate
@@ -66,7 +66,7 @@ push: gate
 
 # Run the v3 feature demo
 demo:
-    {{python}} demo_v3.py
+    {{python}} scripts/demo_v3.py
 
 # Remove __pycache__, build artefacts
 clean:
@@ -90,23 +90,23 @@ test-imports:
 # ---------------------------------------------------------------------------
 # One-click Web UI launcher
 # ---------------------------------------------------------------------------
-# Delegates to scripts/one_click_up.py.
+# Delegates to scripts/launch/one_click_up.py.
 
 # Start Web UI in the foreground (Ctrl-C to stop)
 up:
-    {{python}} scripts/one_click_up.py up
+    {{python}} scripts/launch/one_click_up.py up
 
 # Start Web UI as a daemon (returns immediately)
 up-daemon:
-    {{python}} scripts/one_click_up.py up --daemon
+    {{python}} scripts/launch/one_click_up.py up --daemon
 
 # Stop a daemonised Web UI
 down:
-    {{python}} scripts/one_click_up.py stop
+    {{python}} scripts/launch/one_click_up.py stop
 
 # Show whether the Web UI is running
 status:
-    {{python}} scripts/one_click_up.py status
+    {{python}} scripts/launch/one_click_up.py status
 
 # Tail the .one-click.log log file (Ctrl-C to stop)
 logs:
@@ -114,4 +114,4 @@ logs:
 
 # Start the Web UI via Docker compose
 docker-up:
-    {{python}} scripts/one_click_up.py up --daemon --mode docker
+    {{python}} scripts/launch/one_click_up.py up --daemon --mode docker

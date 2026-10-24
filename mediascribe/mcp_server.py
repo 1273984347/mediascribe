@@ -288,14 +288,14 @@ TOOL_LIST = [
 
 
 def _tool_validate_url(args: Dict[str, Any]) -> Dict[str, Any]:
-    from douyin_batch.security import is_safe_url
+    from mediascribe.security import is_safe_url
 
     url = args.get("url", "")
     return {"url": url, "safe": is_safe_url(url)}
 
 
 def _tool_sanitize_filename(args: Dict[str, Any]) -> Dict[str, Any]:
-    from douyin_batch.platform_compat import safe_filename
+    from mediascribe.platform_compat import safe_filename
 
     return {"name": args.get("name", ""), "safe": safe_filename(args.get("name", ""))}
 
@@ -502,7 +502,9 @@ def _tool_batch_transcribe_creator(args: Dict[str, Any]) -> Dict[str, Any]:
 
     cmd = [
         sys.executable,
-        "douyin_batch_v3.py",
+        "-m",
+        "mediascribe",
+        "archive",
         "--json",
         "--lang",
         "en",
@@ -519,8 +521,15 @@ def _tool_batch_transcribe_creator(args: Dict[str, Any]) -> Dict[str, Any]:
         max_videos = 10
     max_videos = max(1, min(200, max_videos))
     cmd.extend(["-n", str(max_videos)])
+    # NOTE: the batch CLI has no ``--language`` flag.  Its ``--lang`` is the *UI*
+    # language (i18n, en/zh), while the transcription language is configured via
+    # the ``DOUYIN_BATCH_LANGUAGE`` environment variable (see
+    # ``mediascribe.batch_config._ENV_FIELDS``).  Passing ``--language`` made
+    # argparse abort with "unrecognized arguments" (exit 2) and the tool
+    # returned a non-JSON error instead of a result.
+    child_env = dict(os.environ)
     if args.get("language"):
-        cmd.extend(["--language", args["language"]])
+        child_env["DOUYIN_BATCH_LANGUAGE"] = str(args["language"])
     if args.get("output_dir"):
         cmd.extend(["--output-dir", args["output_dir"]])
 
@@ -531,6 +540,7 @@ def _tool_batch_transcribe_creator(args: Dict[str, Any]) -> Dict[str, Any]:
             text=True,
             cwd=str(Path(__file__).parent.parent),
             timeout=timeout,
+            env=child_env,
         )
     except subprocess.TimeoutExpired as e:
         return {

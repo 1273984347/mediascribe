@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from douyin_batch.platform_compat import (
+from mediascribe.platform_compat import (
     check_python_version,
     get_os,
     get_python_info,
@@ -18,7 +18,7 @@ from douyin_batch.platform_compat import (
     normalize_path,
     safe_filename,
 )
-from douyin_batch.security import (
+from mediascribe.security import (
     check_url_safety,
     is_safe_url,
     sanitize_filename,

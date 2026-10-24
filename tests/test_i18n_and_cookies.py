@@ -17,7 +17,7 @@ class TestAgentOutputConstants(unittest.TestCase):
     """agent_output 模块暴露的稳定字符串常量"""
 
     def test_status_constants(self):
-        from douyin_batch.agent_output import (
+        from mediascribe.agent_output import (
             STATUS_FAILED,
             STATUS_PARTIAL,
             STATUS_SKIPPED,
@@ -31,7 +31,7 @@ class TestAgentOutputConstants(unittest.TestCase):
         self.assertEqual(STATUS_PARTIAL, "partial")
 
     def test_stage_constants(self):
-        from douyin_batch.agent_output import (
+        from mediascribe.agent_output import (
             STAGE_DOWNLOAD,
             STAGE_MEDIA_URL,
             STAGE_TEXT_EXTRACT,
@@ -44,7 +44,7 @@ class TestAgentOutputConstants(unittest.TestCase):
         self.assertEqual(STAGE_TEXT_EXTRACT, "text_extract")
 
     def test_platform_constants(self):
-        from douyin_batch.agent_output import (
+        from mediascribe.agent_output import (
             PLATFORM_BILIBILI,
             PLATFORM_DOUYIN,
             PLATFORM_LOCAL,
@@ -69,34 +69,34 @@ class TestPlatformLabel(unittest.TestCase):
     """platform_label() 国际化标签"""
 
     def setUp(self):
-        from douyin_batch import i18n
+        from mediascribe import i18n
 
         self._prev_lang = i18n.get_language()
         i18n.set_language("en")
 
     def tearDown(self):
-        from douyin_batch import i18n
+        from mediascribe import i18n
 
         i18n.set_language(self._prev_lang)
 
     def test_youtube_en(self):
-        from douyin_batch.agent_output import platform_label
+        from mediascribe.agent_output import platform_label
 
         self.assertEqual(platform_label("youtube"), "YouTube")
 
     def test_xiaohongshu_en(self):
-        from douyin_batch.agent_output import platform_label
+        from mediascribe.agent_output import platform_label
 
         self.assertEqual(platform_label("xiaohongshu"), "Xiaohongshu")
 
     def test_unknown_kind(self):
-        from douyin_batch.agent_output import platform_label
+        from mediascribe.agent_output import platform_label
 
         self.assertEqual(platform_label("nonsense"), "Unknown")
 
     def test_zh_labels(self):
-        from douyin_batch import i18n
-        from douyin_batch.agent_output import platform_label
+        from mediascribe import i18n
+        from mediascribe.agent_output import platform_label
 
         i18n.set_language("zh")
         self.assertEqual(platform_label("bilibili"), "B站")
@@ -109,18 +109,18 @@ class TestStatusAndStageLabels(unittest.TestCase):
     """status_label() / stage_label()"""
 
     def setUp(self):
-        from douyin_batch import i18n
+        from mediascribe import i18n
 
         self._prev_lang = i18n.get_language()
         i18n.set_language("en")
 
     def tearDown(self):
-        from douyin_batch import i18n
+        from mediascribe import i18n
 
         i18n.set_language(self._prev_lang)
 
     def test_status_labels_en(self):
-        from douyin_batch.agent_output import (
+        from mediascribe.agent_output import (
             STATUS_FAILED,
             STATUS_SUCCESS,
             status_label,
@@ -131,20 +131,20 @@ class TestStatusAndStageLabels(unittest.TestCase):
         self.assertEqual(status_label("unknown"), "unknown")
 
     def test_status_labels_zh(self):
-        from douyin_batch import i18n
-        from douyin_batch.agent_output import status_label
+        from mediascribe import i18n
+        from mediascribe.agent_output import status_label
 
         i18n.set_language("zh")
         self.assertEqual(status_label("success"), "成功")
         self.assertEqual(status_label("failed"), "失败")
 
     def test_stage_label_none(self):
-        from douyin_batch.agent_output import stage_label
+        from mediascribe.agent_output import stage_label
 
         self.assertIsNone(stage_label(None))
 
     def test_stage_labels_en(self):
-        from douyin_batch.agent_output import STAGE_TEXT_EXTRACT, stage_label
+        from mediascribe.agent_output import STAGE_TEXT_EXTRACT, stage_label
 
         self.assertEqual(stage_label(STAGE_TEXT_EXTRACT), "extracting text")
 
@@ -153,7 +153,7 @@ class TestAgentOutputStatsPartial(unittest.TestCase):
     """stats 字段必须包含 partial 计数"""
 
     def test_partial_counted(self):
-        from douyin_batch.agent_output import STATUS_PARTIAL, STATUS_SUCCESS, AgentOutput
+        from mediascribe.agent_output import STATUS_PARTIAL, STATUS_SUCCESS, AgentOutput
 
         out = AgentOutput(command="test")
         out.add_video({"video_id": "a", "status": STATUS_SUCCESS})
@@ -171,7 +171,7 @@ class TestAddVideoForPlatform(unittest.TestCase):
     """add_video_for_platform 便捷方法"""
 
     def test_writes_full_record(self):
-        from douyin_batch.agent_output import (
+        from mediascribe.agent_output import (
             PLATFORM_WECHAT_MP,
             STAGE_TEXT_EXTRACT,
             STATUS_SUCCESS,

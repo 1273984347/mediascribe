@@ -1,9 +1,9 @@
-"""douyin_batch.cache 的测试 —— 迁入自 tests/test_coverage_gaps.py(按被测模块归位)。"""
+"""mediascribe.batch_cache 的测试 —— 迁入自 tests/test_coverage_gaps.py(按被测模块归位)。"""
 
 from __future__ import annotations
 
 ###########################################################################
-# 迁入自 tests/test_coverage_gaps.py —— TestCacheExtras(douyin_batch.cache)
+# 迁入自 tests/test_coverage_gaps.py —— TestCacheExtras(mediascribe.batch_cache)
 ###########################################################################
 
 

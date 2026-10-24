@@ -1,108 +1,82 @@
-# MediaScribe Documentation
+# MediaScribe
 
-Welcome to the **MediaScribe** documentation. This is a single-page index
-pointing at every reference document and the most useful entry points
-into the codebase.
+> Transcribe videos from 6 platforms (Bilibili, Douyin, YouTube, Xiaohongshu,
+> WeChat MP, TikTok) — plus local files — to Markdown using local Whisper models.
+
+MediaScribe is a single tool that turns a video URL into a clean
+Markdown transcript.  It handles every step of the pipeline:
+
+1. **Detect** the platform from the URL.
+2. **Download** the source media (audio + video).
+3. **Transcribe** with one of four ASR engines (auto-fallback).
+4. **Render** to a Markdown file with a metadata header and segmented body.
+
+The tool ships with four interfaces:
+
+* **CLI** — `python -m mediascribe transcribe "<URL>"`
+* **MCP server** — exposes the same operations as LLM-callable tools
+* **Web UI** — FastAPI + HTML for non-technical collaborators
+* **Browser extension** — sends the current tab URL to a self-hosted Web UI
+
+## Why MediaScribe?
+
+* **One tool, six platforms** — no need to remember which downloader
+  to invoke per site.
+* **Engine fallback** — picks `whisperx` if installed, otherwise
+  `faster-whisper`, otherwise `whisper`, otherwise `whisper-cpp`.
+  No more "engine not found".
+* **Resource-aware** — on a memory-constrained host it prefers the
+  leanest engine and downgrades the model size instead of dying.
+* **Bilingual output** — WeChat MP videos with subtitles can be
+  rendered as original + English side-by-side.
+* **Honest about failure** — the JSON sidecar records every step
+  and its error so a partial transcript is still useful.
 
 ## Quick start
 
 ```bash
-# Install
-pip install -r requirements.txt
+pip install "mediascribe[all]"
 
-# Transcribe a single video
-python -m mediascribe --url "https://www.bilibili.com/video/BVxxxxx"
-
-# Batch a creator's feed
-python douyin_batch_v3.py --user "https://www.douyin.com/user/xxxxx"
-
-# Start the MCP server (for Claude Code / Cursor / Cline)
-python -m mediascribe.mcp_server
+python -m mediascribe transcribe \
+  "https://www.youtube.com/watch?v=..." \
+  -e faster-whisper -m small -l en
 ```
 
-## Reference
+You will find the transcript at `output/transcripts/<title>.md`
+and a JSON sidecar at `output/metadata/<title>.json`.
 
-| Document | Purpose |
-|----------|---------|
-| [README.md](../README.md) | User-facing overview, install, CLI examples |
-| [CHANGELOG.md](../CHANGELOG.md) | All notable changes (Keep a Changelog format) |
-| [CONTRIBUTING.md](../CONTRIBUTING.md) | How to contribute (PR, dev setup, style) |
-| [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md) | Community guidelines |
-| [DOWNLOADERS.md](../DOWNLOADERS.md) | Per-platform downloader reference |
-| [AGENTS.md](../AGENTS.md) | Notes for AI agents consuming this repo |
-| [CLAUDE.md](../CLAUDE.md) | Claude Code specific guidance |
-
-## Generated docs
-
-| Document | Purpose |
-|----------|---------|
-| [lint-report.md](lint-report.md) | Output of `make lint` / `make verify` |
-| [cli-screenshots/index.md](cli-screenshots/index.md) | Captured CLI help output (text snapshots) |
-| [e2e-results.md](e2e-results.md) | Manual E2E run results (real URLs, real ASR) |
-| [tech-selection-report-2026-10.md](tech-selection-report-2026-10.md) | 工作台技术选型对比报告（前端框架 / 工作台壳 / 推理引擎三层，含本机实测与跨硬件矩阵） |
-
-## Source layout
+## Project layout
 
 ```
-mediascribe/                      # core library
-├── __main__.py                  # python -m mediascribe entry
-├── pipeline.py                  # Pipeline.transcribe()
-├── platform.py                  # detect_platform() URL router
-├── config.py                    # Settings + cookie parsing
-├── models.py                    # SourceRef, DownloadResult, TranscriptResult
-├── mcp_server.py                # 8 MCP tools
-├── downloaders/                 # platform-specific downloaders
-│   ├── ytdlp.py
-│   ├── youtube.py               # 4 player_client rotations
-│   ├── xiaohongshu.py           # Playwright
-│   ├── wechat_mp.py             # 3-mode dispatcher + OCR fallback
-│   └── ...
-├── transcribers/                # ASR backends
-│   ├── whisper.py
-│   ├── faster_whisper.py
-│   └── whisperx.py
-└── url_utils.py
+mediascribe/                  # the single product package
+├── pipeline*.py              # main entry points
+├── transcribers/             # whisper, faster-whisper, whisperx, whisper-cpp, chunked
+├── downloaders/              # one module per platform
+├── plugins/                  # entry_points-based extension API
+└── web/                      # FastAPI app + static ES modules
 
-douyin_batch/                    # batch CLI library
-├── __init__.py
-├── agent_output.py              # mediascribe.agent-output/v1 schema
-├── config.py                    # BatchConfig dataclass
-├── i18n.py                      # 104 i18n keys
-├── platform_compat.py           # cross-platform helpers
-├── security.py                  # URL/filename sanitisation
-├── wechat_cookies.py            # 3-tier cookie injection
-└── tests/                       # 200+ unit tests
-
-douyin_batch_v3.py               # python douyin_batch_v3.py entry
-
-docs/                            # this directory
-├── index.md                     # ← you are here
-├── lint-report.md
-├── cli-screenshots/
-└── e2e-results.md
+tests/                        # pytest suite
+docs/                         # this documentation site (source)
+scripts/                      # dev scripts by role: bench/ e2e/ pipeline/ tools/ launch/ gates/
+extension/                    # Chrome / Edge browser extension
+examples/plugins/             # third-party plugin samples
 ```
 
-## Testing
+## Project status
 
-```bash
-# Default: 195 unit tests, no network
-make test
-# or
-python -m pytest douyin_batch/tests/ -q
+| Item | Value |
+|------|-------|
+| Version | 3.3.0 |
+| License | MIT |
+| Python | 3.11 – 3.13 |
+| Tests | 1192 (1187 passed / 5 skipped) |
+| Platforms | 6 (+ local files) |
+| Engines | 4 (auto-fallback) |
 
-# With E2E (real network, real cookies, real ASR)
-MEDIASCRIBE_E2E=1 python -m pytest douyin_batch/tests/test_e2e_real_urls.py -v
+## More
 
-# Lint
-make lint
-```
-
-## Releases
-
-See [CHANGELOG.md](../CHANGELOG.md) and the GitHub Releases page.
-
-| Version | Date | Highlights |
-|---------|------|------------|
-| Unreleased | (in progress) | 190 tests, 8 MCP tools, --platform filter, OCR fallback, bilingual JSON |
-| 2.1.0 | 2026-05-15 | Smart routing without cookies, Markdown output |
-| 2.0.0 | 2026-04-20 | Initial yt-dlp + Whisper integration |
+* [Getting started](getting-started.md) — install, first run, CLI reference
+* [Engines](engines.md) · [Platforms](platforms.md) · [Plugins](plugins.md)
+* [MCP server](mcp.md) — the agent-facing interface
+* [Benchmarking](benchmarking.md) — how the engine numbers were measured
+* [Contributing](contributing.md) · [Changelog](changelog.md) · [License](license.md)

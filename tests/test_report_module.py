@@ -11,7 +11,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from douyin_batch.report import generate_summary_report
+from mediascribe.report import generate_summary_report
 
 
 class TestGenerateSummaryReport(unittest.TestCase):

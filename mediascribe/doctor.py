@@ -237,7 +237,7 @@ def _check_cookies() -> None:
         "抖音 cookies",
         douyin_cookie is not None,
         douyin_cookie or "未找到（部分视频下载需要）",
-        "浏览器导出 cookies.txt 放到项目根目录（见 docs_site 平台文档）",
+        "浏览器导出 cookies.txt 放到项目根目录（见 docs/ 平台文档）",
     )
 
 

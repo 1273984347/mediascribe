@@ -63,7 +63,7 @@ jobs:
       - name: mypy (blocking since 2026-10-03)
         # dev extra 自带 mypy(pinned >=1.15,<3)。2026-10-03 全量类型错误
         # 清零后设为 PR 阻断门禁, 防止类型债回流。
-        run: mypy mediascribe douyin_batch
+        run: mypy mediascribe
 
   # -------------------------------------------------------------------------
   # 2. unit — fast unit-test feedback for PRs (~60s)
@@ -313,7 +313,7 @@ jobs:
           python -m pytest tests/
           --ignore=tests/test_e2e_real_urls.py
           -m "not integration and not network"
-          --cov=mediascribe --cov=douyin_batch --cov-report=term-missing
+          --cov=mediascribe --cov-report=term-missing
           --cov-report=xml --cov-fail-under=75
         # 阈值 75 与 README 覆盖率徽章一致（实测 ~79%）；
         # 之前的 90 从未达到过，只会让本 job 永远红着。

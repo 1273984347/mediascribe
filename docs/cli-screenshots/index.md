@@ -6,14 +6,14 @@ between releases.
 
 | File | Bytes | Description |
 |------|------:|-------------|
-| `mediascribe-help.txt` | 2886 | Main mediascribe CLI help (English) |
+| `mediascribe-help.txt` | 3259 | Main mediascribe CLI help (English) |
 | `mediascribe-mcp-help.txt` | 343 | MCP server CLI options |
-| `douyin-batch-v3-help.txt` | 581 | douyin_batch_v3 (auto-detect language) |
-| `douyin-batch-v3-help-zh.txt` | 1964 | douyin_batch_v3 forced to Chinese |
-| `douyin-batch-v3-help-en.txt` | 2664 | douyin_batch_v3 forced to English |
+| `archive-help.txt` | 2138 | batch CLI / mediascribe archive (auto-detect language) |
+| `archive-help-zh.txt` | 2138 | batch CLI forced to Chinese |
+| `archive-help-en.txt` | 2838 | batch CLI forced to English |
 
 ## How to regenerate
 
 ```bash
-python scripts/capture_cli_help.py
+python scripts/e2e/capture_cli_help.py
 ```

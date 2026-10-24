@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (2026-10-24 全量文件分类整理：单一产品包 + 单一文档面 + 脚本分层)
+
+仓库经过一次覆盖全部目录的结构整理，目标是消除命名误导、目录错位与文档漂移。
+执行记录见 [`docs/reports/T01-文件分类整理-任务计划执行与经验沉淀报告-2026-10-24.md`](docs/reports/T01-文件分类整理-任务计划执行与经验沉淀报告-2026-10-24.md)。
+
+- **`douyin_batch/` 包整体并入 `mediascribe/`** —— 该包名不符实：它不是抖音专用，
+  而是被 30+ 处引用的共享核心库。9 个真实模块迁入 `mediascribe/`
+  （`agent_output` / `browser` / `i18n` / `logger` / `platform_compat` / `report` /
+  `retry` / `security` / `transcribe`），3 个转发壳（`cache` / `config` / `progress`）
+  **删除**（其实现早已收编为 `mediascribe.batch_cache` / `batch_config` / `progress`）。
+  ⇒ **Breaking**：`from douyin_batch.X import` 一律改为 `from mediascribe.X import`；
+  `douyin_batch.cache` → `mediascribe.batch_cache`，`douyin_batch.config` →
+  `mediascribe.batch_config`，`douyin_batch.progress` → `mediascribe.progress`。
+- **删除根级弃用壳 `douyin_batch_v3.py`** —— 其实现早已是 `mediascribe.batch_cli`。
+  ⇒ **Breaking**：命令行入口改为 `python -m mediascribe archive ...` 或
+  `mediascribe-batch ...`。**注意**：JSON 输出 schema `mediascribe.agent-output/v1`
+  的 `"command"` 字段值**保持 `"douyin_batch_v3"` 不变** —— 那是稳定 schema 标识而非
+  脚本路径，下游 Agent 依赖它；改动需先升 schema 版本。
+- **`docs_site/` → `docs/` 命名反转** —— 此前的站点源目录叫 `docs_site/`（`mkdocs.yml`
+  里 `docs_dir: docs_site`），而叫 `docs/` 的目录反而只是杂项报告面，命名与直觉相反。
+  现在 `docs/` 才是真正的 mkdocs 站点源，历史报告归入 `docs/reports/`，CLI 快照留在
+  `docs/cli-screenshots/`。`mkdocs.yml` 的 `docs_dir` 与 `edit_uri` 同步更新。
+- **`scripts/` 按职责分层** —— 53 个平铺脚本重组为
+  `bench/`（基准）· `e2e/`（真实网络验证与快照）· `pipeline/`（批量转录与术语修订）·
+  `tools/`（辅助工具）· `launch/`（一键启动器）· `gates/`（提交前门禁），
+  外加顶层两个日常入口 `run_tests.py` / `demo_v3.py`。原 `scripts/benchmark_corpus/`
+  并入 `scripts/bench/corpus/`。
+- **顶层散文件归位** —— `demo_v3.py` / `run_tests.py` 进入 `scripts/`；
+  `DOWNLOADERS.md` → `docs/downloaders.md`；`使用说明.md` → `docs/使用说明.md`。
+  顶层仅保留社区约定文件与工具约定文件。
+- **新增 `AGENTS.md`** —— 此前 `docs/index.md` 与 `.github/copilot-instructions.md`
+  都指向一份**并不存在**的 `AGENTS.md`（悬空引用）。现已补齐为面向 AI Agent 的
+  权威仓库指南；`.github/copilot-instructions.md` 重写为指向它的指针
+  （此前写的是 Python 3.8+ / `black`+`flake8` / 38 个测试等早已过时的事实）。
+- **修复：MCP `batch` 工具指向已删除的脚本** —— `mediascribe/mcp_server.py` 此前
+  真的去 `subprocess` 调用 `douyin_batch_v3.py`，脚本删除后会直接失效；现改为
+  `python -m mediascribe archive --json --lang en`。
+- **修复：MCP `batch` 工具的 `language` 参数** —— 此前被拼成 `--language` 传给批量 CLI，
+  而该 CLI 只认 `--lang`（**界面**语言）⇒ argparse 以 `unrecognized arguments` 退出 2，
+  Agent 侧拿到的是非 JSON 错误而非结果。现改走批量 CLI 官方支持的
+  `DOUYIN_BATCH_LANGUAGE` 环境变量（**转录**语言）。
+- **修复：中文文档锚点全部失效** —— Python-Markdown 的 `toc` 默认 `slugify` 会丢弃
+  非 ASCII 字符，中文标题的锚点被截成 `#1` 这类无意义值，目录锚点导航整体失效。
+  `mkdocs.yml` 改用 `markdown.extensions.toc.slugify_unicode`，锚点恢复为
+  `#1-经验复用梳理` 形式（与文档内既有链接写法一致）。
+- **产物深度清理** —— 删除 `output/`（2275 MB / 17055 文件）、`archive/`、
+  `.mypy_cache/`（120 MB）、`.ruff_cache/`、`.pytest_cache/`、`web-workspace/`
+  与全部 `__pycache__`，合计释放约 2.4 GB。清理前已把**不可再生**的转录成果
+  （124 份转录稿 + 75 份人工审校稿 + 运行元数据）备份到仓库外的
+  `D:\MediaScribe-archive-2026-10-24\`。
+
 ### Added (2026-10-24 选型落地：权重预置 + 简繁统一 + whisper.cpp 第三条腿 + 运行时守卫 + 前端拆分)
 
 - **前端拆成原生 ES modules**（零构建、零依赖，不换框架）——

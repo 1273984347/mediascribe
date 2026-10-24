@@ -42,7 +42,7 @@ def _make_mock_page(html_sequence: List[str] = None, raise_on_goto: Exception = 
 
 def _fake_browser_manager(page: mock.MagicMock, headless: bool = True):
     """Return a BrowserManager-shaped object with __init__ bypassed."""
-    from douyin_batch import browser as br_mod
+    from mediascribe import browser as br_mod
 
     mgr = br_mod.BrowserManager.__new__(br_mod.BrowserManager)
     mgr._initialized = True
@@ -59,17 +59,17 @@ def _fake_browser_manager(page: mock.MagicMock, headless: bool = True):
 
 class TestBrowserManagerLifecycle(unittest.TestCase):
     def setUp(self) -> None:
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         br_mod.BrowserManager._instance = None
 
     def tearDown(self) -> None:
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         br_mod.BrowserManager._instance = None
 
     def test_singleton_returns_same_instance(self):
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         page = _make_mock_page()
         with mock.patch("playwright.sync_api.sync_playwright") as sp_cls:
@@ -83,7 +83,7 @@ class TestBrowserManagerLifecycle(unittest.TestCase):
         mgr_a.close()
 
     def test_new_page_uses_context(self):
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         page = _make_mock_page()
         mgr = _fake_browser_manager(page)
@@ -92,7 +92,7 @@ class TestBrowserManagerLifecycle(unittest.TestCase):
         mgr._context.new_page.assert_called()
 
     def test_close_handles_exceptions(self):
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         mgr = _fake_browser_manager(_make_mock_page())
         mgr._context.close.side_effect = RuntimeError("already closed")
@@ -105,7 +105,7 @@ class TestBrowserManagerLifecycle(unittest.TestCase):
         self.assertFalse(mgr._initialized)
 
     def test_close_with_clean_state(self):
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         mgr = _fake_browser_manager(_make_mock_page())
         mgr.close()
@@ -116,17 +116,17 @@ class TestBrowserManagerLifecycle(unittest.TestCase):
 
 class TestGetUserUrlFromVideo(unittest.TestCase):
     def setUp(self) -> None:
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         br_mod.BrowserManager._instance = None
 
     def tearDown(self) -> None:
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         br_mod.BrowserManager._instance = None
 
     def test_extracts_sec_uid_from_json_pattern(self):
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         sec_uid = "MS4wLjABAAAAEXAMPLE0000000000000000000000"
         html = f'<html><body><script>window._ROUTER_DATA = {{"sec_uid":"{sec_uid}"}};</script></body></html>'
@@ -137,7 +137,7 @@ class TestGetUserUrlFromVideo(unittest.TestCase):
         page.close.assert_called()
 
     def test_extracts_sec_uid_from_query_param_pattern(self):
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         sec_uid = "MS4wLjABAAAAQUERY000000000000000000000000"
         html = f'<a href="/?sec_uid={sec_uid}&other=1">profile</a>'
@@ -147,7 +147,7 @@ class TestGetUserUrlFromVideo(unittest.TestCase):
         self.assertEqual(out, f"https://www.douyin.com/user/{sec_uid}")
 
     def test_returns_none_when_no_match(self):
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         page = _make_mock_page(["<html><body>no sec_uid here</body></html>"])
         _fake_browser_manager(page)
@@ -155,7 +155,7 @@ class TestGetUserUrlFromVideo(unittest.TestCase):
         self.assertIsNone(out)
 
     def test_returns_none_on_exception(self):
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         page = _make_mock_page(raise_on_goto=RuntimeError("network"))
         _fake_browser_manager(page)
@@ -163,7 +163,7 @@ class TestGetUserUrlFromVideo(unittest.TestCase):
         self.assertIsNone(out)
 
     def test_picks_first_match_across_polls(self):
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         sec_uid = "MS4wLjABAAAAEVENTUAL00000000000000000000"
         # First two polls: nothing, third: hit
@@ -174,30 +174,30 @@ class TestGetUserUrlFromVideo(unittest.TestCase):
         ]
         page = _make_mock_page(html_seq)
         _fake_browser_manager(page)
-        with mock.patch("douyin_batch.browser.time.sleep"):  # avoid real wait
+        with mock.patch("mediascribe.browser.time.sleep"):  # avoid real wait
             out = br_mod.get_user_url_from_video("https://www.douyin.com/video/1")
         self.assertEqual(out, f"https://www.douyin.com/user/{sec_uid}")
 
 
 class TestGetUserVideos(unittest.TestCase):
     def setUp(self) -> None:
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         br_mod.BrowserManager._instance = None
 
     def tearDown(self) -> None:
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         br_mod.BrowserManager._instance = None
 
     def test_collects_videos_until_max(self):
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         # Each scroll returns the same set (no new), should stop after 2 rounds
         html_no_new = '<html><body><a href="/video/100">v</a></body></html>'
         page = _make_mock_page([html_no_new] * 20)
         _fake_browser_manager(page)
-        with mock.patch("douyin_batch.browser.time.sleep"):
+        with mock.patch("mediascribe.browser.time.sleep"):
             out = br_mod.get_user_videos("https://www.douyin.com/user/ABC", max_videos=5)
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["video_id"], "100")
@@ -205,7 +205,7 @@ class TestGetUserVideos(unittest.TestCase):
         page.close.assert_called()
 
     def test_collects_multiple_videos(self):
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         html = (
             "<html><body>"
@@ -216,7 +216,7 @@ class TestGetUserVideos(unittest.TestCase):
         )
         page = _make_mock_page([html] * 20)
         _fake_browser_manager(page)
-        with mock.patch("douyin_batch.browser.time.sleep"):
+        with mock.patch("mediascribe.browser.time.sleep"):
             out = br_mod.get_user_videos("https://www.douyin.com/user/ABC", max_videos=10)
         ids = sorted(v["video_id"] for v in out)
         self.assertEqual(ids, ["1", "2", "3"])
@@ -227,18 +227,18 @@ class TestGetUserVideos(unittest.TestCase):
             self.assertTrue(v["url"].startswith("https://www.douyin.com/video/"))
 
     def test_deduplicates_videos(self):
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         html = '<html><a href="/video/1">v</a></html>'
         page = _make_mock_page([html] * 10)
         _fake_browser_manager(page)
-        with mock.patch("douyin_batch.browser.time.sleep"):
+        with mock.patch("mediascribe.browser.time.sleep"):
             out = br_mod.get_user_videos("https://www.douyin.com/user/X", max_videos=5)
         # Same video appearing many times → dedup → only 1
         self.assertEqual(len(out), 1)
 
     def test_returns_empty_on_goto_exception(self):
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         page = _make_mock_page(raise_on_goto=RuntimeError("nope"))
         _fake_browser_manager(page)
@@ -246,30 +246,30 @@ class TestGetUserVideos(unittest.TestCase):
         self.assertEqual(out, [])
 
     def test_caps_at_max_videos(self):
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         # always new content each scroll
         htmls = [f'<html><a href="/video/{i}">v</a></html>' for i in range(1, 100)]
         page = _make_mock_page(htmls)
         _fake_browser_manager(page)
-        with mock.patch("douyin_batch.browser.time.sleep"):
+        with mock.patch("mediascribe.browser.time.sleep"):
             out = br_mod.get_user_videos("https://www.douyin.com/user/X", max_videos=5)
         self.assertLessEqual(len(out), 5)
 
 
 class TestGetMediaUrlFast(unittest.TestCase):
     def setUp(self) -> None:
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         br_mod.BrowserManager._instance = None
 
     def tearDown(self) -> None:
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         br_mod.BrowserManager._instance = None
 
     def test_captures_audio_url(self):
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         page = _make_mock_page()
         _fake_browser_manager(page)
@@ -289,22 +289,22 @@ class TestGetMediaUrlFast(unittest.TestCase):
 
         page.on.side_effect = on_side_effect
 
-        with mock.patch("douyin_batch.browser.time.sleep"):
+        with mock.patch("mediascribe.browser.time.sleep"):
             out = br_mod.get_media_url_fast("https://www.douyin.com/video/123", timeout=2)
         self.assertEqual(out, "https://media-audio.douyinvod.com/abc.m4a")
 
     def test_returns_none_on_no_capture(self):
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         page = _make_mock_page()
         _fake_browser_manager(page)
 
-        with mock.patch("douyin_batch.browser.time.sleep"):
+        with mock.patch("mediascribe.browser.time.sleep"):
             out = br_mod.get_media_url_fast("https://www.douyin.com/video/123", timeout=1)
         self.assertIsNone(out)
 
     def test_returns_none_on_goto_exception(self):
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         page = _make_mock_page(raise_on_goto=RuntimeError("net"))
         _fake_browser_manager(page)
@@ -312,7 +312,7 @@ class TestGetMediaUrlFast(unittest.TestCase):
         self.assertIsNone(out)
 
     def test_ignores_non_audio_douyinvod_responses(self):
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         page = _make_mock_page()
         _fake_browser_manager(page)
@@ -329,7 +329,7 @@ class TestGetMediaUrlFast(unittest.TestCase):
                 )
 
         page.on.side_effect = on_side_effect
-        with mock.patch("douyin_batch.browser.time.sleep"):
+        with mock.patch("mediascribe.browser.time.sleep"):
             out = br_mod.get_media_url_fast("https://www.douyin.com/video/1", timeout=1)
         self.assertIsNone(out)
 
