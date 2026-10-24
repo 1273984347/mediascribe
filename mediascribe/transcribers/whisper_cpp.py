@@ -114,6 +114,23 @@ def find_binary() -> Optional[Path]:
     return None
 
 
+def missing_runtime_dlls(binary: Path) -> List[str]:
+    """列出 whisper.cpp 运行时缺失的 DLL（官方包是动态链接的）。
+
+    实测踩坑：只预置 ``whisper-cli.exe`` 而漏掉同目录的 ``whisper.dll`` /
+    ``ggml*.dll`` ⇒ 进程以 ``STATUS_DLL_NOT_FOUND``（0xC0000135）静默退出，
+    没有任何可读错误信息。
+    """
+    parent = binary.parent
+    if not parent.exists():
+        return []
+    dlls = {p.name.lower() for p in parent.glob("*.dll")}
+    if not dlls:
+        return []  # 静态链接构建 ⇒ 不需要运行时 DLL
+    required = ("whisper.dll", "ggml.dll")
+    return [name for name in required if name not in dlls]
+
+
 def find_model(model: str) -> Optional[Path]:
     """定位 GGML 权重文件（``ggml-<model>.bin``）。"""
     d = models_dir()
@@ -193,8 +210,22 @@ class WhisperCppTranscriber(Transcriber):
     binary : Path, optional
         whisper.cpp 可执行文件路径。``None`` 时自动探测。
     vad : bool
-        是否启用 VAD。默认 ``True``（噪声音频上幻觉的关键防线）；VAD 模型
-        不存在时自动退回无 VAD 并告警。
+        是否启用引擎层 VAD。默认 **False**。
+
+        实测依据（2026-10-24，tiny 模型、中文语料、同一台机器）：
+
+        ==========================  ==========  ==========
+        音频                          VAD 关      VAD 开
+        ==========================  ==========  ==========
+        干净中文                       **7.38%**   19.67%
+        重度环境噪声                   94.67%      **81.97%**
+        ==========================  ==========  ==========
+
+        ⇒ VAD **只在噪声场景**明显改善（12.7 个百分点），在**干净音频上反而
+        恶化**（12.3 个百分点 —— tiny 模型的 VAD 阈值偏激进，会切掉有效语音）。
+        而 MediaScribe 管线**本身已有** VAD 与分块逻辑（``webrtcvad`` +
+        chunked transcriber）⇒ 引擎层再开一次属于重复处理。
+        故默认关闭，按需开启。
     threads : int
         推理线程数。``None`` 时按 CPU 物理核的一半。
     """
@@ -207,7 +238,7 @@ class WhisperCppTranscriber(Transcriber):
         device: Optional[str] = None,
         *,
         binary: Optional[Path] = None,
-        vad: bool = True,
+        vad: bool = False,
         threads: Optional[int] = None,
     ):
         self.model_name = model
@@ -227,7 +258,16 @@ class WhisperCppTranscriber(Transcriber):
                 "  预置方式：下载官方预编译包并解压，例如\n"
                 "    https://github.com/ggml-org/whisper.cpp/releases/download/b5130/whisper-bin-x64.zip\n"
                 "  然后设置环境变量 MEDIASCRIBE_WHISPER_CPP_BIN 指向其中的 whisper-cli.exe\n"
-                "  （或解压到 ~/.cache/mediascribe/whisper-cpp/bin/Release/ 下自动探测）"
+                "  （或解压到 ~/.cache/mediascribe/whisper-cpp/bin/Release/ 下自动探测）\n"
+                "  ⚠️ 必须把 **整个目录**（含 whisper.dll / ggml*.dll）一起预置 —— "
+                "官方包是动态链接的，漏 DLL 会以 STATUS_DLL_NOT_FOUND 静默失败"
+            )
+        missing = missing_runtime_dlls(found)
+        if missing:
+            raise RuntimeError(
+                f"whisper.cpp 运行时 DLL 不完整：缺少 {', '.join(missing)} —— "
+                f"官方预编译包是动态链接的，必须把 whisper-cli.exe 与同目录的 "
+                f"whisper.dll / ggml*.dll 一起预置到 {found.parent}"
             )
         self._binary = found
         return found
@@ -313,6 +353,15 @@ class WhisperCppTranscriber(Transcriber):
             json_path = Path(str(out_prefix) + ".json")
             if not json_path.exists():
                 tail = (proc.stderr or proc.stdout or "")[-800:]
+                # 0xC0000135 = STATUS_DLL_NOT_FOUND —— whisper.cpp 官方包是
+                # **动态链接**的，whisper-cli.exe 依赖同目录的 whisper.dll /
+                # ggml*.dll；只拷一个 exe 就会以这个退出码失败（实测踩到）。
+                if proc.returncode in (0xC0000135, -1073741515):
+                    raise RuntimeError(
+                        "whisper.cpp 缺少运行时 DLL（STATUS_DLL_NOT_FOUND）—— "
+                        "官方预编译包是动态链接的，必须把 whisper-cli.exe 与同目录的 "
+                        f"whisper.dll / ggml*.dll 一起预置到 {binary.parent}"
+                    )
                 raise RuntimeError(f"whisper.cpp 转写失败（exit={proc.returncode}）：{tail}")
             data = json.loads(json_path.read_text(encoding="utf-8"))
             items = data.get("transcription") or []
