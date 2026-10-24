@@ -277,7 +277,7 @@ def _build_wechat_text_markdown(base_name: str, text: str, meta: dict) -> str:
 def _bilingual_video_label_lines(transcription: dict, messages_cls) -> list:
     """视频型公众号消息的双语标签行(平台/说话人分离 + 字幕说明块)。
 
-    ``messages_cls`` 是 ``douyin_batch.i18n.Messages``; i18n 模块不可
+    ``messages_cls`` 是 ``mediascribe.i18n.Messages``; i18n 模块不可
     用时由调用方降级为基础模式, 本函数不负责降级。
     """
     lines: list = []
@@ -864,7 +864,7 @@ class Pipeline:
         if bilingual:
             # i18n labels for Agent / scripts that consume JSON
             try:
-                from douyin_batch.i18n import (
+                from mediascribe.i18n import (
                     Messages,
                     get_language,
                     set_language,
@@ -934,7 +934,7 @@ class Pipeline:
         if bilingual:
             # 引入 i18n 模块失败时优雅降级到基础模式
             try:
-                from douyin_batch.i18n import Messages
+                from mediascribe.i18n import Messages
 
                 messages_cls: Optional[Type[Messages]] = Messages
             except Exception:

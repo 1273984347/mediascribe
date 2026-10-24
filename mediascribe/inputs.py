@@ -95,14 +95,14 @@ def is_video_file(path: Path) -> bool:
 def safe_stem(name: str) -> str:
     """Sanitize a string for safe use as a file stem on all platforms.
 
-    Delegates to :func:`douyin_batch.platform_compat.safe_filename`, which
+    Delegates to :func:`mediascribe.platform_compat.safe_filename`, which
     handles Windows reserved names (``CON``, ``PRN``…), control characters
     and the full set of OS-invalid characters. The shared helper guarantees
     identical behavior between the CLI/UI and the MCP ``safe_filename``
     tool.
     """
-    # Local import to avoid pulling douyin_batch at module import time
+    # Local import to avoid pulling the module at package import time
     # (some embedders install ``mediascribe`` without the full batch tool).
-    from douyin_batch.platform_compat import safe_filename
+    from mediascribe.platform_compat import safe_filename
 
     return safe_filename(str(name))

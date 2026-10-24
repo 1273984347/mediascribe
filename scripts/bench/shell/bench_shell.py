@@ -589,11 +589,11 @@ def probe_start_variants(python: str, timeout: float = 60.0) -> List[Dict[str, A
     """
     variants: List[Tuple[str, List[str]]] = [
         (
-            "python -m mediascribe.web.app --port N  (docs_site/getting-started.md, web-ui.md, extension/README.md)",
+            "python -m mediascribe.web.app --port N  (docs/getting-started.md, web-ui.md, extension/README.md)",
             [python, "-m", "mediascribe.web.app", "--host", "127.0.0.1", "--port", "0"],
         ),
         (
-            "python -m uvicorn mediascribe.web.app:app  (scripts/one_click_up.py 的 launch_local)",
+            "python -m uvicorn mediascribe.web.app:app  (scripts/launch/one_click_up.py 的 launch_local)",
             [
                 python,
                 "-m",
@@ -1616,7 +1616,7 @@ PITFALLS: Dict[str, List[str]] = {
         "位于各 `_register_*_routes` 函数定义之前 (首个在 app.py:1246), main() 执行时这些函数尚未定义。 "
         "实测原文: `NameError: name '_register_health_routes' is not defined` "
         "(抛在 mediascribe/web/app.py:1206 的 create_app 内)。",
-        "【既有代码缺陷】scripts/one_click_up.py 的 launch_local 用 `python -m uvicorn mediascribe.web.app:app`, "
+        "【既有代码缺陷】scripts/launch/one_click_up.py 的 launch_local 用 `python -m uvicorn mediascribe.web.app:app`, "
         "但 mediascribe/web/app.py **没有模块级 `app` 对象** (只有 create_app 工厂函数)。"
         '实测原文: `ERROR:    Error loading ASGI app. Attribute "app" not found in module "mediascribe.web.app".`',
         "【本基准采用的可用方式】`python -m uvicorn mediascribe.web.app:create_app --factory --host 127.0.0.1 --port N`, "

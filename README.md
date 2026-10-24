@@ -5,7 +5,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-612%20passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/Tests-1192%20tests-brightgreen.svg)](#testing)
 [![Coverage](https://img.shields.io/badge/Coverage-75%25-green.svg)](#testing)
 [![Platforms](https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](#-cross-platform)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://docs.astral.sh/ruff/)
@@ -131,14 +131,14 @@ python -m mediascribe learn clear
 
 ```
 mediascribe/
-├── mediascribe/          # Core library: pipeline, downloaders, transcribers, config, url_utils
-├── douyin_batch/        # Batch module: browser, logger, config, cache, progress, report, retry, tests/
-├── docs/                # Documentation sources
-├── docs_site/           # Documentation website (MkDocs)
-├── extension/           # Browser extension assets (used by mediascribe/web/app.py)
-├── examples/            # Usage examples
-├── scripts/             # Helper scripts
-└── output/              # Transcription working dir (git-ignored)
+├── mediascribe/          # Single product package: pipeline, downloaders, transcribers,
+│                         #   config, url_utils, batch_*, i18n, security, web/
+├── tests/                # pytest suite
+├── docs/                 # Documentation site source (MkDocs) + docs/reports/ archive
+├── extension/            # Browser extension assets (used by mediascribe/web/app.py)
+├── examples/plugins/     # Third-party plugin samples
+├── scripts/              # Dev scripts by role: bench/ e2e/ pipeline/ tools/ launch/ gates/
+└── output/               # Transcription working dir (git-ignored)
     ├── downloads/       # source media, reused across runs (dedup by cache)
     ├── audio/           # extracted audio
     ├── transcripts/     # <base>-<timestamp>.md transcripts
@@ -158,10 +158,10 @@ mediascribe/
 
 ```bash
 # Run all unit tests
-python run_tests.py
+python scripts/run_tests.py
 
 # Demo all v3 features
-python demo_v3.py
+python scripts/demo_v3.py
 ```
 
 ### 🤝 Contributing
@@ -184,8 +184,8 @@ designed to be machine-readable and deterministic.
 
 | Agent | File |
 |---|---|
-| **GitHub Copilot** | [`.github/copilot-instructions.md`](.github/copilot-instructions.md) |
-| **Any agent** | [`CONTRIBUTING.md`](CONTRIBUTING.md) (layout, commands, conventions) + this README |
+| **Any agent** | [`AGENTS.md`](AGENTS.md) — the authoritative repo guide (map, commands, conventions, don'ts) |
+| **GitHub Copilot** | [`.github/copilot-instructions.md`](.github/copilot-instructions.md) — a pointer to `AGENTS.md` |
 
 > 2026-10-03 审查: 此前这里列出的 `AGENTS.md` / `CLAUDE.md` /
 > `.cursorrules` 等十个文件在仓库中并不存在, 已清除死链。
@@ -300,7 +300,7 @@ mediascribe-batch --user <URL> --json
 #   "schema": "mediascribe.agent-output/v1",
 #   "ok": true,
 #   "command": "douyin_batch_v3",
-#   "version": "2.1.0",
+#   "version": "3.3.0",
 #   "started_at": "2026-06-04T00:00:00Z",
 #   "elapsed_seconds": 42.3,
 #   "config": { ... },
@@ -315,14 +315,14 @@ mediascribe-batch --user <URL> --json
 ```
 
 The schema is **stable v1** and documented in
-[`douyin_batch/agent_output.py`](douyin_batch/agent_output.py).
+[`mediascribe/agent_output.py`](mediascribe/agent_output.py).
 
 ### Agent-friendly task runner
 
 ```bash
 make help        # list all targets
 make install     # pip install -r requirements.txt
-make test        # python run_tests.py (170 tests, all pass)
+make test        # python scripts/run_tests.py (1187 passed / 5 skipped)
 make lint        # ruff check + ruff format --check
 make format      # ruff check --fix + ruff format
 make verify      # syntax + imports + tests
@@ -332,13 +332,12 @@ On Windows without `make`, the same commands work as plain
 `python -m pip install -r requirements.txt` etc. (see the
 [`Makefile`](Makefile) header comments).
 
-### 170 tests across 6 categories run in < 15 s:
+### 1192 tests across the whole surface (1187 passed / 5 skipped), running in ~2 min:
 
 ```bash
-python run_tests.py
-# 38 basic unit tests   (config, cache, retry, progress, URL parsing, …)
-# 14 agent-output tests (JSON schema, Unicode, save/load, …)
-# 15 MCP server tests   (JSON-RPC, stdio, tools, errors)
+python scripts/run_tests.py
+# config / cache / retry / progress / URL parsing / pipeline stages / engines /
+# agent-output JSON schema / MCP server / Web UI / security / cross-platform …
 ```
 
 ---
@@ -360,7 +359,7 @@ mediascribe-batch --lang zh --user "..."
 
 You can also set the environment variable `MEDIASCRIBE_LANG=en` (or `zh`).
 
-To add a new language, edit [`douyin_batch/i18n.py`](douyin_batch/i18n.py) — every message is a `{ "en": ..., "zh": ... }` dictionary. Adding `"ja": "..."` and exposing a `"ja"` choice in `douyin_batch_v3.py` is all that's needed.
+To add a new language, edit [`mediascribe/i18n.py`](mediascribe/i18n.py) — every message is a `{ "en": ..., "zh": ... }` dictionary. Adding `"ja": "..."` and exposing a `"ja"` choice in [`mediascribe/batch_cli.py`](mediascribe/batch_cli.py) is all that's needed.
 
 ---
 
@@ -483,10 +482,10 @@ python -m mediascribe learn clear
 
 ```bash
 # 运行所有单元测试
-python run_tests.py
+python scripts/run_tests.py
 
 # 演示 v3 所有功能
-python demo_v3.py
+python scripts/demo_v3.py
 ```
 
 ### 🤝 贡献代码
@@ -516,7 +515,7 @@ mediascribe-batch --lang zh --user "..."
 
 也可通过环境变量 `MEDIASCRIBE_LANG=en`（或 `zh`）配置。
 
-如需新增语言，只需编辑 [`douyin_batch/i18n.py`](douyin_batch/i18n.py) —— 每条消息均为 `{ "en": ..., "zh": ... }` 字典，再在 `douyin_batch_v3.py` 中扩展 `--lang` 的可选值即可。
+如需新增语言，只需编辑 [`mediascribe/i18n.py`](mediascribe/i18n.py) —— 每条消息均为 `{ "en": ..., "zh": ... }` 字典，再在 [`mediascribe/batch_cli.py`](mediascribe/batch_cli.py) 中扩展 `--lang` 的可选值即可。
 
 ---
 

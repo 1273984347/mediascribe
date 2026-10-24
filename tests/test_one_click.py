@@ -3,8 +3,8 @@ Tests for the one-click Web UI launcher (Task 6).
 
 The launcher is split into:
 
-* ``scripts/one_click_up.py`` — cross-platform Python entry point.
-* ``scripts/one_click_up.sh`` / ``.ps1`` — thin wrappers.
+* ``scripts/launch/one_click_up.py`` — cross-platform Python entry point.
+* ``scripts/launch/one_click_up.sh`` / ``.ps1`` — thin wrappers.
 * ``Dockerfile`` + ``docker-compose.yml`` — Docker mode.
 * ``Makefile`` + ``justfile`` — convenience targets.
 * ``extension/manifest.json`` — host permission for Docker host.
@@ -40,15 +40,16 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
-SCRIPTS = ROOT / "scripts"
-DOCS_SITE = ROOT / "docs_site"
+# The one-click launcher lives in scripts/launch/ since the 2026-10-24 layout.
+SCRIPTS = ROOT / "scripts" / "launch"
+DOCS = ROOT / "docs"
 
 
 # ---------------------------------------------------------------------------
-# 1. scripts/one_click_up.py
+# 1. scripts/launch/one_click_up.py
 # ---------------------------------------------------------------------------
 def _load_launcher_module():
-    """Import scripts/one_click_up.py as a module without executing main()."""
+    """Import scripts/launch/one_click_up.py as a module without executing main()."""
     import importlib.util
     import sys
 
@@ -163,7 +164,7 @@ def test_extension_hints_includes_url():
 # ---------------------------------------------------------------------------
 def test_bash_wrapper_exists_and_parses():
     sh = SCRIPTS / "one_click_up.sh"
-    assert sh.exists(), "scripts/one_click_up.sh is missing"
+    assert sh.exists(), "scripts/launch/one_click_up.sh is missing"
     text = sh.read_text(encoding="utf-8")
     assert text.startswith("#!/usr/bin/env bash")
     assert "one_click_up.py" in text
@@ -200,7 +201,7 @@ def test_bash_wrapper_exists_and_parses():
 
 def test_powershell_wrapper_exists_and_parses():
     ps1 = SCRIPTS / "one_click_up.ps1"
-    assert ps1.exists(), "scripts/one_click_up.ps1 is missing"
+    assert ps1.exists(), "scripts/launch/one_click_up.ps1 is missing"
     text = ps1.read_text(encoding="utf-8")
     assert "one_click_up.py" in text
     assert "$Args" in text or "ValueFromRemainingArguments" in text
@@ -331,7 +332,7 @@ def test_mkdocs_nav_links_one_click_doc():
 # 7. Documentation page
 # ---------------------------------------------------------------------------
 def test_one_click_doc_covers_all_lifecycles():
-    doc = (DOCS_SITE / "one-click.md").read_text(encoding="utf-8")
+    doc = (DOCS / "one-click.md").read_text(encoding="utf-8")
     for token in (
         "## TL;DR",
         "## Lifecycle commands",
@@ -342,7 +343,7 @@ def test_one_click_doc_covers_all_lifecycles():
         "## Loading the browser extension",
         "## Troubleshooting",
     ):
-        assert token in doc, f"docs_site/one-click.md is missing {token!r}"
+        assert token in doc, f"docs/one-click.md is missing {token!r}"
 
 
 # ---------------------------------------------------------------------------

@@ -88,7 +88,7 @@ const verdicts = await Promise.all(
     }).ask<PairVerdict>(
       `核实这条新误识对是否该入库: ${JSON.stringify(p)}
 步骤:
-1. 查重 — 读 scripts/seed_learned_terms.py 里的 SAFE_TERMS(以及仓库里能找到的 learned_terms.json), 精确重复与语义近似(同义/变体/仅标点差异)都算重复;
+1. 查重 — 读 scripts/pipeline/seed_learned_terms.py 里的 SAFE_TERMS(以及仓库里能找到的 learned_terms.json), 精确重复与语义近似(同义/变体/仅标点差异)都算重复;
 2. 上下文核实 — ${
         source
           ? `读源稿 ${source}, 确认 wrong 确实出现且 right 是正确写法, 并主动找反例(right 反而错的位置)`
@@ -133,7 +133,7 @@ if (curated.final.length > 0) {
       `把以下 ${curated.final.length} 条术语对按仓库既有惯例入库, 注意与现有条目查重、绝不产生重复:\n${curated.final
         .map((p) => `${p.wrong} => ${p.right}`)
         .join("\n")}
-参考: 历史落盘走 scripts/seed_learned_terms.py 的 SAFE_TERMS(有去重硬拦截), 并按该脚本说明同步 learned_terms.json。
+参考: 历史落盘走 scripts/pipeline/seed_learned_terms.py 的 SAFE_TERMS(有去重硬拦截), 并按该脚本说明同步 learned_terms.json。
 上一轮门禁反馈: ${gateFeedback}
 只做落盘编辑, 不要自己跑测试(外层门禁会跑), 返回写入条数与文件列表。`,
     );
@@ -198,7 +198,7 @@ const findings: Finding[] =
   applied === null && curated.final.length > 0
     ? [
         {
-          where: "scripts/seed_learned_terms.py",
+          where: "scripts/pipeline/seed_learned_terms.py",
           what: `有 ${curated.final.length} 条通过核查但 3 轮内未过门禁, 未落盘`,
           evidence: "数据卫生/全量测试存在持续失败",
           status: "verified",

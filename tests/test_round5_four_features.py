@@ -3,7 +3,7 @@ Tests for the "四个全部都做" (round-5) batch of features:
 
 1. transcribe_wechat_mp MCP tool schema accepts ocr_engine / ocr_lang / save_images
 2. Pipeline._transcribe_video_article emits bilingual subtitle labels
-3. douyin_batch_v3 --platform filter
+3. mediascribe archive --platform filter
 4. AgentOutput._apply_labels / to_dict emits ``*_label_i18n_lang`` locale markers
 """
 
@@ -26,8 +26,8 @@ class TestAgentOutputLocaleMarkers(unittest.TestCase):
     """Each ``*_label`` field must have a matching ``*_label_i18n_lang``."""
 
     def setUp(self):
-        from douyin_batch import i18n
-        from douyin_batch.agent_output import (
+        from mediascribe import i18n
+        from mediascribe.agent_output import (
             AgentOutput,
             _apply_labels,
         )

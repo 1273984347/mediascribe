@@ -511,7 +511,7 @@ def _validate_public_url(url: str) -> str:
     check (they still must be http(s) and userinfo-free).
 
     Note: this deliberately does NOT reuse
-    ``douyin_batch.security.check_url_safety`` — that helper is a
+    ``mediascribe.security.check_url_safety`` — that helper is a
     Douyin-domain allowlist and would reject YouTube / Bilibili URLs.
     """
     try:
@@ -2007,7 +2007,7 @@ def _register_job_result_route(app: "FastAPI") -> None:
 # 模块级 ASGI 入口
 # ---------------------------------------------------------------------------
 # ``uvicorn mediascribe.web.app:app`` 是本模块 docstring 与
-# ``scripts/one_click_up.py`` 一直宣称的启动方式，但**模块级 ``app``
+# ``scripts/launch/one_click_up.py`` 一直宣称的启动方式，但**模块级 ``app``
 # 从来不存在** ⇒ 该命令必然报
 # ``ERROR: Error loading ASGI app. Attribute "app" not found``。
 #

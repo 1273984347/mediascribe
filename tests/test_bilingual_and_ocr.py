@@ -3,7 +3,7 @@
 - agent_output bilingual 模式（双语标签）
 - wechat_mp 图片提取 + OCR（mock 引擎）
 - mediascribe.__main__ 的 --wechat-cookies / --wechat-cookie-file CLI flag
-- douyin_batch_v3._detect_platform / process_single_video_safe.platform
+- mediascribe.batch_cli._detect_platform / process_single_video_safe.platform
 """
 
 import io
@@ -22,15 +22,15 @@ class TestAgentOutputBilingual(unittest.TestCase):
     """AgentOutput bilingual 模式"""
 
     def setUp(self):
-        from douyin_batch import i18n
-        from douyin_batch.agent_output import AgentOutput
+        from mediascribe import i18n
+        from mediascribe.agent_output import AgentOutput
 
         self._prev = i18n.get_language()
         i18n.set_language("en")
         self.out = AgentOutput(command="test")
 
     def tearDown(self):
-        from douyin_batch import i18n
+        from mediascribe import i18n
 
         i18n.set_language(self._prev)
 
@@ -94,7 +94,7 @@ class TestAgentOutputBilingual(unittest.TestCase):
         self.assertEqual(d["videos"][0]["status_label"], "部分完成")
 
     def test_bilingual_stage_ocr(self):
-        from douyin_batch.agent_output import PLATFORM_WECHAT_MP, STAGE_OCR
+        from mediascribe.agent_output import PLATFORM_WECHAT_MP, STAGE_OCR
 
         self.out.set_bilingual(True, lang="en")
         self.out.add_video_for_platform(
@@ -127,7 +127,7 @@ class TestAgentOutputBilingual(unittest.TestCase):
 
     def test_bilingual_preserves_i18n_state(self):
         """bilingual 切换不应污染 i18n 全局状态。"""
-        from douyin_batch import i18n
+        from mediascribe import i18n
 
         i18n.set_language("en")
         self.out.set_bilingual(True, lang="zh")

@@ -16,7 +16,8 @@ from unittest import mock
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
-SCRIPTS = ROOT / "scripts"
+# The benchmark script lives in scripts/bench/ since the 2026-10-24 layout.
+SCRIPTS = ROOT / "scripts" / "bench"
 sys.path.insert(0, str(SCRIPTS))
 
 import benchmark_transcribers  # noqa: E402

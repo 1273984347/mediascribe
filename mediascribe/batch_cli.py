@@ -6,7 +6,7 @@
 + 动态加载三层耦合, 2026-10-03 审查收编); 根级现仅存一个弃用壳。
 
 抖音作者主页批量转录 v3 - 完全强化版
-（版本号与 douyin_batch.__version__ 同步，当前 3.1.0）
+（版本号与 mediascribe.__version__ 同步，当前 3.1.0）
 
 v3 相比 v2 的改进：
 ✅ 完整日志系统（彩色 + 文件）
@@ -50,6 +50,7 @@ def build_parser(i18n_t) -> argparse.ArgumentParser:
     """
     t = i18n_t
     parser = argparse.ArgumentParser(
+        prog="python -m mediascribe archive",
         description=t("CLI_DESCRIPTION"),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=t("CLI_EPILOG"),
@@ -100,8 +101,8 @@ def _load_batch_config(args, t):
     优先级: CLI 显式参数(``merge_cli_args``) > 配置文件(``--config``)
     > 环境变量 > 内置默认。
     """
-    from douyin_batch.logger import log
     from mediascribe.batch_config import BatchConfig
+    from mediascribe.logger import log
 
     config = BatchConfig.from_env()
 
@@ -130,9 +131,12 @@ def _init_agent_output(args, config):
     """
     if not (args.json or args.bilingual_json):
         return None
-    from douyin_batch.agent_output import AgentOutput
-    from douyin_batch.logger import log
+    from mediascribe.agent_output import AgentOutput
+    from mediascribe.logger import log
 
+    # ``command`` 是 schema ``mediascribe.agent-output/v1`` 的**稳定字段值**,
+    # 不是脚本路径 —— 旧入口 douyin_batch_v3.py 已于 2026-10-24 删除, 但
+    # 该字面量已被下游 Agent 消费方依赖, 不随 CLI 改名而变动(要改须升 schema 版本)。
     agent_out = AgentOutput(command="douyin_batch_v3")
     if args.bilingual_json:
         agent_out.set_bilingual(True)
@@ -155,7 +159,7 @@ def _platform_filter_from_args(args, t) -> Optional[List[str]]:
     """``--platform`` 平台白名单: 去重并保持首次出现顺序; 未传返回 None。"""
     if not args.platform:
         return None
-    from douyin_batch.logger import log
+    from mediascribe.logger import log
 
     platform_filter = list(dict.fromkeys(args.platform))
     log.info(f"🎯 {t('CLI_PLATFORM_SUMMARY', allowed=platform_filter)}")
@@ -164,7 +168,7 @@ def _platform_filter_from_args(args, t) -> Optional[List[str]]:
 
 def _log_banner(config, no_cache: bool, t) -> None:
     """打印启动横幅 — 当前生效的配置一览。"""
-    from douyin_batch.logger import log
+    from mediascribe.logger import log
 
     log.info("=" * 60)
     log.info(f"📚 {t('INFO_BANNER_TITLE')}")
@@ -184,7 +188,7 @@ def _resolve_user_url(args, config, get_user_url_from_video, agent_out, t) -> Op
     返回 ``None`` 表示无法确定(错误日志与 agent 错误已记录),
     调用方应以退出码 1 结束。
     """
-    from douyin_batch.logger import log
+    from mediascribe.logger import log
 
     if args.from_video:
         log.info(f"🔍 {t('INFO_STEP1_FROM_VIDEO')}")
@@ -215,7 +219,7 @@ def _resolve_user_url(args, config, get_user_url_from_video, agent_out, t) -> Op
 
 def _collect_videos(args, cache, config, user_url, get_user_videos, t) -> List[Dict]:
     """取作者主页视频清单 — 命中缓存直接用, 否则抓取并回写缓存。"""
-    from douyin_batch.logger import log
+    from mediascribe.logger import log
 
     log.info(f"\n📋 {t('INFO_STEP2', count=config.max_videos)}")
 
@@ -244,12 +248,12 @@ def _cleanup_downloads(config, results: List[Dict], download_dir: Path, t) -> No
     P1-2: 失败视频的文件保留, 下一轮断点续传可重试;
     ``--keep-audio`` 时全部保留。
     """
-    from douyin_batch.logger import log
+    from mediascribe.logger import log
 
     if config.keep_audio:
         return
     log.info(f"\n🧹 {t('INFO_CLEANUP')}")
-    from douyin_batch.security import sanitize_filename
+    from mediascribe.security import sanitize_filename
 
     protected = {
         sanitize_filename(f"{r['video_id']}.mp4") for r in results if r.get("status") != "success"
@@ -271,7 +275,7 @@ def _log_run_summary(
     results: List[Dict], videos: List[Dict], elapsed: float, summary_file, t
 ) -> int:
     """打印运行小计(总数/成功/失败/耗时/报告路径), 返回成功条数。"""
-    from douyin_batch.logger import log
+    from mediascribe.logger import log
     from mediascribe.progress import format_duration
 
     success_count = sum(1 for r in results if r.get("status") == "success")
@@ -292,7 +296,7 @@ def _close_browser_if_running() -> None:
     P1-4: 仅在已有实例时关闭, 绝不凭空启动一次 Playwright。
     """
     try:
-        from douyin_batch.browser import BrowserManager
+        from mediascribe.browser import BrowserManager
 
         BrowserManager.close_if_running()
     except Exception:
@@ -305,7 +309,7 @@ class _ResultRecorder:
     持有跨线程共享的可变状态(结果列表 + 进度跟踪), ``record`` 整体
     加锁: workers>1 时结果追加、进度更新、缓存写回均线程安全
     (ProcessCache 内部亦有自己的锁)。JSON 模式下同步把每条结果
-    喂给 :class:`~douyin_batch.agent_output.AgentOutput`。
+    喂给 :class:`~mediascribe.agent_output.AgentOutput`。
     """
 
     def __init__(self, tracker, cache, log, t, agent_out=None, workers: int = 1):
@@ -367,7 +371,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     复用本流程时传入）；``None`` 时照旧读 ``sys.argv[1:]``。
     """
     # Initialize i18n first (use default detection; --lang can override)
-    from douyin_batch.i18n import init_language, set_language, t
+    from mediascribe.i18n import init_language, set_language, t
 
     init_language()
 
@@ -388,8 +392,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         if not args.config:
             parser.error(t("CLI_ERROR_NO_INPUT"))
 
-    from douyin_batch.logger import log
     from mediascribe.batch_cache import ProcessCache
+    from mediascribe.logger import log
 
     # 1. 加载配置并装配日志（优先级：CLI > 文件 > 环境变量 > 默认）
     config = _load_batch_config(args, t)
@@ -420,15 +424,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
 
     # 3. 启动浏览器
-    from douyin_batch.browser import (
+    from mediascribe.browser import (
         get_media_url_fast,
         get_user_url_from_video,
         get_user_videos,
     )
-    from douyin_batch.report import generate_summary_report
-    from douyin_batch.retry import download_media_with_retry
-    from douyin_batch.transcribe import transcribe_audio
     from mediascribe.progress import ProgressTracker
+    from mediascribe.report import generate_summary_report
+    from mediascribe.retry import download_media_with_retry
+    from mediascribe.transcribe import transcribe_audio
 
     start_time = time.time()
 
@@ -577,7 +581,7 @@ def process_single_video_safe(
     """
     if i18n_t is None:
         # Late import to avoid circular issues
-        from douyin_batch.i18n import t as _t
+        from mediascribe.i18n import t as _t
 
         i18n_t = _t
 
@@ -619,7 +623,7 @@ def process_single_video_safe(
             }
 
         # 1.5 下载前安全检查（P2-7: security 工具接线）
-        from douyin_batch.security import check_url_safety, sanitize_filename
+        from mediascribe.security import check_url_safety, sanitize_filename
 
         url_ok, url_reason = check_url_safety(media_url)
         if not url_ok:

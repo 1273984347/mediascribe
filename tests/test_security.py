@@ -1,9 +1,9 @@
-"""douyin_batch.security 的测试 —— 迁入自 tests/test_coverage_gaps.py(按被测模块归位)。"""
+"""mediascribe.security 的测试 —— 迁入自 tests/test_coverage_gaps.py(按被测模块归位)。"""
 
 from __future__ import annotations
 
 ###########################################################################
-# 迁入自 tests/test_coverage_gaps.py —— TestSecurityExtras(douyin_batch.security)
+# 迁入自 tests/test_coverage_gaps.py —— TestSecurityExtras(mediascribe.security)
 ###########################################################################
 
 
@@ -11,7 +11,7 @@ class TestSecurityExtras:
     """Edge cases for safe_join_path, validate_video_id, check_url_safety."""
 
     def test_safe_join_path_blocks_traversal(self, tmp_path):
-        from douyin_batch.security import safe_join_path
+        from mediascribe.security import safe_join_path
 
         # OK: inside base
         p = safe_join_path(tmp_path, "a", "b.txt")
@@ -22,7 +22,7 @@ class TestSecurityExtras:
         assert safe_join_path(tmp_path, "..", "..", "etc", "passwd") is None
 
     def test_validate_video_id(self):
-        from douyin_batch.security import validate_video_id
+        from mediascribe.security import validate_video_id
 
         assert validate_video_id("BV1Nd596vEyU") is True
         assert validate_video_id("BV1") is False  # too short
@@ -34,7 +34,7 @@ class TestSecurityExtras:
         assert validate_video_id("BV1abcdefghi!") is False
 
     def test_check_url_safety_trusted_subdomain(self):
-        from douyin_batch.security import check_url_safety
+        from mediascribe.security import check_url_safety
 
         ok, reason = check_url_safety("https://www.bilibili.com/video/BV1")
         assert ok is True and reason == "OK"
@@ -45,7 +45,7 @@ class TestSecurityExtras:
         assert ok is False and "Untrusted" in reason
 
     def test_check_url_safety_custom_allowed_domains(self):
-        from douyin_batch.security import check_url_safety
+        from mediascribe.security import check_url_safety
 
         ok, _ = check_url_safety(
             "https://my-mirror.example.com/foo",
@@ -54,7 +54,7 @@ class TestSecurityExtras:
         assert ok is True
 
     def test_sanitize_filename_extreme_inputs(self):
-        from douyin_batch.security import sanitize_filename
+        from mediascribe.security import sanitize_filename
 
         # Empty / None
         assert sanitize_filename("") == "unnamed"
@@ -73,7 +73,7 @@ class TestSecurityExtras:
         assert out.endswith(".mp4")
 
     def test_limit_string_length_non_string_returns_empty(self):
-        from douyin_batch.security import limit_string_length
+        from mediascribe.security import limit_string_length
 
         assert limit_string_length(None) == ""  # type: ignore[arg-type]
         assert limit_string_length(123) == ""  # type: ignore[arg-type]

@@ -11,7 +11,7 @@ MediaScribe 命令行工具
 - ``profile`` (v3.2.0a)：渲染 profile JSONL 报告
 - ``learn`` (v3.2.0b)：ASR 术语自动学习
 - ``doctor`` (v3.4.0)：环境自检（ffmpeg / GPU / 引擎 / 模型缓存）
-- ``archive`` (v3.4.0)：创作者主页批量转录（收编 douyin_batch_v3.py）
+- ``archive`` (v3.4.0)：创作者主页批量转录（实现见 :mod:`mediascribe.batch_cli`）
 """
 
 from __future__ import annotations
@@ -207,7 +207,7 @@ def _build_legacy_parser() -> argparse.ArgumentParser:
         epilog="""
 📦 更多命令：
   python -m mediascribe doctor    环境自检（ffmpeg/GPU/引擎/模型缓存）
-  python -m mediascribe archive   批量转录创作者主页（原 douyin_batch_v3.py）
+  python -m mediascribe archive   批量转录创作者主页
   python -m mediascribe learn     ASR 术语自动学习（越用越准）
   python -m mediascribe profile   渲染性能 profile 报告
 
@@ -553,7 +553,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     v3.2.0b adds the ``learn`` subcommand for ASR auto-learning.
 
     v3.4.0 adds ``doctor`` (环境自检) and ``archive`` (创作者主页批量,
-    收编 douyin_batch_v3.py); 无参数调用改为打印快速开始引导并返回 0.
+    实现位于 :mod:`mediascribe.batch_cli`); 无参数调用改为打印快速开始引导并返回 0.
 
     If ``argv`` is ``None`` we read ``sys.argv[1:]`` (original v3.1.0
     behaviour).  Callers that want to invoke the CLI in-process can
@@ -676,9 +676,8 @@ def _run_doctor_cli(argv: List[str]) -> int:
 def _run_archive(argv: List[str]) -> int:
     """``python -m mediascribe archive`` — 创作者主页批量转录。
 
-    复用 :mod:`mediascribe.batch_cli`（原根级 douyin_batch_v3.py，
-    已收编为包模块）的完整流程（浏览器抓取 / 断点续传 / 汇总报告）。
-    旧入口 ``python douyin_batch_v3.py ...`` 保留为弃用壳。
+    复用 :mod:`mediascribe.batch_cli` 的完整流程
+    （浏览器抓取 / 断点续传 / 汇总报告）。
     """
     parser = argparse.ArgumentParser(
         prog="python -m mediascribe archive",

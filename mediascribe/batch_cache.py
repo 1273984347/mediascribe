@@ -1,6 +1,7 @@
 """
-批处理断点续传缓存(ProcessCache) — 原 douyin_batch/cache.py,
-2026-10-03 审查收编进 mediascribe 包, 旧路径保留转发壳。
+批处理断点续传缓存(ProcessCache) — 原 ``douyin_batch/cache.py``
+（2026-10-03 审查收编进 mediascribe 包；2026-10-24 全量整理时旧转发壳
+已删除，本模块为唯一实现）
 
 缓存管理 - 支持断点续传
 

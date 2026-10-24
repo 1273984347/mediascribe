@@ -1,4 +1,4 @@
-"""douyin_batch.retry 的测试 —— 迁入自 tests/test_coverage_gaps.py 与 tests/test_coverage_gaps_2.py(按被测模块归位)。"""
+"""mediascribe.retry 的测试 —— 迁入自 tests/test_coverage_gaps.py 与 tests/test_coverage_gaps_2.py(按被测模块归位)。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from unittest import mock
 import pytest
 
 ###########################################################################
-# 迁入自 tests/test_coverage_gaps.py —— TestRetryExtras(douyin_batch.retry)
+# 迁入自 tests/test_coverage_gaps.py —— TestRetryExtras(mediascribe.retry)
 ###########################################################################
 
 
@@ -15,7 +15,7 @@ class TestRetryExtras:
     """Cover backoff / on_retry / max_retries=0 paths."""
 
     def test_retry_max_retries_zero_raises_first_exception(self):
-        from douyin_batch.retry import retry
+        from mediascribe.retry import retry
 
         calls = {"n": 0}
 
@@ -28,11 +28,11 @@ class TestRetryExtras:
         assert calls["n"] == 1
 
     def test_retry_backoff_increases_delay(self):
-        from douyin_batch.retry import retry
+        from mediascribe.retry import retry
 
         # Patch time.sleep to record the delays without actually sleeping.
         delays: list[float] = []
-        with mock.patch("douyin_batch.retry.time.sleep", side_effect=lambda d: delays.append(d)):
+        with mock.patch("mediascribe.retry.time.sleep", side_effect=lambda d: delays.append(d)):
 
             def boom():
                 raise ValueError()
@@ -46,7 +46,7 @@ class TestRetryExtras:
         assert delays == [0.1, 0.2, 0.4]
 
     def test_retry_on_retry_callback_receives_attempt_and_exc(self):
-        from douyin_batch.retry import retry
+        from mediascribe.retry import retry
 
         attempts: list[tuple[int, Exception]] = []
         calls = {"n": 0}
@@ -69,7 +69,7 @@ class TestRetryExtras:
         assert excinfo.value.args == (3,)
 
     def test_retry_does_not_retry_on_unrelated_exception(self):
-        from douyin_batch.retry import retry
+        from mediascribe.retry import retry
 
         calls = {"n": 0}
 
@@ -83,7 +83,7 @@ class TestRetryExtras:
 
 
 ###########################################################################
-# 迁入自 tests/test_coverage_gaps_2.py —— TestRetryBackoffStrategy(douyin_batch.retry)
+# 迁入自 tests/test_coverage_gaps_2.py —— TestRetryBackoffStrategy(mediascribe.retry)
 ###########################################################################
 
 
@@ -92,7 +92,7 @@ class TestRetryBackoffStrategy:
         """Make sure retry forwards *args / **kwargs correctly and does
         not pass any internal config to the user function (the bug
         used to leak ``jitter=`` to the wrapped callable)."""
-        from douyin_batch.retry import retry
+        from mediascribe.retry import retry
 
         seen: list = []
 

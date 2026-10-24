@@ -90,7 +90,7 @@ const reviews = await Promise.all(
         "你是审校稿修订员, 纪律: 只把源稿当事实依据(agent 只读源稿); 术语替换前先核上下文, 不确定的不替换; 尾部核对逐集必做; 修不动就如实说。若指令矛盾, 直接说明而不是硬做。",
     }).ask<EpisodeReview>(
       `对源稿 ${f} 执行四步修订:
-1. 术语替换 — 术语表读 scripts/seed_learned_terms.py 的 SAFE_TERMS, 只替换上下文成立的;
+1. 术语替换 — 术语表读 scripts/pipeline/seed_learned_terms.py 的 SAFE_TERMS, 只替换上下文成立的;
 2. 幻觉重复块核对 — 段级/句级复读、跨段重叠, 逐个处理;
 3. 尾部核对 — 比对稿子末段时间戳/内容是否完整, 缺口如实记录;
 4. 按仓库统一格式整理审校稿: 基本信息 / 蒸馏 / 审校版正文 / 审校说明。

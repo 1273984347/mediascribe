@@ -14,14 +14,14 @@ class TestProgress(unittest.TestCase):
     """进度条测试"""
 
     def test_format_duration(self):
-        from douyin_batch.progress import format_duration
+        from mediascribe.progress import format_duration
 
         self.assertEqual(format_duration(5), "05s")
         self.assertEqual(format_duration(65), "01:05")
         self.assertEqual(format_duration(3661), "01:01:01")
 
     def test_format_size(self):
-        from douyin_batch.progress import format_size
+        from mediascribe.progress import format_size
 
         self.assertEqual(format_size(100), "100.0B")
         self.assertEqual(format_size(1024), "1.0KB")
@@ -29,7 +29,7 @@ class TestProgress(unittest.TestCase):
         self.assertEqual(format_size(1024 * 1024 * 1024), "1.0GB")
 
     def test_progress_tracker(self):
-        from douyin_batch.progress import ProgressTracker
+        from mediascribe.progress import ProgressTracker
 
         tracker = ProgressTracker(total=10, desc="测试")
         self.assertEqual(tracker.completed, 0)
@@ -56,7 +56,7 @@ class TestConfig(unittest.TestCase):
     """配置管理测试"""
 
     def test_default_config(self):
-        from douyin_batch.config import BatchConfig
+        from mediascribe.batch_config import BatchConfig
 
         config = BatchConfig()
         self.assertEqual(config.max_videos, 10)
@@ -64,7 +64,7 @@ class TestConfig(unittest.TestCase):
         self.assertEqual(config.max_retries, 3)
 
     def test_to_from_dict(self):
-        from douyin_batch.config import BatchConfig
+        from mediascribe.batch_config import BatchConfig
 
         config = BatchConfig(max_videos=20, headless=False)
         data = config.to_dict()
@@ -77,7 +77,7 @@ class TestConfig(unittest.TestCase):
     def test_from_file(self):
         import tempfile
 
-        from douyin_batch.config import BatchConfig
+        from mediascribe.batch_config import BatchConfig
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             import json
@@ -95,7 +95,7 @@ class TestConfig(unittest.TestCase):
     def test_save_load(self):
         import tempfile
 
-        from douyin_batch.config import BatchConfig
+        from mediascribe.batch_config import BatchConfig
 
         with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
             tmp_path = Path(f.name)
@@ -119,7 +119,7 @@ class TestCache(unittest.TestCase):
         import tempfile
 
         self.tmp_dir = Path(tempfile.mkdtemp())
-        from douyin_batch.cache import ProcessCache
+        from mediascribe.batch_cache import ProcessCache
 
         self.cache = ProcessCache(cache_dir=self.tmp_dir)
 
@@ -184,7 +184,7 @@ class TestRetry(unittest.TestCase):
     """重试机制测试"""
 
     def test_retry_success_on_third_attempt(self):
-        from douyin_batch.retry import retry
+        from mediascribe.retry import retry
 
         attempts = [0]
 
@@ -199,7 +199,7 @@ class TestRetry(unittest.TestCase):
         self.assertEqual(attempts[0], 3)
 
     def test_retry_exhausted(self):
-        from douyin_batch.retry import retry
+        from mediascribe.retry import retry
 
         def always_fail():
             raise ValueError("Always fails")
@@ -208,7 +208,7 @@ class TestRetry(unittest.TestCase):
             retry(always_fail, max_retries=2, delay=0.1)
 
     def test_retry_no_retries_needed(self):
-        from douyin_batch.retry import retry
+        from mediascribe.retry import retry
 
         def works():
             return "immediate"
@@ -221,14 +221,14 @@ class TestLogger(unittest.TestCase):
     """日志测试"""
 
     def test_logger_singleton(self):
-        from douyin_batch.logger import Logger
+        from mediascribe.logger import Logger
 
         log1 = Logger()
         log2 = Logger()
         self.assertIs(log1, log2)
 
     def test_logger_levels(self):
-        from douyin_batch.logger import Logger
+        from mediascribe.logger import Logger
 
         log = Logger()
         # 不应抛出异常

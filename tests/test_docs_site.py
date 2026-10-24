@@ -1,5 +1,5 @@
 """
-Validate the docs_site/ structure and mkdocs.yml.
+Validate the docs/ structure and mkdocs.yml.
 
 The mkdocs config uses a custom ``!!python/name:`` YAML tag that
 PyYAML's safe loader does not understand; the test installs a
@@ -14,7 +14,7 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).parent.parent
-DOCS = ROOT / "docs_site"
+DOCS = ROOT / "docs"
 MKDOCS_YML = ROOT / "mkdocs.yml"
 
 

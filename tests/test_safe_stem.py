@@ -2,7 +2,7 @@
 Tests for ``mediascribe.inputs.safe_stem`` contract.
 
 Verifies that ``safe_stem`` delegates to
-``douyin_batch.platform_compat.safe_filename`` and inherits the same
+``mediascribe.platform_compat.safe_filename`` and inherits the same
 sanitization rules (Windows reserved names, control characters, OS-invalid
 characters).
 """
@@ -64,7 +64,7 @@ class TestSafeStem(unittest.TestCase):
 
     def test_delegates_to_safe_filename(self):
         # The whole point of the refactor: identical output for the same input.
-        from douyin_batch.platform_compat import safe_filename
+        from mediascribe.platform_compat import safe_filename
 
         cases = [
             "normal name",

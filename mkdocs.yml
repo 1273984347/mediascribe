@@ -3,9 +3,9 @@ site_description: Transcribe videos from 6 platforms to Markdown using Whisper
 site_url: https://1273984347.github.io/mediascribe/
 repo_url: https://github.com/1273984347/mediascribe
 repo_name: example/mediascribe
-edit_uri: edit/main/docs_site/
+edit_uri: edit/main/docs/
 
-docs_dir: docs_site
+docs_dir: docs
 
 theme:
   name: material
@@ -47,6 +47,10 @@ markdown_extensions:
   - tables
   - toc:
       permalink: true
+      # 默认 slugify 会把非 ASCII 字符整个丢掉 —— 中文标题的锚点会被截成
+      # "#1" 这类无意义值，目录锚点全部失效。改用 Unicode 版 slugify，
+      # 锚点形如 "#1-经验复用梳理"，与文档内既有链接写法一致。
+      slugify: !!python/name:markdown.extensions.toc.slugify_unicode
   - pymdownx.details
   - pymdownx.superfences:
       custom_fences:
@@ -85,9 +89,20 @@ nav:
   - E2E testing: e2e-testing.md
   - CI matrix: ci-matrix.md
   - Roadmap v3.2: roadmap-v3.2.md
+  - Roadmap v3.2b: roadmap-v3.2b.md
   - Changelog: changelog.md
   - Contributing: contributing.md
   - License: license.md
+  - Downloaders: downloaders.md
+  - 使用说明: 使用说明.md
+  - CLI snapshots: cli-screenshots/index.md
+  - Design notes: design/kimi-icon-motion-guide.md
+  - Report — tech selection (2026-10): reports/tech-selection-report-2026-10.md
+  - Report — workflow optimisation (2026-10): reports/workflow-optimization-report-2026-10.md
+  - Report — workflow optimisation (2026-09): reports/workflow-optimization-report-2026-09.md
+  - Report — E2E results: reports/e2e-results.md
+  - Report — publishing guide (v3): reports/publishing-v3.md
+  - Report — repo cleanup T01 (2026-10-24): reports/T01-文件分类整理-任务计划执行与经验沉淀报告-2026-10-24.md
 
 extra:
   version:

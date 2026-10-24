@@ -72,7 +72,7 @@ class TestDouyinNoPlaywrightFallback:
 
 class TestBatchConfigUserUrl:
     def test_user_url_roundtrip_via_file(self, tmp_path):
-        from douyin_batch.config import BatchConfig
+        from mediascribe.batch_config import BatchConfig
 
         cfg_path = tmp_path / "cfg.json"
         cfg_path.write_text(
@@ -90,12 +90,12 @@ class TestBatchConfigUserUrl:
         assert cfg.max_videos == 3
 
     def test_user_url_default_none(self):
-        from douyin_batch.config import BatchConfig
+        from mediascribe.batch_config import BatchConfig
 
         assert BatchConfig().user_url is None
 
     def test_save_load_keeps_user_url(self, tmp_path):
-        from douyin_batch.config import BatchConfig
+        from mediascribe.batch_config import BatchConfig
 
         cfg = BatchConfig(user_url="https://www.douyin.com/user/U", max_videos=7)
         p = tmp_path / "save.json"
@@ -111,7 +111,7 @@ class TestBatchConfigUserUrl:
 
 class TestEnvPrefix:
     def test_primary_prefix_douyin_batch(self):
-        from douyin_batch.config import BatchConfig
+        from mediascribe.batch_config import BatchConfig
 
         with patch.dict(
             "os.environ",
@@ -123,8 +123,8 @@ class TestEnvPrefix:
         assert cfg.workers == 3
 
     def test_legacy_prefix_still_read_with_warning(self):
-        from douyin_batch.config import BatchConfig
         from mediascribe import batch_config as cfg_mod
+        from mediascribe.batch_config import BatchConfig
 
         env = {
             "DOUYIN_BATCH_MAX_VIDEOS": "5",
@@ -146,7 +146,7 @@ class TestEnvPrefix:
 
 class TestProcessCacheFailedRetryable:
     def test_failed_video_is_retryable(self, tmp_path):
-        from douyin_batch.cache import ProcessCache
+        from mediascribe.batch_cache import ProcessCache
 
         cache = ProcessCache(cache_dir=tmp_path)
         cache.mark_processed("v1", "http://x/1", success=False)
@@ -162,7 +162,7 @@ class TestProcessCacheFailedRetryable:
         assert again.filter_unprocessed(videos) == videos
 
     def test_success_video_still_skipped(self, tmp_path):
-        from douyin_batch.cache import ProcessCache
+        from mediascribe.batch_cache import ProcessCache
 
         cache = ProcessCache(cache_dir=tmp_path)
         cache.mark_processed("ok", "u", success=True)
@@ -170,7 +170,7 @@ class TestProcessCacheFailedRetryable:
         assert cache.filter_unprocessed([{"video_id": "ok"}]) == []
 
     def test_atomic_save_leaves_no_tmp(self, tmp_path):
-        from douyin_batch.cache import ProcessCache
+        from mediascribe.batch_cache import ProcessCache
 
         cache = ProcessCache(cache_dir=tmp_path)
         for i in range(5):
@@ -179,7 +179,7 @@ class TestProcessCacheFailedRetryable:
         assert list(tmp_path.glob("*.tmp")) == []
 
     def test_corrupt_cache_renamed_to_bak(self, tmp_path):
-        from douyin_batch.cache import ProcessCache
+        from mediascribe.batch_cache import ProcessCache
 
         f = tmp_path / "processed_videos.json"
         f.write_text("{not json", encoding="utf-8")
@@ -251,24 +251,24 @@ class TestWechatMpJsContentNestedDiv:
 
 class TestBrowserCloseIfRunning:
     def setup_method(self):
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         br_mod.BrowserManager._instance = None
 
     def teardown_method(self):
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         br_mod.BrowserManager._instance = None
 
     def test_no_instance_does_not_start_browser(self):
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         # 未 patch playwright：如果实现错误地启动了浏览器，此测试会失败
         br_mod.BrowserManager.close_if_running()
         assert br_mod.BrowserManager._instance is None
 
     def test_existing_instance_is_closed(self):
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         inst = MagicMock()
         br_mod.BrowserManager._instance = inst
@@ -278,7 +278,7 @@ class TestBrowserCloseIfRunning:
         br_mod.BrowserManager._instance = None
 
     def test_headless_mismatch_keeps_existing_instance(self):
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         inst = br_mod.BrowserManager.__new__(br_mod.BrowserManager)
         inst._initialized = True
@@ -410,17 +410,17 @@ class TestStreamDownload:
 
 class TestTranscriberPoolConfig:
     def setup_method(self):
-        from douyin_batch import transcribe as tmod
+        from mediascribe import transcribe as tmod
 
         tmod.TranscriberPool._instance = None
 
     def teardown_method(self):
-        from douyin_batch import transcribe as tmod
+        from mediascribe import transcribe as tmod
 
         tmod.TranscriberPool._instance = None
 
     def test_config_maps_whisper_model_and_language(self):
-        from douyin_batch import transcribe as tmod
+        from mediascribe import transcribe as tmod
 
         cfg = SimpleNamespace(whisper_model="medium", language="en")
         with patch("mediascribe.Pipeline") as pipe_cls, patch("mediascribe.Settings") as set_cls:
@@ -432,7 +432,7 @@ class TestTranscriberPoolConfig:
         assert Path(args[0]) == Path("/tmp/a.wav")
 
     def test_default_keeps_zh_small(self):
-        from douyin_batch import transcribe as tmod
+        from mediascribe import transcribe as tmod
 
         with patch("mediascribe.Pipeline") as pipe_cls, patch("mediascribe.Settings") as set_cls:
             pool = tmod.TranscriberPool()
@@ -442,7 +442,7 @@ class TestTranscriberPoolConfig:
         assert kwargs.get("language") == "zh"
 
     def test_transcribe_audio_passes_config(self):
-        from douyin_batch import transcribe as tmod
+        from mediascribe import transcribe as tmod
 
         with patch.object(tmod, "TranscriberPool") as pool_cls:
             tmod.transcribe_audio(Path("/tmp/x.wav"), config="CFG")
@@ -495,7 +495,7 @@ class TestOcrImagesOrder:
 
 class TestMergeCliArgs:
     def test_none_args_do_not_override_config(self):
-        from douyin_batch.config import BatchConfig
+        from mediascribe.batch_config import BatchConfig
 
         cfg = BatchConfig(
             max_videos=5,
@@ -524,7 +524,7 @@ class TestMergeCliArgs:
         assert cfg.max_retries == 9
 
     def test_explicit_args_override(self):
-        from douyin_batch.config import BatchConfig
+        from mediascribe.batch_config import BatchConfig
 
         cfg = BatchConfig()
 
@@ -656,7 +656,7 @@ class TestUrlUtilsHostMatching:
 
 class TestGetUserVideosScrollParams:
     def test_max_scroll_rounds_caps_scrolling(self):
-        from douyin_batch import browser as br_mod
+        from mediascribe import browser as br_mod
 
         html_by_round = [
             '<html><a href="/video/1">v</a></html>',
@@ -674,7 +674,7 @@ class TestGetUserVideosScrollParams:
         mgr._context.new_page.return_value = page
         br_mod.BrowserManager._instance = mgr
         try:
-            with patch("douyin_batch.browser.time.sleep"):
+            with patch("mediascribe.browser.time.sleep"):
                 videos = br_mod.get_user_videos(
                     "https://www.douyin.com/user/X",
                     max_videos=10,
@@ -696,7 +696,7 @@ class TestGetUserVideosScrollParams:
 
 class TestReportAsciiFilenames:
     def test_report_files_are_ascii(self, tmp_path):
-        from douyin_batch.report import generate_summary_report
+        from mediascribe.report import generate_summary_report
 
         out = generate_summary_report("https://www.douyin.com/user/U", [], tmp_path)
         assert out.name.startswith("summary_") and out.suffix == ".md"

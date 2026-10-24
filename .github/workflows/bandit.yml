@@ -6,7 +6,7 @@
 # deserialisation, …) that the rest of the test suite does not catch.
 #
 # This workflow:
-#   * Scans ``mediascribe/`` and ``douyin_batch/`` (production code).
+#   * Scans ``mediascribe/`` (production code).
 #   * Skips ``tests/`` (test fixtures often contain intentionally
 #     fake secrets / weak tokens — that is *not* a vulnerability).
 #   * Uploads the JSON report as a build artifact for review.
@@ -24,13 +24,11 @@ on:
     branches: [main, master, develop]
     paths:
       - "mediascribe/**"
-      - "douyin_batch/**"
       - ".github/workflows/bandit.yml"
   pull_request:
     branches: [main, master, develop]
     paths:
       - "mediascribe/**"
-      - "douyin_batch/**"
       - ".github/workflows/bandit.yml"
   schedule:
     # Weekly scan so newly-discovered CVEs in our deps surface quickly
@@ -70,14 +68,14 @@ jobs:
         run: |
           mkdir -p bandit-reports
           bandit \
-            -r mediascribe douyin_batch \
+            -r mediascribe \
             --exclude mediascribe/web/static,tests \
             -ll \
             -f json \
             -o bandit-reports/bandit-ubuntu.json || EXIT=$?
           # Also produce a human-readable summary for the workflow log.
           bandit \
-            -r mediascribe douyin_batch \
+            -r mediascribe \
             --exclude mediascribe/web/static,tests \
             -ll \
             -f txt \

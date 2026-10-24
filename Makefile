@@ -13,7 +13,7 @@
 #   make push       gate then git push
 #   make lint       run ruff (lint + format check)
 #   make format     auto-format with ruff
-#   make demo       run demo_v3.py
+#   make demo       run scripts/demo_v3.py
 #   make clean      remove __pycache__ and build artefacts
 #   make verify     import + syntax + tests (agent smoke test)
 #   make up         one-click: start Web UI in foreground (Ctrl-C to stop)
@@ -47,7 +47,7 @@ help:
 	@echo "  push            gate then git push"
 	@echo "  lint            ruff check + ruff format --check"
 	@echo "  format          ruff check --fix + ruff format"
-	@echo "  demo            run demo_v3.py"
+	@echo "  demo            run scripts/demo_v3.py"
 	@echo "  clean           remove __pycache__ and build artefacts"
 	@echo "  verify          import + syntax + tests (agent smoke test)"
 	@echo ""
@@ -91,7 +91,7 @@ test-syntax:
 	$(PYTEST) tests/test_syntax.py
 
 gate:
-	$(PY) scripts/pre_push_gate.py
+	$(PY) scripts/gates/pre_push_gate.py
 
 push: gate
 	git push
@@ -105,7 +105,7 @@ format:
 	$(RUFF) format .
 
 demo:
-	$(PY) demo_v3.py
+	$(PY) scripts/demo_v3.py
 
 clean:
 	@find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
@@ -124,27 +124,27 @@ all: dev lint test
 # ---------------------------------------------------------------------------
 # One-click Web UI launcher
 # ---------------------------------------------------------------------------
-# All targets below delegate to scripts/one_click_up.py, which is the
+# All targets below delegate to scripts/launch/one_click_up.py, which is the
 # canonical implementation.  On Windows the .ps1 wrapper is equivalent;
 # on Linux/macOS the .sh wrapper is equivalent.
 
 up:
-	$(PY) scripts/one_click_up.py up
+	$(PY) scripts/launch/one_click_up.py up
 
 up-daemon:
-	$(PY) scripts/one_click_up.py up --daemon
+	$(PY) scripts/launch/one_click_up.py up --daemon
 
 down:
-	$(PY) scripts/one_click_up.py stop
+	$(PY) scripts/launch/one_click_up.py stop
 
 status:
-	-$(PY) scripts/one_click_up.py status
+	-$(PY) scripts/launch/one_click_up.py status
 
 logs:
 	@if [ -f .one-click.log ]; then tail -f .one-click.log; else echo "(no .one-click.log yet)"; fi
 
 docker-up:
-	$(PY) scripts/one_click_up.py up --daemon --mode docker
+	$(PY) scripts/launch/one_click_up.py up --daemon --mode docker
 
 # Help AI agents discover the right command
 # Equivalent without `make`:

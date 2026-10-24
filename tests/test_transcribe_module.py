@@ -16,17 +16,17 @@ class TestTranscriberPoolSingleton(unittest.TestCase):
 
     def setUp(self) -> None:
         # Reset singleton so each test gets a fresh pool
-        from douyin_batch import transcribe
+        from mediascribe import transcribe
 
         transcribe.TranscriberPool._instance = None
 
     def tearDown(self) -> None:
-        from douyin_batch import transcribe
+        from mediascribe import transcribe
 
         transcribe.TranscriberPool._instance = None
 
     def test_singleton_same_instance(self):
-        from douyin_batch.transcribe import TranscriberPool
+        from mediascribe.transcribe import TranscriberPool
 
         with (
             mock.patch("mediascribe.Pipeline") as PipeCls,
@@ -41,7 +41,7 @@ class TestTranscriberPoolSingleton(unittest.TestCase):
         PipeCls.assert_called_once()
 
     def test_init_is_idempotent(self):
-        from douyin_batch.transcribe import TranscriberPool
+        from mediascribe.transcribe import TranscriberPool
 
         with (
             mock.patch("mediascribe.Pipeline") as PipeCls,
@@ -60,7 +60,7 @@ class TestTranscriberPoolSingleton(unittest.TestCase):
         PipeCls.assert_called_once()
 
     def test_singleton_via_new_skips_init(self):
-        from douyin_batch import transcribe
+        from mediascribe import transcribe
 
         # Pre-set an instance; new() should return it without calling __init__
         sentinel = object()
@@ -75,17 +75,17 @@ class TestTranscriberPoolTranscribe(unittest.TestCase):
     """Tests for TranscriberPool.transcribe()."""
 
     def setUp(self) -> None:
-        from douyin_batch import transcribe
+        from mediascribe import transcribe
 
         transcribe.TranscriberPool._instance = None
 
     def tearDown(self) -> None:
-        from douyin_batch import transcribe
+        from mediascribe import transcribe
 
         transcribe.TranscriberPool._instance = None
 
     def _make_pool(self, pipeline_mock):
-        from douyin_batch.transcribe import TranscriberPool
+        from mediascribe.transcribe import TranscriberPool
 
         pool = TranscriberPool.__new__(TranscriberPool)
         pool.pipeline = pipeline_mock
@@ -94,7 +94,7 @@ class TestTranscriberPoolTranscribe(unittest.TestCase):
         return pool
 
     def test_transcribe_returns_transcript_path(self):
-        from douyin_batch.transcribe import TranscriberPool
+        from mediascribe.transcribe import TranscriberPool
 
         fake_result = mock.MagicMock()
         fake_result.transcript_path = Path("/tmp/out.md")
@@ -110,13 +110,13 @@ class TestTranscriberPoolTranscribe(unittest.TestCase):
         self.assertEqual(Path(args[0]), Path("/tmp/in.wav"))
 
     def test_transcribe_returns_none_on_exception(self):
-        from douyin_batch.transcribe import TranscriberPool
+        from mediascribe.transcribe import TranscriberPool
 
         pipe = mock.MagicMock()
         pipe.transcribe.side_effect = RuntimeError("model crashed")
         pool = self._make_pool(pipe)
         # capture the log output on failure
-        with mock.patch("douyin_batch.transcribe.logger") as mock_log:
+        with mock.patch("mediascribe.transcribe.logger") as mock_log:
             result = pool.transcribe(Path("/tmp/bad.wav"))
         self.assertIsNone(result)
         # logger should have been called with an error message
@@ -130,17 +130,17 @@ class TestTranscribeAudio(unittest.TestCase):
     """Tests for the transcribe_audio() module-level helper."""
 
     def setUp(self) -> None:
-        from douyin_batch import transcribe
+        from mediascribe import transcribe
 
         transcribe.TranscriberPool._instance = None
 
     def tearDown(self) -> None:
-        from douyin_batch import transcribe
+        from mediascribe import transcribe
 
         transcribe.TranscriberPool._instance = None
 
     def test_transcribe_audio_uses_pool(self):
-        from douyin_batch import transcribe
+        from mediascribe import transcribe
 
         fake_result = mock.MagicMock()
         fake_result.transcript_path = Path("/tmp/x.md")
@@ -152,7 +152,7 @@ class TestTranscribeAudio(unittest.TestCase):
         mock_tx.assert_called_once_with(Path("/tmp/x.wav"))
 
     def test_transcribe_audio_returns_none_on_failure(self):
-        from douyin_batch import transcribe
+        from mediascribe import transcribe
 
         with mock.patch.object(
             transcribe.TranscriberPool, "transcribe", return_value=None
