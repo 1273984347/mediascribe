@@ -590,6 +590,9 @@ class Pipeline:
         """
         timestamps = bool(getattr(ctx, "timestamps", False))
         source = getattr(ctx, "source", None)
+        # 中文简繁统一开关（Settings.zh_simplify，默认开）——
+        # 换引擎不应改变用户看到的转写稿字形。
+        zh_simplify = bool(getattr(getattr(ctx, "settings", None), "zh_simplify", True))
         return _build_markdown_structured(
             title,
             text,
@@ -597,6 +600,7 @@ class Pipeline:
             downloaded,
             timestamps=timestamps,
             source=source,
+            zh_simplify=zh_simplify,
         )
 
     def _split_into_paragraphs(self, text: str) -> list[str]:

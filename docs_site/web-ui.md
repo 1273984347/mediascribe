@@ -151,7 +151,7 @@ Response:
 
 ## Settings
 
-* `engine` ∈ `whisper | faster-whisper | whisperx`
+* `engine` ∈ `whisper | faster-whisper | whisperx | whisper-cpp`
 * `model` ∈ `tiny | base | small | medium | large`
 * `ocr_engine` ∈ `auto | paddleocr | pytesseract | easyocr | none`
 

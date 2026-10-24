@@ -74,8 +74,12 @@ _common_transcribe_opts.add_argument(
     "--engine",
     "-e",
     default=argparse.SUPPRESS,
-    choices=["whisper", "whisperx", "faster-whisper"],
-    help="转录引擎（默认: whisper；faster-whisper 同质量更快）",
+    choices=["whisper", "whisperx", "faster-whisper", "whisper-cpp"],
+    help=(
+        "转录引擎（默认: whisper；faster-whisper 同质量更快）。\n"
+        "  whisper-cpp: C++/GGML 引擎，CPU 档最省内存（实测 291 MiB），"
+        "适合无 GPU / 小内存机器；需预置二进制与 GGML 权重。"
+    ),
 )
 _common_transcribe_opts.add_argument(
     "--language",
@@ -98,6 +102,17 @@ _common_transcribe_opts.add_argument(
     action="store_true",
     default=argparse.SUPPRESS,
     help="Markdown 正文按 ASR 分段并给每段加 [mm:ss] 时间戳前缀",
+)
+_common_transcribe_opts.add_argument(
+    "--no-zh-simplify",
+    dest="no_zh_simplify",
+    action="store_true",
+    help=(
+        "转写稿不统一转简体（默认: 统一转简体）。\n"
+        "  Whisper 训练语料中文简繁混杂，不同引擎默认输出不同"
+        "（openai-whisper / whisper.cpp 默认繁体）。\n"
+        "  本开关只关掉**输出层**的兜底转换，引擎侧的简体引导仍生效。"
+    ),
 )
 _common_transcribe_opts.add_argument(
     "--audio-only",
@@ -381,6 +396,9 @@ def _settings_from_args(args, file_cfg: dict) -> Settings:
         or bool(file_cfg.get("audio_only", False)),
         cleanup_media=bool(getattr(args, "cleanup_media", False))
         or bool(file_cfg.get("cleanup_media", False)),
+        zh_simplify=(
+            False if bool(getattr(args, "no_zh_simplify", False)) else file_cfg.get("zh_simplify")
+        ),
         wechat_cookies=_parse_wechat_cookie_string(getattr(args, "wechat_cookies", None)) or None,
         wechat_cookies_file=getattr(args, "wechat_cookie_file", None),
     )

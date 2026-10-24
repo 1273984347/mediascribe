@@ -26,6 +26,8 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
+from ..model_weights import missing_hint
+from ..zh_normalize import simplified_initial_prompt
 from .base import Transcriber
 
 logger = logging.getLogger(__name__)
@@ -164,7 +166,16 @@ def _load_whisper_model(model_name: str, device: str, compute_type: str) -> Any:
         if not _is_local_cache_miss(exc):
             raise
         logger.info("本地缓存未命中 %s，尝试联网下载模型", model_name)
-        return WhisperModel(model_name, device=device, compute_type=compute_type)
+        try:
+            return WhisperModel(model_name, device=device, compute_type=compute_type)
+        except Exception as exc2:
+            # 联网也不成 ⇒ 多半是「权重没预置 + 机器离线」。
+            # HuggingFace 的原始异常（LocalEntryNotFound / SSL 噪音）对用户
+            # 没有可操作性 —— 换成带预置指引的中文错误。
+            raise RuntimeError(
+                f"模型 {model_name!r} 的权重未预置，且联网下载失败：{exc2}\n"
+                f"{missing_hint('faster-whisper', model_name)}"
+            ) from exc2
 
 
 def _get_cached_model(model_name: str, device: str, compute_type: str) -> Any:
@@ -262,10 +273,10 @@ class FasterWhisperTranscriber(Transcriber):
         # Whisper 训练语料含大量繁体（维基、港台字幕），language="zh" 默认
         # 倾向繁体输出。当未显式传 prompt 且语言是中文时，注入简体中文
         # initial_prompt 引导模型输出简体。调用方显式传 prompt 时不覆盖
-        # （让用户能自定义专有名词 prompt）。
-        initial_prompt = prompt
-        if initial_prompt is None and language == "zh":
-            initial_prompt = "以下是简体中文的句子。"
+        # （让用户能自定义专有名词 prompt）。共用实现见
+        # ``mediascribe.zh_normalize.simplified_initial_prompt``（与
+        # openai-whisper / whisperx / whisper.cpp 共用同一口径）。
+        initial_prompt = simplified_initial_prompt(prompt, language)
         transcribe_kwargs: dict[str, Any] = {
             "language": language,
             "initial_prompt": initial_prompt,

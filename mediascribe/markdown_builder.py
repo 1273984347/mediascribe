@@ -20,6 +20,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from .zh_normalize import normalize_text
+
 __all__ = [
     "build_markdown",
     "format_timestamp",
@@ -210,6 +212,7 @@ def build_markdown(
     *,
     timestamps: bool = False,
     source: Any = None,
+    zh_simplify: bool = True,
 ) -> str:
     """构建结构化 Markdown 转录稿。
 
@@ -229,6 +232,9 @@ def build_markdown(
     source
         :class:`~mediascribe.models.SourceRef` 或 None，用于「平台」
         标签与来源链接兜底。
+    zh_simplify
+        True 时把正文统一转成**简体**（Windows 兜底；其它平台依赖
+        引擎侧的简体 prompt 注入）。默认 True。
     """
     meta: Dict[str, Any] = {}
     if downloaded is not None:
@@ -304,12 +310,12 @@ def build_markdown(
                 ts = format_timestamp(group["start"])
                 if ts:
                     prefix = f"**[{ts}]** "
-            lines.append(prefix + group["text"])
+            lines.append(prefix + normalize_text(group["text"], language, zh_simplify))
             lines.append("")
     else:
         for paragraph in split_into_paragraphs(text):
             if paragraph.strip():
-                lines.append(paragraph)
+                lines.append(normalize_text(paragraph, language, zh_simplify))
                 lines.append("")
 
     return "\n".join(lines)

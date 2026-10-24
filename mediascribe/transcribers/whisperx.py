@@ -16,6 +16,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import torch
 
+from ..zh_normalize import simplified_initial_prompt
 from .base import Transcriber
 
 # ---------------------------------------------------------------------------
@@ -147,7 +148,13 @@ class WhisperXTranscriber(Transcriber):
         model = _get_cached_model(whisperx, self.model_name, self.device, language)
 
         audio = whisperx.load_audio(str(audio_path))
-        result = model.transcribe(audio, batch_size=16)
+        # 中文默认注入简体引导 prompt（跨平台有效的「源头」防线）。
+        # whisperx 未注入时输出**繁体**（2026-10-23 同源对比实测）。
+        transcribe_kwargs: dict[str, Any] = {"batch_size": 16}
+        effective_prompt = simplified_initial_prompt(prompt, language)
+        if effective_prompt:
+            transcribe_kwargs["initial_prompt"] = effective_prompt
+        result = model.transcribe(audio, **transcribe_kwargs)
 
         # 第 2 步：Word-level 对齐（对齐模型同样走缓存）
         if result["segments"]:

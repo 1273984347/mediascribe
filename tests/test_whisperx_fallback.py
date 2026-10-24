@@ -28,11 +28,23 @@ class TestTranscriberFactory(unittest.TestCase):
     def test_fallback_chain_order(self):
         from mediascribe.transcribers import DEFAULT_FALLBACK_CHAIN
 
-        # whisperx first (most accurate), whisper last (always available)
+        # whisperx first (most accurate), whisper last (always available).
+        # whisper-cpp 垫底（外部二进制 + GGML 权重需预置，是最后回退）——
+        # 2026-10-23 选型落地新增。
         self.assertEqual(
             list(DEFAULT_FALLBACK_CHAIN),
-            ["whisperx", "faster-whisper", "whisper"],
+            ["whisperx", "faster-whisper", "whisper", "whisper-cpp"],
         )
+
+    def test_memory_pressure_promotes_whisper_cpp(self):
+        """内存紧张时 whisper.cpp 应排到 faster-whisper 之前（它最省内存）。"""
+        from unittest import mock
+
+        from mediascribe.transcribers.factory import _chain_for_device
+
+        with mock.patch("mediascribe.transcribers.factory._memory_pressure", return_value=True):
+            chain = _chain_for_device("cpu")
+        self.assertLess(chain.index("whisper-cpp"), chain.index("faster-whisper"))
 
     def test_fallback_picks_available(self):
         """When the preferred engine is missing, fallback to next."""

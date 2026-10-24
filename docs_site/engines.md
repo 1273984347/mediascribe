@@ -1,16 +1,23 @@
 # Engines
 
-MediaScribe supports three ASR engines, with automatic fallback.
+MediaScribe supports four ASR engines, with automatic fallback.
 
 | Engine | Throughput | Accuracy | Installation |
 |--------|------------|----------|--------------|
 | `whisper` | 1x baseline | good | hard dep |
 | `faster-whisper` | ~3.5x | good | `pip install faster-whisper` |
 | `whisperx` | ~5x | best, with alignment | `pip install whisperx` |
+| `whisper-cpp` | ~3x (CPU), lowest memory | good (multilingual) | external binary + GGML weights |
 
 The factory in `mediascribe/transcribers/factory.py` walks the
-fallback chain (`whisperx → faster-whisper → whisper` by default)
+fallback chain (`whisperx → faster-whisper → whisper → whisper-cpp` by default)
 and instantiates the first one that is installed.
+
+!!! tip "Memory-pressure reordering"
+    When the host's available memory drops below 4 GB and the device is
+    CPU/auto, `whisper-cpp` is moved **ahead of** `faster-whisper`.
+    Measured peak RSS (CPU, 2026-10-23): whisper.cpp tiny **291 MiB** vs
+    faster-whisper small 952 MiB vs faster-whisper large-v3 3613 MiB.
 
 ## Choosing an engine
 
@@ -18,6 +25,40 @@ For CPU-only hosts, `faster-whisper` is the sweet spot.  For
 GPU hosts with ≥8 GB VRAM, `whisperx` is best when alignment
 matters; otherwise `faster-whisper` is still slightly faster
 and uses less VRAM.
+
+For **low-memory or GPU-less hosts** (e.g. 4 GB RAM laptops, VMs),
+`whisper-cpp` is the fallback of last resort that still works: it needs
+no PyTorch/CTranslate2 at all, just the `whisper-cli` binary and a GGML
+weight file.
+
+| Prerequisite | Where |
+|---|---|
+| Binary | `MEDIASCRIBE_WHISPER_CPP_BIN`, or `~/.cache/mediascribe/whisper-cpp/bin/Release/whisper-cli.exe` |
+| Weights | `MEDIASCRIBE_WHISPER_CPP_MODELS` (default `~/.cache/mediascribe/whisper-cpp`), file `ggml-<model>.bin` |
+| VAD model | `ggml-silero-v6.2.0.bin` in the same directory — **strongly recommended**: without VAD, noisy audio produces heavy hallucination |
+
+Run `python -m mediascribe doctor` to see which weights are already
+pre-seeded on the machine.
+
+## Chinese script (simplified vs traditional)
+
+Whisper's training data mixes simplified and traditional Chinese, and
+**different engines default to different scripts** — `faster-whisper`
+emits simplified, while `openai-whisper` / `whisperx` / `whisper-cpp`
+emit traditional.  That is a *script* difference, not an accuracy
+difference (same audio, character error rate 33.61 % vs 0.41 %).
+
+MediaScribe therefore uses two defences:
+
+1. **Source** (works on every platform) — a simplified `initial_prompt`
+   is injected for Chinese in all engines, so the model *generates*
+   simplified text.
+2. **Fallback** (Windows only) — the output layer converts with the
+   built-in `LCMapStringW`, zero third-party dependencies.
+
+Disable with `--no-zh-simplify` (CLI), `MEDIASCRIBE_ZH_SIMPLIFY=0`
+(env), or `zh_simplify: false` (config file).  Turning it off only
+disables the output-layer conversion — the engine-side prompt still applies.
 
 ## Models
 
@@ -60,13 +101,15 @@ line so misconfiguration is observable.
 
 ## Benchmarking
 
-The repo ships a mock-mode benchmark that runs in any sandbox:
+Real-engine benchmarks live in `scripts/bench/` and need a corpus:
 
 ```bash
-python scripts/benchmark_transcribers.py
+python scripts/benchmark_corpus/gen_corpus_real.py --out output/bench/corpus
+python scripts/bench/asr/bench_asr.py --corpus output/bench/corpus
 ```
 
-It writes `bench-results/benchmark.{json,txt,md}`.  See
+Results land in `output/bench/asr/` (gitignored) with a Markdown summary
+via `python scripts/bench/asr/summarize_asr.py --markdown`.  See
 [Benchmarking](benchmarking.md) for the full guide.
 
 ## Long videos
