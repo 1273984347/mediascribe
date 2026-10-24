@@ -32,8 +32,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   资源受限场景（无 GPU / 4 GB 内存老机器）的回退腿。实测依据（CPU 档峰值内存）：
   whisper.cpp tiny **291 MiB** vs faster-whisper small 952 MiB vs
   faster-whisper large-v3 3613 MiB。内置简体 prompt 注入、16 kHz 转码、
-  VAD（有模型则启用 —— 不启用时噪声音频幻觉严重），缺二进制/缺权重时给出
-  预置指引。`--engine whisper-cpp` 可显式选用。
+  缺二进制/缺权重时给出预置指引。`--engine whisper-cpp` 可显式选用。
+- **whisper.cpp 引擎层 VAD 默认关闭**（2026-10-24 实测推翻原先「必须配 VAD」的
+  假设）：干净中文 vad=False **7.38%** vs vad=True 19.67%（VAD 反而恶化）；
+  重度噪声 94.67% → **81.97%**（改善 12.7 pt）。VAD 只在噪声场景有效，
+  而管线层已有 `webrtcvad` + 分块逻辑 ⇒ 引擎层重复处理会切掉有效语音。
+- **whisper.cpp 运行时 DLL 预检** —— 官方包是动态链接的，`whisper-cli.exe`
+  依赖同目录 15 个 DLL；只拷 exe 会以 `STATUS_DLL_NOT_FOUND`（0xC0000135）
+  **静默失败**。新增 `missing_runtime_dlls()` 预检与专门的错误分支。
 - **内存压力下的回退链自适应** —— 可用内存低于 4 GB 且设备为 CPU/auto 时，
   `whisper-cpp` 自动排到 `faster-whisper` 之前（它最省内存）。
 - **新增 56 项测试**（`tests/test_zh_normalize.py` / `tests/test_model_weights.py` /

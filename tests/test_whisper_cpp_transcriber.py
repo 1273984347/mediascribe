@@ -193,5 +193,39 @@ class TestFactoryIntegration(unittest.TestCase):
             self.assertNotIn("whisper-cpp", list_available_engines())
 
 
+class TestVadDefaultAndDllDetection(unittest.TestCase):
+    """VAD 默认关闭（实测：干净音频上 VAD 反而恶化）+ 运行时 DLL 缺失检测。"""
+
+    def test_vad_defaults_to_off(self):
+        """实测依据：干净中文 vad=False 7.38% vs vad=True 19.67%。"""
+        t = cpp.WhisperCppTranscriber(model="tiny")
+        self.assertFalse(t.vad, msg="VAD 应默认关闭（管线层已有 VAD，引擎层重复处理会恶化）")
+
+    def test_missing_runtime_dlls_detected(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            binary = Path(d) / "whisper-cli.exe"
+            binary.write_bytes(b"x" * 200000)
+            (Path(d) / "ggml-base.dll").write_bytes(b"x" * 100)
+            missing = cpp.missing_runtime_dlls(binary)
+            self.assertIn("whisper.dll", missing)
+
+    def test_no_dlls_means_static_build(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            binary = Path(d) / "whisper-cli.exe"
+            binary.write_bytes(b"x" * 200000)
+            self.assertEqual(cpp.missing_runtime_dlls(binary), [])
+
+    def test_binary_error_mentions_dll(self):
+        t = cpp.WhisperCppTranscriber(model="tiny")
+        with mock.patch.object(cpp, "find_binary", return_value=None):
+            with self.assertRaises(RuntimeError) as cm:
+                t._resolve_binary()
+        self.assertIn("DLL", str(cm.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
