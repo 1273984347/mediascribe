@@ -45,6 +45,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **新增 56 项测试**（`tests/test_zh_normalize.py` / `tests/test_model_weights.py` /
   `tests/test_whisper_cpp_transcriber.py`），覆盖三层防线与二进制探测的
   误命中防护。
+- **引擎名单跨入口一致性测试** `tests/test_engine_consistency.py` —— 引擎名单在
+  仓库里有四处独立维护（`config.py` / CLI choices / web 层 pydantic 正则 /
+  factory 回退链）。新增 `whisper-cpp` 时漏改了 **web 层正则** ⇒ Web UI 选该
+  引擎会被 422 拒绝。新增测试断言四处**完全一致**，任何一处漏改 CI 立刻红
+  （已做反向验证：故意改回旧正则 ⇒ 3 failed）。
 
 ### Added (2026-10-23 技术选型对比与基准基建)
 - **技术选型对比报告**: `docs/tech-selection-report-2026-10.md` —— 前端框架 / 工作台壳 / 推理引擎

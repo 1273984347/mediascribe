@@ -5,8 +5,8 @@
 * Python 版本
 * ffmpeg / ffprobe（转录硬依赖，缺失直接 fail）
 * 运行设备（CUDA / Metal / ROCm / CPU）与显存
-* 三个转录引擎的安装状态（whisper / faster-whisper / whisperx）
-* 转录模型磁盘缓存（已下载哪些模型）
+* 四个转录引擎的安装状态（whisper / faster-whisper / whisperx / whisper-cpp）
+* 转录模型磁盘缓存（已下载哪些模型）与**权重预置完整性**（离线必需）
 * 工作区目录（默认 ``./output``）可写性
 * 微信公众号 cookies（env / 文件）
 * 抖音 cookies 文件（``douyin_cookies.txt``）

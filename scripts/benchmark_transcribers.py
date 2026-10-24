@@ -61,6 +61,9 @@ COST_PROFILE: Dict[str, Dict[str, float]] = {
     "whisper": {"cold_start_ms": 12_000.0, "ms_per_audio_sec": 1_500.0},
     "faster-whisper": {"cold_start_ms": 1_500.0, "ms_per_audio_sec": 200.0},
     "whisperx": {"cold_start_ms": 3_500.0, "ms_per_audio_sec": 260.0},
+    # whisper-cpp：2026-10-24 本机实测（tiny / CPU）RTF 0.0504 ⇒ 约 50 ms per
+    # audio sec；冷启动不含 Python 模型加载，只剩进程启动开销。
+    "whisper-cpp": {"cold_start_ms": 800.0, "ms_per_audio_sec": 50.0},
 }
 
 

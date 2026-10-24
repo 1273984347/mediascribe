@@ -918,7 +918,32 @@ whisper.cpp 官方预编译包是**动态链接**的：`whisper-cli.exe` 依赖�
 
 即：机器内存紧张时自动选最省内存的引擎，而不是让用户自己踩坑。
 
-### 13.5 本批的测试与门禁
+### 13.5 「改了核心枚举，忘了其它入口」—— 一致性缺口与根治
+
+新增 ``whisper-cpp`` 引擎时，发现**引擎名单在仓库里有四处独立维护**：
+
+| # | 位置 | 维护形式 |
+|---|---|---|
+| 1 | `mediascribe/config.py` | `_VALID_ENGINES` 元组 |
+| 2 | `mediascribe/__main__.py` | `--engine` 的 choices |
+| 3 | `mediascribe/web/app.py` | `TranscribeRequest.engine` 的 pydantic 正则 |
+| 4 | `mediascribe/transcribers/factory.py` | `DEFAULT_FALLBACK_CHAIN` |
+
+本次改了 1、2、4 ⇒ **Web UI 选 `whisper-cpp` 会被 422 拒绝**（第 3 处漏改）。
+`mcp_server.py` 把 engine 透传给 `Settings` 校验 ⇒ **自动兼容**，无需改。
+
+这类缺口靠人记是记不住的。根治办法是把它变成**可回归的断言**：
+新增 `tests/test_engine_consistency.py`，断言四处名单**完全一致**，且每个合法
+引擎都能被 factory 构造。
+
+**反向验证**：故意把 Web 层的正则改回旧值 ⇒ 该测试立刻红（3 failed）⇒
+它真能抓到漏改，不是摆设。
+
+> 这与 §13.3 的「文件存在 ≠ 能用」是同一类问题：**同一份语义在多处独立维护
+> 时，迟早会漂移**。凡是"名单/常量在 N 处重复"的场合，都应该有一条
+> "它们必须一致"的测试。
+
+### 13.6 本批的测试与门禁
 
 | 项 | 结果 |
 |---|---|

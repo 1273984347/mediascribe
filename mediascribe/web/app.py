@@ -149,7 +149,7 @@ if _FASTAPI_AVAILABLE:
 
     class TranscribeRequest(BaseModel):
         urls: List[str] = Field(..., min_length=1, max_length=20)
-        engine: str = Field("whisper", pattern="^(whisper|faster-whisper|whisperx)$")
+        engine: str = Field("whisper", pattern="^(whisper|faster-whisper|whisperx|whisper-cpp)$")
         model: str = Field(
             "small",
             pattern="^(tiny|base|small|medium|large|large-v1|large-v2|large-v3|distil-large-v2|distil-large-v3)$",
