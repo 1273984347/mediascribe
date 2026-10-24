@@ -63,7 +63,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     p = argparse.ArgumentParser(description="Recompute CER with current normalisation")
     p.add_argument("--corpus", type=Path, default=REPO_ROOT / "output" / "bench" / "corpus")
     p.add_argument("--rounds", type=Path, default=REPO_ROOT / "output" / "bench" / "asr" / "rounds")
-    p.add_argument("--also", type=Path, action="append", default=[], help="额外的 results.json（含 results 数组）")
+    p.add_argument(
+        "--also",
+        type=Path,
+        action="append",
+        default=[],
+        help="额外的 results.json（含 results 数组）",
+    )
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args(argv)
 
@@ -81,9 +87,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             delta = _recompute_one(payload, args.corpus, args.dry_run)
             if delta and delta["old"] != delta["new"]:
                 changed += 1
-                deltas.append(
-                    f"{f.name}: {delta['old']}% -> {delta['new']}%"
-                )
+                deltas.append(f"{f.name}: {delta['old']}% -> {delta['new']}%")
             if not args.dry_run:
                 f.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 

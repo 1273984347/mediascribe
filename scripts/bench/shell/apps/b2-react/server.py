@@ -52,7 +52,9 @@ def build_static_app() -> Starlette:
     assets_dir = DIST / "assets"
     routes = [Route("/", _index), Route("/index.html", _index)]
     if assets_dir.is_dir():
-        routes.insert(0, Mount("/assets", app=StaticFiles(directory=str(assets_dir)), name="assets"))
+        routes.insert(
+            0, Mount("/assets", app=StaticFiles(directory=str(assets_dir)), name="assets")
+        )
     return Starlette(routes=routes)
 
 
@@ -74,7 +76,9 @@ def build_app():
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="B2 web-static 工作台壳 (FastAPI 托管 Vite+React dist)")
+    ap = argparse.ArgumentParser(
+        description="B2 web-static 工作台壳 (FastAPI 托管 Vite+React dist)"
+    )
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8000)
     args = ap.parse_args()

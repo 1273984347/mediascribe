@@ -55,10 +55,10 @@ except ImportError:  # pragma: no cover
 # --------------------------------------------------------------------------
 # 路径常量
 # --------------------------------------------------------------------------
-HERE = Path(__file__).resolve().parent            # scripts/bench/shell
-REPO = HERE.parents[2]                            # 仓库根
-APPS = HERE / "apps"                              # 各候选的脚手架源码 (入库)
-OUT = REPO / "output" / "bench" / "shell"         # 构建产物 (gitignore)
+HERE = Path(__file__).resolve().parent  # scripts/bench/shell
+REPO = HERE.parents[2]  # 仓库根
+APPS = HERE / "apps"  # 各候选的脚手架源码 (入库)
+OUT = REPO / "output" / "bench" / "shell"  # 构建产物 (gitignore)
 RESULTS_PATH = HERE / "results.json"
 
 DEFAULT_PYTHON = r"C:\Users\12739\AppData\Local\Programs\Python\Python312\python.exe"
@@ -87,7 +87,9 @@ def resolve_python() -> str:
         try:
             r = subprocess.run(
                 [cand, "-c", "import fastapi, uvicorn, psutil; print('ok')"],
-                capture_output=True, text=True, timeout=60,
+                capture_output=True,
+                text=True,
+                timeout=60,
             )
             if r.returncode == 0 and "ok" in r.stdout:
                 return cand
@@ -137,16 +139,18 @@ def child_env(extra: Optional[Dict[str, str]] = None, offline: bool = False) -> 
     env["PYTHONUNBUFFERED"] = "1"
     env.pop("PYTHONHOME", None)
     if offline:
-        env.update({
-            "HTTP_PROXY": BLACKHOLE_PROXY,
-            "HTTPS_PROXY": BLACKHOLE_PROXY,
-            "ALL_PROXY": BLACKHOLE_PROXY,
-            "http_proxy": BLACKHOLE_PROXY,
-            "https_proxy": BLACKHOLE_PROXY,
-            "all_proxy": BLACKHOLE_PROXY,
-            "NO_PROXY": "127.0.0.1,localhost,::1",
-            "no_proxy": "127.0.0.1,localhost,::1",
-        })
+        env.update(
+            {
+                "HTTP_PROXY": BLACKHOLE_PROXY,
+                "HTTPS_PROXY": BLACKHOLE_PROXY,
+                "ALL_PROXY": BLACKHOLE_PROXY,
+                "http_proxy": BLACKHOLE_PROXY,
+                "https_proxy": BLACKHOLE_PROXY,
+                "all_proxy": BLACKHOLE_PROXY,
+                "NO_PROXY": "127.0.0.1,localhost,::1",
+                "no_proxy": "127.0.0.1,localhost,::1",
+            }
+        )
     if extra:
         env.update(extra)
     return env
@@ -171,12 +175,14 @@ def tree_snapshot(proc: psutil.Process) -> Tuple[int, List[Dict[str, Any]], int]
         try:
             mi = m.memory_info()
             total += int(mi.rss)
-            parts.append({
-                "pid": m.pid,
-                "name": m.name(),
-                "working_set_bytes": int(mi.rss),
-                "is_child": m.pid != proc.pid,
-            })
+            parts.append(
+                {
+                    "pid": m.pid,
+                    "name": m.name(),
+                    "working_set_bytes": int(mi.rss),
+                    "is_child": m.pid != proc.pid,
+                }
+            )
         except psutil.Error:
             continue
     return total, parts, len(parts)
@@ -209,7 +215,10 @@ def _parse_netstat() -> List[Tuple[str, int]]:
     try:
         r = subprocess.run(
             ["netstat", "-ano", "-p", "tcp"],
-            capture_output=True, text=True, timeout=30, errors="replace",
+            capture_output=True,
+            text=True,
+            timeout=30,
+            errors="replace",
         )
     except Exception:
         return []
@@ -270,8 +279,9 @@ class OutboundWatcher:
 class Child:
     """被测子进程 + stdout 收集 + 出站监视。"""
 
-    def __init__(self, cmd: Sequence[str], cwd: Path, env: Dict[str, str],
-                 offline: bool = False) -> None:
+    def __init__(
+        self, cmd: Sequence[str], cwd: Path, env: Dict[str, str], offline: bool = False
+    ) -> None:
         self.cmd = list(cmd)
         self.cwd = cwd
         self.env = env
@@ -286,9 +296,15 @@ class Child:
     def __enter__(self) -> "Child":
         self._t0 = time.perf_counter()
         self.proc = subprocess.Popen(
-            self.cmd, cwd=str(self.cwd), env=self.env,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, encoding="utf-8", errors="replace", bufsize=1,
+            self.cmd,
+            cwd=str(self.cwd),
+            env=self.env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
         )
         self._psutil_proc = psutil.Process(self.proc.pid)
         self._reader = threading.Thread(target=self._drain, daemon=True)
@@ -319,7 +335,9 @@ class Child:
                 pass
         return pids
 
-    def wait_for_http(self, url: str, timeout: float = 180.0) -> Tuple[Optional[float], Optional[int], str]:
+    def wait_for_http(
+        self, url: str, timeout: float = 180.0
+    ) -> Tuple[Optional[float], Optional[int], str]:
         """轮询 URL 直到 200。返回 (就绪毫秒, 状态码, 失败原因)。"""
         deadline = time.perf_counter() + timeout
         last = ""
@@ -343,7 +361,10 @@ class Child:
         idx = 0
         while time.perf_counter() < deadline:
             if self.proc is not None and self.proc.poll() is not None:
-                return None, f"进程提前退出 rc={self.proc.returncode}; stdout={self.stdout_lines[-15:]}"
+                return (
+                    None,
+                    f"进程提前退出 rc={self.proc.returncode}; stdout={self.stdout_lines[-15:]}",
+                )
             while idx < len(self.stdout_lines):
                 line = self.stdout_lines[idx]
                 idx += 1
@@ -377,8 +398,9 @@ class Child:
                 pass
 
 
-def settle_memory(child: Child, settle_s: float = 5.0, samples: int = 3,
-                  interval: float = 1.0) -> Dict[str, Any]:
+def settle_memory(
+    child: Child, settle_s: float = 5.0, samples: int = 3, interval: float = 1.0
+) -> Dict[str, Any]:
     """稳定运行后取样驻留内存: 等待 settle → 连采 samples 次 → 取中位数。"""
     time.sleep(settle_s)
     reads: List[int] = []
@@ -410,7 +432,7 @@ def settle_memory(child: Child, settle_s: float = 5.0, samples: int = 3,
 # --------------------------------------------------------------------------
 def measure_http_candidate(
     label: str,
-    cmd_builder,                       # (port) -> list[str]
+    cmd_builder,  # (port) -> list[str]
     health_path: str = "/api/health",
     page_path: str = "/",
     runs: int = 3,
@@ -435,8 +457,14 @@ def measure_http_candidate(
             base = f"http://127.0.0.1:{port}"
             ready_ms, code, err = child.wait_for_http(base + health_path, timeout=timeout)
             if ready_ms is None:
-                cold.append({"run": i + 1, "ok": False, "error": err,
-                             "stdout_tail": child.stdout_lines[-20:]})
+                cold.append(
+                    {
+                        "run": i + 1,
+                        "ok": False,
+                        "error": err,
+                        "stdout_tail": child.stdout_lines[-20:],
+                    }
+                )
                 stderr_tail = child.stdout_lines[-20:]
                 continue
             try:
@@ -451,13 +479,15 @@ def measure_http_candidate(
                 page_ok = False
             m = settle_memory(child, settle_s=settle_s)
             outbound.extend(child.watcher.hits)
-            cold.append({
-                "run": i + 1,
-                "ok": True,
-                "cold_start_ms": round(ready_ms, 1),
-                "health_status": code,
-                "page_status_ok": page_ok,
-            })
+            cold.append(
+                {
+                    "run": i + 1,
+                    "ok": True,
+                    "cold_start_ms": round(ready_ms, 1),
+                    "health_status": code,
+                    "page_status_ok": page_ok,
+                }
+            )
             if mem is None:
                 mem = m
             else:
@@ -510,11 +540,24 @@ def scaffold(src_name: str, dest: Path) -> Path:
     return dest
 
 
-def run_cmd(cmd: Sequence[str], cwd: Path, timeout: float = 1800,
-            env: Optional[Dict[str, str]] = None, label: str = "") -> Tuple[int, str]:
+def run_cmd(
+    cmd: Sequence[str],
+    cwd: Path,
+    timeout: float = 1800,
+    env: Optional[Dict[str, str]] = None,
+    label: str = "",
+) -> Tuple[int, str]:
     _log(f"执行 {label or ' '.join(cmd)} (cwd={cwd})")
-    r = subprocess.run(list(cmd), cwd=str(cwd), capture_output=True, text=True,
-                       timeout=timeout, encoding="utf-8", errors="replace", env=env)
+    r = subprocess.run(
+        list(cmd),
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+    )
     tail = ((r.stdout or "") + "\n" + (r.stderr or ""))[-6000:]
     return r.returncode, tail
 
@@ -545,37 +588,74 @@ def probe_start_variants(python: str, timeout: float = 60.0) -> List[Dict[str, A
     目的: 为 B1「现状形态」给出可复现的踩坑证据 (不修改既有代码, 只观察行为)。
     """
     variants: List[Tuple[str, List[str]]] = [
-        ("python -m mediascribe.web.app --port N  (docs_site/getting-started.md, web-ui.md, extension/README.md)",
-         [python, "-m", "mediascribe.web.app", "--host", "127.0.0.1", "--port", "0"]),
-        ("python -m uvicorn mediascribe.web.app:app  (scripts/one_click_up.py 的 launch_local)",
-         [python, "-m", "uvicorn", "mediascribe.web.app:app", "--host", "127.0.0.1", "--port", "0"]),
-        ("python -m uvicorn mediascribe.web.app:create_app --factory  (本基准采用的可用方式)",
-         [python, "-m", "uvicorn", "mediascribe.web.app:create_app", "--factory",
-          "--host", "127.0.0.1", "--port", "0"]),
+        (
+            "python -m mediascribe.web.app --port N  (docs_site/getting-started.md, web-ui.md, extension/README.md)",
+            [python, "-m", "mediascribe.web.app", "--host", "127.0.0.1", "--port", "0"],
+        ),
+        (
+            "python -m uvicorn mediascribe.web.app:app  (scripts/one_click_up.py 的 launch_local)",
+            [
+                python,
+                "-m",
+                "uvicorn",
+                "mediascribe.web.app:app",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "0",
+            ],
+        ),
+        (
+            "python -m uvicorn mediascribe.web.app:create_app --factory  (本基准采用的可用方式)",
+            [
+                python,
+                "-m",
+                "uvicorn",
+                "mediascribe.web.app:create_app",
+                "--factory",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "0",
+            ],
+        ),
     ]
     out: List[Dict[str, Any]] = []
     for label, cmd in variants:
         t0 = time.perf_counter()
         try:
-            r = subprocess.run(cmd, cwd=str(REPO), env=child_env(),
-                               capture_output=True, text=True, timeout=timeout,
-                               encoding="utf-8", errors="replace")
+            r = subprocess.run(
+                cmd,
+                cwd=str(REPO),
+                env=child_env(),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                encoding="utf-8",
+                errors="replace",
+            )
             tail = ((r.stdout or "") + (r.stderr or "")).strip()
-            out.append({
-                "command": label,
-                "argv": cmd,
-                "exit_code": r.returncode,
-                "ok": r.returncode == 0,
-                "error_tail": tail[-1600:],
-                "elapsed_ms": round((time.perf_counter() - t0) * 1000, 1),
-            })
+            out.append(
+                {
+                    "command": label,
+                    "argv": cmd,
+                    "exit_code": r.returncode,
+                    "ok": r.returncode == 0,
+                    "error_tail": tail[-1600:],
+                    "elapsed_ms": round((time.perf_counter() - t0) * 1000, 1),
+                }
+            )
         except subprocess.TimeoutExpired:
-            out.append({
-                "command": label, "argv": cmd, "exit_code": None,
-                "ok": True,  # 超时 = 进程持续运行 => 该方式能起服务
-                "error_tail": "(进程持续运行至超时 —— 该方式能正常起服务)",
-                "elapsed_ms": round((time.perf_counter() - t0) * 1000, 1),
-            })
+            out.append(
+                {
+                    "command": label,
+                    "argv": cmd,
+                    "exit_code": None,
+                    "ok": True,  # 超时 = 进程持续运行 => 该方式能起服务
+                    "error_tail": "(进程持续运行至超时 —— 该方式能正常起服务)",
+                    "elapsed_ms": round((time.perf_counter() - t0) * 1000, 1),
+                }
+            )
     return out
 
 
@@ -588,10 +668,21 @@ def cmd_b1(runs: int, python: str) -> Dict[str, Any]:
     variants = probe_start_variants(python)
     for v in variants:
         _log(f"  ok={v['ok']}  {v['command']}")
+
     # 可用方式: uvicorn 工厂模式 (不修改既有代码)
     def builder(port: int) -> list[str]:
-        return [python, "-m", "uvicorn", "mediascribe.web.app:create_app",
-                "--factory", "--host", "127.0.0.1", "--port", str(port)]
+        return [
+            python,
+            "-m",
+            "uvicorn",
+            "mediascribe.web.app:create_app",
+            "--factory",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+        ]
+
     main = measure_http_candidate("B1", builder, runs=runs)
     _log("B1 离线验证 (代理黑洞 + netstat 快照)...")
     off = measure_http_candidate("B1-offline", builder, runs=1, offline=True, settle_s=3.0)
@@ -607,11 +698,12 @@ def cmd_b1(runs: int, python: str) -> Dict[str, Any]:
             "bytes": None,
             "kind": "无独立分发物",
             "note": "需 Python 环境 (fastapi/uvicorn/torch 等), 不产出独立分发物; "
-                    "仓库内静态页 index.html=42854 B / wiki.html=14162 B 由后端直接读取",
+            "仓库内静态页 index.html=42854 B / wiki.html=14162 B 由后端直接读取",
             "static_assets_bytes": dir_size(REPO / "mediascribe" / "web" / "static"),
         },
         "offline": {
-            "self_contained": len(off["outbound_non_loopback_connections"]) == 0 and bool(off["cold_start_ms"]["runs"]),
+            "self_contained": len(off["outbound_non_loopback_connections"]) == 0
+            and bool(off["cold_start_ms"]["runs"]),
             "method": "子进程注入 HTTP(S)/ALL_PROXY=http://127.0.0.1:9 (连接必失败) + 50ms 间隔 netstat -ano 快照断言无非回环 TCP",
             "health_ok_offline": bool(off["cold_start_ms"]["runs"]),
             "cold_start_ms_offline": off["cold_start_ms"],
@@ -634,20 +726,25 @@ def cmd_b2(runs: int, python: str, skip_build: bool = False) -> Dict[str, Any]:
     build_info: Dict[str, Any] = {"skipped": skip_build}
     if not skip_build:
         env = child_env()
-        rc, tail = run_cmd([npm_exe(), "install", "--no-audit", "--no-fund",
-                             "--cache", str(npm_cache_dir())],
-                           cwd=app_dir, env=env, label="npm install (b2)")
+        rc, tail = run_cmd(
+            [npm_exe(), "install", "--no-audit", "--no-fund", "--cache", str(npm_cache_dir())],
+            cwd=app_dir,
+            env=env,
+            label="npm install (b2)",
+        )
         build_info["npm_install_rc"] = rc
         if rc != 0:
             build_info["npm_install_error_tail"] = tail
-        rc, tail = run_cmd([npm_exe(), "run", "build"], cwd=app_dir, env=env,
-                           label="vite build (b2)")
+        rc, tail = run_cmd(
+            [npm_exe(), "run", "build"], cwd=app_dir, env=env, label="vite build (b2)"
+        )
         build_info["vite_build_rc"] = rc
         build_info["vite_build_tail"] = tail[-3000:]
     dist_bytes = dir_size(dist)
 
     def builder(port: int) -> list[str]:
         return [python, str(app_dir / "server.py"), "--port", str(port)]
+
     main = measure_http_candidate("B2", builder, runs=runs)
     _log("B2 离线验证...")
     off = measure_http_candidate("B2-offline", builder, runs=1, offline=True, settle_s=3.0)
@@ -665,7 +762,8 @@ def cmd_b2(runs: int, python: str, skip_build: bool = False) -> Dict[str, Any]:
             "build": build_info,
         },
         "offline": {
-            "self_contained": len(off["outbound_non_loopback_connections"]) == 0 and bool(off["cold_start_ms"]["runs"]),
+            "self_contained": len(off["outbound_non_loopback_connections"]) == 0
+            and bool(off["cold_start_ms"]["runs"]),
             "method": "同 B1: 代理黑洞 + netstat 快照",
             "health_ok_offline": bool(off["cold_start_ms"]["runs"]),
             "cold_start_ms_offline": off["cold_start_ms"],
@@ -686,31 +784,41 @@ def cmd_b4(runs: int, python: str, skip_build: bool = False) -> Dict[str, Any]:
     app_dir = scaffold("electron", OUT / "b4-app")
     build_info: Dict[str, Any] = {"skipped": skip_build}
     if not skip_build:
-        env = child_env({
-            # 实测: 本机直连 GitHub Releases 下载 Electron 二进制只有 ~47 KB/s,
-            # 换 npmmirror 镜像后正常。ELECTRON_MIRROR 是 electron 官方支持的覆盖变量。
-            "ELECTRON_MIRROR": os.environ.get("B4_ELECTRON_MIRROR",
-                                               "https://npmmirror.com/mirrors/electron/"),
-            "ELECTRON_BUILDER_BINARIES_MIRROR": os.environ.get(
-                "B4_ELECTRON_BUILDER_MIRROR",
-                "https://npmmirror.com/mirrors/electron-builder-binaries/"),
-        })
+        env = child_env(
+            {
+                # 实测: 本机直连 GitHub Releases 下载 Electron 二进制只有 ~47 KB/s,
+                # 换 npmmirror 镜像后正常。ELECTRON_MIRROR 是 electron 官方支持的覆盖变量。
+                "ELECTRON_MIRROR": os.environ.get(
+                    "B4_ELECTRON_MIRROR", "https://npmmirror.com/mirrors/electron/"
+                ),
+                "ELECTRON_BUILDER_BINARIES_MIRROR": os.environ.get(
+                    "B4_ELECTRON_BUILDER_MIRROR",
+                    "https://npmmirror.com/mirrors/electron-builder-binaries/",
+                ),
+            }
+        )
         # 实测踩坑: 上一次 npm install 若在 electron 的 postinstall 阶段被中断,
         # node_modules/electron 会存在但没有 dist/electron.exe; 此时 npm 报
         # "up to date" 并**跳过** postinstall, 导致 electron.exe 永远缺失。
         # 这里把残缺的 electron 包删掉, 强制 npm 重跑 postinstall (二进制已在本地缓存里)。
         electron_pkg = app_dir / "node_modules" / "electron"
         if electron_pkg.is_dir() and not (electron_pkg / "dist" / "electron.exe").is_file():
-            _log("检测到残缺的 node_modules/electron (缺 dist/electron.exe), 删除以强制重跑 postinstall")
+            _log(
+                "检测到残缺的 node_modules/electron (缺 dist/electron.exe), 删除以强制重跑 postinstall"
+            )
             shutil.rmtree(electron_pkg, ignore_errors=True)
-        rc, tail = run_cmd([npm_exe(), "install", "--no-audit", "--no-fund",
-                             "--cache", str(npm_cache_dir())],
-                           cwd=app_dir, env=env, label="npm install (b4)")
+        rc, tail = run_cmd(
+            [npm_exe(), "install", "--no-audit", "--no-fund", "--cache", str(npm_cache_dir())],
+            cwd=app_dir,
+            env=env,
+            label="npm install (b4)",
+        )
         build_info["npm_install_rc"] = rc
         build_info["npm_install_tail"] = tail[-2000:]
         if rc == 0:
-            rc, tail = run_cmd([npm_exe(), "run", "dist"], cwd=app_dir, env=env,
-                               label="electron-builder (b4)")
+            rc, tail = run_cmd(
+                [npm_exe(), "run", "dist"], cwd=app_dir, env=env, label="electron-builder (b4)"
+            )
             build_info["builder_rc"] = rc
             build_info["builder_tail"] = tail[-3000:]
 
@@ -734,30 +842,40 @@ def cmd_b4(runs: int, python: str, skip_build: bool = False) -> Dict[str, Any]:
             cold.append({"run": i + 1, "ok": False, "error": f"缺少 {electron_exe}"})
             break
         port = free_port()
-        env = child_env({
-            "BENCH_PYTHON": python,
-            "BENCH_PORT": str(port),
-            "BENCH_REPO": str(REPO),
-            "ELECTRON_ENABLE_LOGGING": "1",
-        })
+        env = child_env(
+            {
+                "BENCH_PYTHON": python,
+                "BENCH_PORT": str(port),
+                "BENCH_REPO": str(REPO),
+                "ELECTRON_ENABLE_LOGGING": "1",
+            }
+        )
         cmd = [str(electron_exe), str(app_dir)]
         _log(f"B4 run {i + 1}/{runs}: {cmd} (port={port})")
         with Child(cmd, cwd=app_dir, env=env) as child:
             win_ms, err1 = child.wait_for_marker("WINDOW_READY", timeout=180)
             usable_ms, err2 = child.wait_for_marker("APP_USABLE", timeout=180)
             if win_ms is None:
-                cold.append({"run": i + 1, "ok": False, "error": err1 or err2,
-                             "stdout_tail": child.stdout_lines[-25:]})
+                cold.append(
+                    {
+                        "run": i + 1,
+                        "ok": False,
+                        "error": err1 or err2,
+                        "stdout_tail": child.stdout_lines[-25:],
+                    }
+                )
                 stdout_tail = child.stdout_lines[-25:]
                 continue
             m = settle_memory(child, settle_s=5.0)
             outbound.extend(child.watcher.hits)
-            cold.append({
-                "run": i + 1,
-                "ok": True,
-                "window_ready_ms": round(win_ms, 1),
-                "app_usable_ms": round(usable_ms, 1) if usable_ms else None,
-            })
+            cold.append(
+                {
+                    "run": i + 1,
+                    "ok": True,
+                    "window_ready_ms": round(win_ms, 1),
+                    "app_usable_ms": round(usable_ms, 1) if usable_ms else None,
+                }
+            )
             if mem is None:
                 mem = m
         time.sleep(2.0)
@@ -769,18 +887,21 @@ def cmd_b4(runs: int, python: str, skip_build: bool = False) -> Dict[str, Any]:
     offline_result: Dict[str, Any] = {
         "self_contained": None,
         "method": "Electron 加 --host-resolver-rules='MAP * ~NOTFOUND,EXCLUDE 127.0.0.1' (Chromium 层断外网) "
-                  "+ HTTP(S)/ALL_PROXY 指向 127.0.0.1:9 黑洞 + netstat 快照",
+        "+ HTTP(S)/ALL_PROXY 指向 127.0.0.1:9 黑洞 + netstat 快照",
         "evidence": None,
     }
     if electron_exe.exists():
         port = free_port()
-        env = child_env({
-            "BENCH_PYTHON": python,
-            "BENCH_PORT": str(port),
-            "BENCH_REPO": str(REPO),
-            "BENCH_OFFLINE": "1",
-            "ELECTRON_ENABLE_LOGGING": "1",
-        }, offline=True)
+        env = child_env(
+            {
+                "BENCH_PYTHON": python,
+                "BENCH_PORT": str(port),
+                "BENCH_REPO": str(REPO),
+                "BENCH_OFFLINE": "1",
+                "ELECTRON_ENABLE_LOGGING": "1",
+            },
+            offline=True,
+        )
         cmd = [str(electron_exe), str(app_dir)]
         _log(f"B4 离线验证 run: {cmd} (port={port})")
         with Child(cmd, cwd=app_dir, env=env) as child:
@@ -794,8 +915,9 @@ def cmd_b4(runs: int, python: str, skip_build: bool = False) -> Dict[str, Any]:
             offline_result["outbound_non_loopback_connections"] = off_out
             offline_result["evidence"] = (
                 "断外网下 Electron 窗口仍渲染完成且后端 /api/health 200 (APP_USABLE 已达) —— "
-                "工作台功能不依赖外网" if usable_ms else
-                f"断外网下未能达到 APP_USABLE: {err1 or err2}"
+                "工作台功能不依赖外网"
+                if usable_ms
+                else f"断外网下未能达到 APP_USABLE: {err1 or err2}"
             )
             offline_result["stdout_tail"] = child.stdout_lines[-15:]
     return {
@@ -826,9 +948,9 @@ def cmd_b4(runs: int, python: str, skip_build: bool = False) -> Dict[str, Any]:
             **offline_result,
             "outbound_during_normal_runs": outbound,
             "outbound_note": "正常联网跑时, Electron 的 Chromium 网络栈(GPU/utility 进程)在启动时会向 "
-                             "114.250.64.33 / 114.250.66.33 / 114.250.70.4 / 114.250.64.34 (本机所在网络的"
-                             "运营商/加速器地址; 本机 DNS 指向 192.168.1.1 / 192.168.101.1, 无系统代理) 建立 TCP 连接。"
-                             "这些连接不是工作台的功能依赖 —— 断外网跑仍然完全可用, 见 self_contained / evidence。",
+            "114.250.64.33 / 114.250.66.33 / 114.250.70.4 / 114.250.64.34 (本机所在网络的"
+            "运营商/加速器地址; 本机 DNS 指向 192.168.1.1 / 192.168.101.1, 无系统代理) 建立 TCP 连接。"
+            "这些连接不是工作台的功能依赖 —— 断外网跑仍然完全可用, 见 self_contained / evidence。",
         },
         "multi_process": "多进程: electron 主进程 + 渲染/GPU/utility 进程 + python sidecar (见 memory.processes)",
         "stdout_tail": stdout_tail,
@@ -843,7 +965,9 @@ def cmd_b3(python: str, skip_tauri_build: bool = False) -> Dict[str, Any]:
     app_dir = scaffold("tauri", OUT / "b3-app")
     # 生成 Tauri 需要的最小图标集 (Windows 下会嵌进 exe 资源, 缺图标会让构建在更早阶段失败,
     # 从而掩盖真正的阻断原因)
-    run_cmd([python, str(app_dir / "make_icons.py")], cwd=app_dir, timeout=300, label="生成 tauri 图标")
+    run_cmd(
+        [python, str(app_dir / "make_icons.py")], cwd=app_dir, timeout=300, label="生成 tauri 图标"
+    )
     # 前端复用 B2 的 React 构建产物, 避免二次构建
     b2_dist = OUT / "b2-app" / "dist"
     tauri_dist = app_dir / "dist"
@@ -855,10 +979,17 @@ def cmd_b3(python: str, skip_tauri_build: bool = False) -> Dict[str, Any]:
         "title": "tauri — Tauri 2 桌面壳 (Rust sidecar + 复用同一套前端)",
         "status": "not-measurable",
         "not_measurable_reason": None,
-        "cold_start_ms": {"runs": [], "median": None,
-                          "metric": "tauri.exe spawn -> 窗口 ready", "run_count": 0},
-        "memory": {"resident_bytes": None, "status": "not-measured",
-                   "reason": "本机未产出 Tauri 可执行文件 (缺 MSVC), 无可测的进程树"},
+        "cold_start_ms": {
+            "runs": [],
+            "median": None,
+            "metric": "tauri.exe spawn -> 窗口 ready",
+            "run_count": 0,
+        },
+        "memory": {
+            "resident_bytes": None,
+            "status": "not-measured",
+            "reason": "本机未产出 Tauri 可执行文件 (缺 MSVC), 无可测的进程树",
+        },
         "distribution": {"bytes": None, "kind": "未产出", "note": None},
         "offline": {"self_contained": None, "method": None, "evidence": None},
         "multi_process": "预期多进程: tauri.exe (WebView2) + python sidecar",
@@ -875,10 +1006,19 @@ def cmd_b3(python: str, skip_tauri_build: bool = False) -> Dict[str, Any]:
     if not rustc:
         _log("未检测到 rustc, 尝试用 rustup 官方渠道安装 (用户级)...")
         rc, tail = run_cmd(
-            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
-             "Invoke-WebRequest -Uri https://win.rustup.rs/x86_64 -OutFile $env:TEMP\\rustup-init.exe; "
-             "& $env:TEMP\\rustup-init.exe -y --default-toolchain stable --profile minimal --no-modify-path"],
-            cwd=app_dir, timeout=1800, label="rustup 安装")
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                "Invoke-WebRequest -Uri https://win.rustup.rs/x86_64 -OutFile $env:TEMP\\rustup-init.exe; "
+                "& $env:TEMP\\rustup-init.exe -y --default-toolchain stable --profile minimal --no-modify-path",
+            ],
+            cwd=app_dir,
+            timeout=1800,
+            label="rustup 安装",
+        )
         result["rustup_install_rc"] = rc
         result["rustup_install_tail"] = tail[-3000:]
         cargo_bin = Path.home() / ".cargo" / "bin"
@@ -901,7 +1041,7 @@ def cmd_b3(python: str, skip_tauri_build: bool = False) -> Dict[str, Any]:
     if cargo:
         env = dict(os.environ)
         env["CARGO_TERM_COLOR"] = "never"
-        env["CARGO_BUILD_JOBS"] = "2"   # 本机内存紧张, 限并发避免 OOM
+        env["CARGO_BUILD_JOBS"] = "2"  # 本机内存紧张, 限并发避免 OOM
         env["CARGO_TARGET_DIR"] = str(OUT / "b3-target")
 
         # 3a. 快速判定: 最小 crate 的链接测试 —— 若 MSVC 缺失, 会在这一步秒级暴露
@@ -909,11 +1049,18 @@ def cmd_b3(python: str, skip_tauri_build: bool = False) -> Dict[str, Any]:
         (linktest / "src").mkdir(parents=True, exist_ok=True)
         (linktest / "Cargo.toml").write_text(
             '[package]\nname = "b3linktest"\nversion = "0.1.0"\nedition = "2021"\n',
-            encoding="utf-8")
+            encoding="utf-8",
+        )
         (linktest / "src" / "main.rs").write_text(
-            'fn main() { println!("link ok"); }\n', encoding="utf-8")
-        rc, tail = run_cmd([cargo, "build", "--release"], cwd=linktest,
-                           timeout=900, env=env, label="cargo build (最小链接测试, 判定 MSVC)")
+            'fn main() { println!("link ok"); }\n', encoding="utf-8"
+        )
+        rc, tail = run_cmd(
+            [cargo, "build", "--release"],
+            cwd=linktest,
+            timeout=900,
+            env=env,
+            label="cargo build (最小链接测试, 判定 MSVC)",
+        )
         result["minimal_link_test_rc"] = rc
         result["minimal_link_test_tail"] = tail[-3000:]
 
@@ -924,8 +1071,13 @@ def cmd_b3(python: str, skip_tauri_build: bool = False) -> Dict[str, Any]:
             )
             result["cargo_build_rc"] = None
         else:
-            rc, tail = run_cmd([cargo, "build", "--release"], cwd=app_dir / "src-tauri",
-                               timeout=3600, env=env, label="cargo build --release (tauri)")
+            rc, tail = run_cmd(
+                [cargo, "build", "--release"],
+                cwd=app_dir / "src-tauri",
+                timeout=3600,
+                env=env,
+                label="cargo build --release (tauri)",
+            )
             result["cargo_build_rc"] = rc
             result["cargo_build_tail"] = tail[-6000:]
         if result.get("cargo_build_rc") == 0:
@@ -944,7 +1096,7 @@ def cmd_b3(python: str, skip_tauri_build: bool = False) -> Dict[str, Any]:
         "bytes": None,
         "kind": "非本机实测 (本机无法产出安装包)",
         "note": "Tauri 官方安装包体积以 GitHub Releases 页面为准 (见 cross_platform.sources / pitfalls); "
-                "本机因缺 MSVC 工具链未产出安装包",
+        "本机因缺 MSVC 工具链未产出安装包",
         "official_reference": "https://github.com/tauri-apps/tauri/releases",
     }
     return result
@@ -961,12 +1113,16 @@ def _probe_msvc() -> Dict[str, Any]:
     vw = Path(r"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe")
     if vw.exists():
         out["vswhere_present"] = True
-        r = subprocess.run([str(vw), "-products", "*", "-format", "value",
-                            "-property", "installationPath"],
-                           capture_output=True, text=True)
+        r = subprocess.run(
+            [str(vw), "-products", "*", "-format", "value", "-property", "installationPath"],
+            capture_output=True,
+            text=True,
+        )
         out["vs_install_dirs"] = [x for x in r.stdout.splitlines() if x.strip()]
-    for base in (r"C:\Program Files\Microsoft Visual Studio",
-                 r"C:\Program Files (x86)\Microsoft Visual Studio"):
+    for base in (
+        r"C:\Program Files\Microsoft Visual Studio",
+        r"C:\Program Files (x86)\Microsoft Visual Studio",
+    ):
         p = Path(base)
         if p.exists():
             out["vs_install_dirs"].append(base)
@@ -982,10 +1138,15 @@ def _probe_msvc() -> Dict[str, Any]:
 
 def _probe_webview2() -> Dict[str, Any]:
     out: Dict[str, Any] = {"runtime_present": False, "version": None}
-    for key, sub in ((r"SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients",
-                      "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"),):
+    for key, sub in (
+        (
+            r"SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients",
+            "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+        ),
+    ):
         try:
             import winreg
+
             with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key) as k:
                 with winreg.OpenKey(k, sub) as k2:
                     v, _ = winreg.QueryValueEx(k2, "pv")
@@ -1000,10 +1161,12 @@ def _probe_webview2() -> Dict[str, Any]:
 # B5 — 纯浏览器 whisper.cpp WASM
 # --------------------------------------------------------------------------
 def _find_chrome() -> Optional[str]:
-    for c in (r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-              r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-              r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-              r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"):
+    for c in (
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    ):
         if Path(c).is_file():
             return c
     return None
@@ -1024,9 +1187,14 @@ def _subtree_bytes(root_pid: int) -> Tuple[int, List[Dict[str, Any]], int]:
             mi = m.memory_info()
             total += int(mi.rss)
             count += 1
-            parts.append({"pid": m.pid, "name": m.name(),
-                          "working_set_bytes": int(mi.rss),
-                          "is_child": m.pid != root_pid})
+            parts.append(
+                {
+                    "pid": m.pid,
+                    "name": m.name(),
+                    "working_set_bytes": int(mi.rss),
+                    "is_child": m.pid != root_pid,
+                }
+            )
         except psutil.Error:
             continue
     return total, parts, count
@@ -1035,8 +1203,14 @@ def _subtree_bytes(root_pid: int) -> Tuple[int, List[Dict[str, Any]], int]:
 def cmd_b5(runs: int = 1, python: str = "") -> Dict[str, Any]:
     _log("=== B5 browser-wasm: 纯浏览器 + whisper.cpp WASM ===")
     urls = [
-        ("huggingface.co 主站 (模型权重)", "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin"),
-        ("hf-mirror.com 镜像 (模型权重)", "https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin"),
+        (
+            "huggingface.co 主站 (模型权重)",
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
+        ),
+        (
+            "hf-mirror.com 镜像 (模型权重)",
+            "https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
+        ),
         ("huggingface.co 根域", "https://huggingface.co/"),
         ("hf-mirror.com 根域", "https://hf-mirror.com/"),
         ("ggml.ai 官方预构建 WASM 包", "https://ggml.ai/whisper.cpp/main.js"),
@@ -1046,18 +1220,44 @@ def cmd_b5(runs: int = 1, python: str = "") -> Dict[str, Any]:
         t0 = time.perf_counter()
         try:
             r = subprocess.run(
-                ["curl", "-sS", "-I", "-L", "--max-time", "25", "-o", "NUL", "-w",
-                 "%{http_code} %{size_download} %{url_effective}", u],
-                capture_output=True, text=True, timeout=45)
+                [
+                    "curl",
+                    "-sS",
+                    "-I",
+                    "-L",
+                    "--max-time",
+                    "25",
+                    "-o",
+                    "NUL",
+                    "-w",
+                    "%{http_code} %{size_download} %{url_effective}",
+                    u,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=45,
+            )
             ok = r.returncode == 0 and r.stdout.strip().startswith(("200", "302", "307"))
-            probes.append({"target": name, "url": u, "ok": ok,
-                           "curl": (r.stdout or "").strip()[:300],
-                           "stderr": (r.stderr or "").strip()[:300],
-                           "elapsed_ms": round((time.perf_counter() - t0) * 1000, 1)})
+            probes.append(
+                {
+                    "target": name,
+                    "url": u,
+                    "ok": ok,
+                    "curl": (r.stdout or "").strip()[:300],
+                    "stderr": (r.stderr or "").strip()[:300],
+                    "elapsed_ms": round((time.perf_counter() - t0) * 1000, 1),
+                }
+            )
         except Exception as exc:
-            probes.append({"target": name, "url": u, "ok": False,
-                           "error": f"{type(exc).__name__}: {exc}",
-                           "elapsed_ms": round((time.perf_counter() - t0) * 1000, 1)})
+            probes.append(
+                {
+                    "target": name,
+                    "url": u,
+                    "ok": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "elapsed_ms": round((time.perf_counter() - t0) * 1000, 1),
+                }
+            )
         _log(f"  probe {name}: ok={probes[-1]['ok']}")
 
     result: Dict[str, Any] = {
@@ -1065,12 +1265,18 @@ def cmd_b5(runs: int = 1, python: str = "") -> Dict[str, Any]:
         "title": "browser-wasm — 纯浏览器 + whisper.cpp WASM (无本地 Python 后端)",
         "status": "not-measurable",
         "not_measurable_reason": None,
-        "cold_start_ms": {"runs": [], "median": None,
-                          "metric": "chrome 进程 spawn -> WASM 引擎 ready (模型已载入, instance 就绪)",
-                          "run_count": 0},
-        "memory": {"resident_bytes": None, "status": "not-measured",
-                   "reason": "浏览器内推理未跑通 (预构建 wasm 二进制无法被本机 V8 实例化), "
-                             "没有可测的稳定态进程树"},
+        "cold_start_ms": {
+            "runs": [],
+            "median": None,
+            "metric": "chrome 进程 spawn -> WASM 引擎 ready (模型已载入, instance 就绪)",
+            "run_count": 0,
+        },
+        "memory": {
+            "resident_bytes": None,
+            "status": "not-measured",
+            "reason": "浏览器内推理未跑通 (预构建 wasm 二进制无法被本机 V8 实例化), "
+            "没有可测的稳定态进程树",
+        },
         "distribution": {"bytes": None, "kind": "非本机实测", "note": None},
         "offline": {"self_contained": None, "method": None, "evidence": None},
         "multi_process": "单进程组: 浏览器主进程 + 渲染/GPU/utility 子进程 (无本地 Python 后端)",
@@ -1100,8 +1306,12 @@ def cmd_b5(runs: int = 1, python: str = "") -> Dict[str, Any]:
     work.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src / "drive.mjs", work / "drive.mjs")
 
-    rc, tail = run_cmd([python or sys.executable, str(src / "fetch_assets.py"), "--out", str(work)],
-                        cwd=work, timeout=1200, label="抓取 whisper.wasm 资产")
+    rc, tail = run_cmd(
+        [python or sys.executable, str(src / "fetch_assets.py"), "--out", str(work)],
+        cwd=work,
+        timeout=1200,
+        label="抓取 whisper.wasm 资产",
+    )
     model = work / "ggml-tiny.bin"
     audio = work / "jfk.wav"
     if not (model.is_file() and audio.is_file()):
@@ -1124,7 +1334,7 @@ def cmd_b5(runs: int = 1, python: str = "") -> Dict[str, Any]:
         "files": dist_files,
         "excluded_from_total": sorted(not_distributable),
         "note": "jfk.wav 只是测试样例音频, libmain.js 是 main.js 的同内容别名 —— 两者都不计入分发物; "
-                "B5 的分发物就是这些静态文件 (无本地 Python 后端)",
+        "B5 的分发物就是这些静态文件 (无本地 Python 后端)",
         "measured_on_this_machine": True,
     }
 
@@ -1132,7 +1342,16 @@ def cmd_b5(runs: int = 1, python: str = "") -> Dict[str, Any]:
     url = f"http://127.0.0.1:{port}/index.html"
     env = child_env(offline=False)
     py = python or sys.executable
-    server_cmd = [py, "-m", "http.server", str(port), "--bind", "127.0.0.1", "--directory", str(work)]
+    server_cmd = [
+        py,
+        "-m",
+        "http.server",
+        str(port),
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        str(work),
+    ]
     _log(f"B5 本地静态服务器: {' '.join(server_cmd)}")
 
     cold: List[Dict[str, Any]] = []
@@ -1148,9 +1367,24 @@ def cmd_b5(runs: int = 1, python: str = "") -> Dict[str, Any]:
             out_json = work / f"run{i}.json"
             if out_json.exists():
                 out_json.unlink()
-            drv = [node, str(work / "drive.mjs"), "--url", url, "--chrome", chrome,
-                   "--model", str(model), "--audio", str(audio),
-                   "--out", str(out_json), "--hold", "14", "--timeout", "300"]
+            drv = [
+                node,
+                str(work / "drive.mjs"),
+                "--url",
+                url,
+                "--chrome",
+                chrome,
+                "--model",
+                str(model),
+                "--audio",
+                str(audio),
+                "--out",
+                str(out_json),
+                "--hold",
+                "14",
+                "--timeout",
+                "300",
+            ]
             _log(f"B5 run {i + 1}/{runs}: node drive.mjs")
             with Child(drv, cwd=work, env=env) as child:
                 deadline = time.perf_counter() + 420
@@ -1159,9 +1393,14 @@ def cmd_b5(runs: int = 1, python: str = "") -> Dict[str, Any]:
                         break
                     time.sleep(0.2)
                 if not out_json.exists():
-                    cold.append({"run": i + 1, "ok": False,
-                                 "error": "驱动未产出结果文件",
-                                 "stdout_tail": child.stdout_lines[-20:]})
+                    cold.append(
+                        {
+                            "run": i + 1,
+                            "ok": False,
+                            "error": "驱动未产出结果文件",
+                            "stdout_tail": child.stdout_lines[-20:],
+                        }
+                    )
                     continue
                 try:
                     payload = json.loads(out_json.read_text(encoding="utf-8"))
@@ -1169,8 +1408,14 @@ def cmd_b5(runs: int = 1, python: str = "") -> Dict[str, Any]:
                     cold.append({"run": i + 1, "ok": False, "error": f"结果解析失败: {exc}"})
                     continue
                 if not payload.get("ok"):
-                    cold.append({"run": i + 1, "ok": False, "error": payload.get("reason"),
-                                 "output_tail": payload.get("output_tail")})
+                    cold.append(
+                        {
+                            "run": i + 1,
+                            "ok": False,
+                            "error": payload.get("reason"),
+                            "output_tail": payload.get("output_tail"),
+                        }
+                    )
                     continue
                 cp = payload.get("chrome_pid")
                 if cp:
@@ -1186,16 +1431,18 @@ def cmd_b5(runs: int = 1, python: str = "") -> Dict[str, Any]:
                             "settle_seconds": 0,
                             "peak_working_set_bytes": total_b,
                             "method": "Chrome 进程树 (主进程+渲染/GPU/utility) WorkingSet 求和; "
-                                      "在 WASM 引擎就绪且转写完成时采样 (headless Chrome, --disable-gpu)",
+                            "在 WASM 引擎就绪且转写完成时采样 (headless Chrome, --disable-gpu)",
                         }
-                cold.append({
-                    "run": i + 1,
-                    "ok": True,
-                    "cold_start_ms": payload.get("cold_start_ms"),
-                    "transcription_ms": payload.get("transcription_ms"),
-                    "total_ms": payload.get("total_ms"),
-                    "transcript_tail": (payload.get("transcript_tail") or "")[-200:],
-                })
+                cold.append(
+                    {
+                        "run": i + 1,
+                        "ok": True,
+                        "cold_start_ms": payload.get("cold_start_ms"),
+                        "transcription_ms": payload.get("transcription_ms"),
+                        "total_ms": payload.get("total_ms"),
+                        "transcript_tail": (payload.get("transcript_tail") or "")[-200:],
+                    }
+                )
             time.sleep(1.0)
 
     values = [c["cold_start_ms"] for c in cold if c.get("ok") and c.get("cold_start_ms")]
@@ -1226,16 +1473,38 @@ def cmd_b5(runs: int = 1, python: str = "") -> Dict[str, Any]:
         off_json.unlink()
     port2 = free_port()
     url2 = f"http://127.0.0.1:{port2}/index.html"
-    with Child([py, "-m", "http.server", str(port2), "--bind", "127.0.0.1",
-                "--directory", str(work)], cwd=work, env=env) as server2:
+    with Child(
+        [py, "-m", "http.server", str(port2), "--bind", "127.0.0.1", "--directory", str(work)],
+        cwd=work,
+        env=env,
+    ) as server2:
         ok2, _c2, err2 = server2.wait_for_http(url2, timeout=30)
         if ok2 is None:
-            result["offline"] = {"self_contained": False, "method": "浏览器级断网",
-                                  "evidence": f"服务器未就绪: {err2}"}
+            result["offline"] = {
+                "self_contained": False,
+                "method": "浏览器级断网",
+                "evidence": f"服务器未就绪: {err2}",
+            }
         else:
-            drv = [node, str(work / "drive.mjs"), "--url", url2, "--chrome", chrome,
-                   "--model", str(model), "--audio", str(audio),
-                   "--out", str(off_json), "--hold", "2", "--timeout", "300", "--offline"]
+            drv = [
+                node,
+                str(work / "drive.mjs"),
+                "--url",
+                url2,
+                "--chrome",
+                chrome,
+                "--model",
+                str(model),
+                "--audio",
+                str(audio),
+                "--out",
+                str(off_json),
+                "--hold",
+                "2",
+                "--timeout",
+                "300",
+                "--offline",
+            ]
             with Child(drv, cwd=work, env=env) as child:
                 deadline = time.perf_counter() + 420
                 while time.perf_counter() < deadline and not off_json.exists():
@@ -1247,15 +1516,19 @@ def cmd_b5(runs: int = 1, python: str = "") -> Dict[str, Any]:
                 result["offline"] = {
                     "self_contained": bool(offp.get("ok")),
                     "method": "Chrome 以 --host-resolver-rules='MAP * ~NOTFOUND,EXCLUDE 127.0.0.1' 启动 "
-                              "(浏览器级断网: 一切外部域名解析失败), 页面/模型/音频全部来自 127.0.0.1 本地静态服务",
+                    "(浏览器级断网: 一切外部域名解析失败), 页面/模型/音频全部来自 127.0.0.1 本地静态服务",
                     "evidence": "断网下仍完成加载模型 + 解码音频 + 输出转写文本"
-                               if offp.get("ok") else f"断网下失败: {offp.get('reason')}",
+                    if offp.get("ok")
+                    else f"断网下失败: {offp.get('reason')}",
                     "cold_start_ms_offline": offp.get("cold_start_ms"),
                     "transcript_tail": (offp.get("transcript_tail") or "")[-300:],
                 }
             else:
-                result["offline"] = {"self_contained": False, "method": "浏览器级断网",
-                                      "evidence": "断网运行未产出结果文件"}
+                result["offline"] = {
+                    "self_contained": False,
+                    "method": "浏览器级断网",
+                    "evidence": "断网运行未产出结果文件",
+                }
     return result
 
 
@@ -1266,7 +1539,7 @@ def cmd_b5(runs: int = 1, python: str = "") -> Dict[str, Any]:
 CROSS_PLATFORM: Dict[str, Dict[str, Any]] = {
     "B1": {
         "summary": "Windows / macOS / Linux 全支持 —— 形态是「本机起 HTTP 服务 + 任意浏览器打开」, "
-                   "壳层本身零平台依赖, 平台差异只落在 Python 依赖与 ffmpeg 二进制上。",
+        "壳层本身零平台依赖, 平台差异只落在 Python 依赖与 ffmpeg 二进制上。",
         "evidence": "FastAPI/uvicorn 官方支持三大桌面平台; 本形态不引入任何平台专属运行时。",
         "sources": [
             "https://fastapi.tiangolo.com/deployment/",
@@ -1278,7 +1551,7 @@ CROSS_PLATFORM: Dict[str, Dict[str, Any]] = {
     },
     "B2": {
         "summary": "与 B1 同构 —— FastAPI 托管静态目录, 平台支持面完全同 B1; "
-                   "额外依赖 Vite 构建期(Node), 但构建产物是纯静态文件, 运行期无 Node 依赖。",
+        "额外依赖 Vite 构建期(Node), 但构建产物是纯静态文件, 运行期无 Node 依赖。",
         "evidence": "Vite 官方支持 Windows/macOS/Linux; 构建产物为静态资源, 由 FastAPI StaticFiles 托管。",
         "sources": [
             "https://fastapi.tiangolo.com/advanced/static-files/",
@@ -1290,11 +1563,11 @@ CROSS_PLATFORM: Dict[str, Dict[str, Any]] = {
     },
     "B3": {
         "summary": "Tauri 2 官方支持 Windows 7+ / macOS Catalina 10.15+ / Linux (需 webkit2gtk-4.1-dev "
-                   "等系统依赖)。但 **Windows 上官方明确要求 Microsoft C++ Build Tools + Edge WebView2** —— "
-                   "本机两者缺一(缺 MSVC), 因此本机不可编译。",
-        "evidence": "官方 Prerequisites 页原文: \"Tauri uses the Microsoft C++ Build Tools for development "
-                    "as well as Microsoft Edge WebView2. These are both required for development on Windows.\" "
-                    "本机 WebView2 Runtime 155.0.4283.62 已装, MSVC Build Tools 未装。",
+        "等系统依赖)。但 **Windows 上官方明确要求 Microsoft C++ Build Tools + Edge WebView2** —— "
+        "本机两者缺一(缺 MSVC), 因此本机不可编译。",
+        "evidence": '官方 Prerequisites 页原文: "Tauri uses the Microsoft C++ Build Tools for development '
+        'as well as Microsoft Edge WebView2. These are both required for development on Windows." '
+        "本机 WebView2 Runtime 155.0.4283.62 已装, MSVC Build Tools 未装。",
         "sources": [
             "https://v2.tauri.app/start/prerequisites/",
             "https://v2.tauri.app/distribute/",
@@ -1306,9 +1579,9 @@ CROSS_PLATFORM: Dict[str, Dict[str, Any]] = {
     },
     "B4": {
         "summary": "Electron 官方支持 Windows / macOS / Linux 单套 JS 代码跨平台; "
-                   "官方文档原文: \"Electron allows you to create cross-platform apps that work on "
-                   "Windows, macOS, and Linux with a single JavaScript codebase.\" 打包工具 Electron Forge "
-                   "按平台产出对应分发物 (Windows MSI/安装包、macOS .app/DMG、Linux deb)。",
+        '官方文档原文: "Electron allows you to create cross-platform apps that work on '
+        'Windows, macOS, and Linux with a single JavaScript codebase." 打包工具 Electron Forge '
+        "按平台产出对应分发物 (Windows MSI/安装包、macOS .app/DMG、Linux deb)。",
         "evidence": "Electron 官方 Tutorial Prerequisites 与 Packaging 两页。",
         "sources": [
             "https://www.electronjs.org/docs/latest/tutorial/tutorial-prerequisites",
@@ -1322,9 +1595,9 @@ CROSS_PLATFORM: Dict[str, Dict[str, Any]] = {
     },
     "B5": {
         "summary": "纯浏览器路线, 平台支持面 = 浏览器支持面: 需支持 **WASM SIMD 128-bit intrinsics** 的浏览器"
-                   "(Chrome 91+/Edge 91+/Firefox 89+/Safari 16.4+), 桌面与移动端均可。",
-        "evidence": "官方 whisper.wasm README: \"This WASM port utilizes WASM SIMD 128-bit intrinsics so you "
-                    "have to make sure that your browser supports them.\"",
+        "(Chrome 91+/Edge 91+/Firefox 89+/Safari 16.4+), 桌面与移动端均可。",
+        "evidence": '官方 whisper.wasm README: "This WASM port utilizes WASM SIMD 128-bit intrinsics so you '
+        'have to make sure that your browser supports them."',
         "sources": [
             "https://github.com/ggml-org/whisper.cpp/tree/master/examples/whisper.wasm",
             "https://webassembly.org/roadmap/",
@@ -1339,18 +1612,18 @@ CROSS_PLATFORM: Dict[str, Dict[str, Any]] = {
 PITFALLS: Dict[str, List[str]] = {
     "B1": [
         "【既有代码缺陷】文档与 README 声明的启动方式 `python -m mediascribe.web.app --port 8000` "
-        "**必然失败**: mediascribe/web/app.py:1242 的 `if __name__ == \"__main__\": sys.exit(main())` "
+        '**必然失败**: mediascribe/web/app.py:1242 的 `if __name__ == "__main__": sys.exit(main())` '
         "位于各 `_register_*_routes` 函数定义之前 (首个在 app.py:1246), main() 执行时这些函数尚未定义。 "
         "实测原文: `NameError: name '_register_health_routes' is not defined` "
         "(抛在 mediascribe/web/app.py:1206 的 create_app 内)。",
         "【既有代码缺陷】scripts/one_click_up.py 的 launch_local 用 `python -m uvicorn mediascribe.web.app:app`, "
         "但 mediascribe/web/app.py **没有模块级 `app` 对象** (只有 create_app 工厂函数)。"
-        "实测原文: `ERROR:    Error loading ASGI app. Attribute \"app\" not found in module \"mediascribe.web.app\".`",
+        '实测原文: `ERROR:    Error loading ASGI app. Attribute "app" not found in module "mediascribe.web.app".`',
         "【本基准采用的可用方式】`python -m uvicorn mediascribe.web.app:create_app --factory --host 127.0.0.1 --port N`, "
         "不修改任何既有代码即可起服务 (健康检查 200)。",
         "【无鉴权模式告警】不设 MEDIASCRIBE_API_TOKEN 时启动即打印: "
-        "\"MEDIASCRIBE_API_TOKEN 未配置 — API 处于无鉴权模式, 仅信任本机/内网来源(公网来源会被拒绝)。\"",
-        "【GPU 隔离踩坑】CUDA_VISIBLE_DEVICES=\"\" **不足以**屏蔽 GPU: 实测 torch.cuda.is_available() 仍为 True, "
+        '"MEDIASCRIBE_API_TOKEN 未配置 — API 处于无鉴权模式, 仅信任本机/内网来源(公网来源会被拒绝)。"',
+        '【GPU 隔离踩坑】CUDA_VISIBLE_DEVICES="" **不足以**屏蔽 GPU: 实测 torch.cuda.is_available() 仍为 True, '
         "而 /api/health 的 gpu_health() 会调 torch.cuda.current_device() 建立 CUDA 上下文并占显存。"
         "必须用 CUDA_VISIBLE_DEVICES=-1 (实测 is_available()=False, device_count()=0)。",
         "【端口冲突】Windows 上 SO_REUSEADDR 允许多个 http.server 同时绑定同一端口, 请求可能落到别的进程上 —— "
@@ -1391,24 +1664,24 @@ PITFALLS: Dict[str, List[str]] = {
     "B5": [
         "【HuggingFace 主站不可达, 但镜像可达 —— 与任务书前提相反】实测 huggingface.co 根域与权重 URL 均超时, "
         "而 hf-mirror.com 根域 200, 且 ggml-tiny.bin 可完整下载 (77,691,713 B, 与官方 models/README.md 的 "
-        "\"74MB for the tiny model\" 吻合)。所以 B5 的权重**不是**不可得, 前提不成立。",
+        '"74MB for the tiny model" 吻合)。所以 B5 的权重**不是**不可得, 前提不成立。',
         "【官方预构建 WASM 包在当前 Chrome 上跑不起来】ggml.ai 发布的 main.js / libmain.js (各 1,770,840 B, "
         "wasm 以 JS 字符串内嵌) 在本机 Chrome 155 里实例化失败, 页面原文: "
-        "\"failed to asynchronously prepare wasm: CompileError: WebAssembly.instantiate(): unknown type form: 106 @+12\" "
-        "/ \"Aborted(CompileError: WebAssembly.instantiate(): unknown type form: 106 @+12)\", "
+        '"failed to asynchronously prepare wasm: CompileError: WebAssembly.instantiate(): unknown type form: 106 @+12" '
+        '/ "Aborted(CompileError: WebAssembly.instantiate(): unknown type form: 106 @+12)", '
         "随后 `Uncaught TypeError: Module.init is not a function`。",
         "【同一二进制在 Node/V8 亦失败】把 main.js 内嵌的 wasm 抽出来单独编译, Node 报 "
-        "\"CompileError: section was shorter than expected size (151363 bytes expected, 1246 decoded) @+1258\", "
+        '"CompileError: section was shorter than expected size (151363 bytes expected, 1246 decoded) @+1258", '
         "而 wasm 段表本身自洽 (type section id=1 size=151363 位于偏移 12) —— 即预构建产物与当前 V8 不兼容。",
         "【GitHub Releases 没有 wasm 资产】whisper.cpp 最新几个 release (v1.9.5 / b5454 / b5130) 只有原生二进制 "
         "(whisper-bin-* / whisper-blas-* / xcframework), 没有 wasm 资产可用。",
         "【自建路径的前置成本】官方自建路径需要 Emscripten (emsdk) + CMake + 源码, 本机三者均缺 "
         "(emsdk 走 storage.googleapis.com, cmake 走 GitHub releases, 两者本机网络可达)。",
         "【模型/音频加载本身是通的】在被测页面里, 模型经 DOM.setFileInputFiles 送入后 "
-        "\"storeFS: stored model: whisper.bin size: 77691713\" 成功, 音频也成功解码 "
-        "(\"js: audio loaded, size: 176000\") —— 阻断点只在 WASM 引擎实例化, 不在数据通路。",
-        "【demo 页两个 file input 同名】页面里模型输入 (#whisper-file) 与音频输入的 name 都是 \"file\", "
-        "按 name 选会选错(把音频写进模型输入), 必须按 onchange=\"loadAudio(event)\" 精确定位。",
+        '"storeFS: stored model: whisper.bin size: 77691713" 成功, 音频也成功解码 '
+        '("js: audio loaded, size: 176000") —— 阻断点只在 WASM 引擎实例化, 不在数据通路。',
+        '【demo 页两个 file input 同名】页面里模型输入 (#whisper-file) 与音频输入的 name 都是 "file", '
+        '按 name 选会选错(把音频写进模型输入), 必须按 onchange="loadAudio(event)" 精确定位。',
     ],
 }
 
@@ -1441,7 +1714,12 @@ def environment_info() -> Dict[str, Any]:
     mem = psutil.virtual_memory()
     cpu_info = {}
     try:
-        with open(r"C:\Users\12739\AppData\Local\Programs\Python\Python312\Lib\site-packages\torch\version.py", "r", encoding="utf-8", errors="replace") as f:
+        with open(
+            r"C:\Users\12739\AppData\Local\Programs\Python\Python312\Lib\site-packages\torch\version.py",
+            "r",
+            encoding="utf-8",
+            errors="replace",
+        ) as f:
             cpu_info["torch_version_file"] = f.read(200)
     except Exception:
         pass
@@ -1454,13 +1732,16 @@ def environment_info() -> Dict[str, Any]:
         "npm": cmd_out(["npm.cmd", "-v"]) or cmd_out(["npm", "-v"]),
         "rustc": cmd_out(["rustc", "--version"]),
         "cargo": cmd_out(["cargo", "--version"]),
-        "cpu": platform.processor() or cmd_out(["powershell", "-NoProfile", "-Command",
-                                                "(Get-CimInstance Win32_Processor).Name"]),
+        "cpu": platform.processor()
+        or cmd_out(
+            ["powershell", "-NoProfile", "-Command", "(Get-CimInstance Win32_Processor).Name"]
+        ),
         "cpu_logical_cores": psutil.cpu_count(logical=True),
         "ram_total_bytes": mem.total,
         "ram_available_bytes_at_bench": mem.available,
-        "gpu": cmd_out(["nvidia-smi", "--query-gpu=name,memory.total,driver_version",
-                        "--format=csv,noheader"]),
+        "gpu": cmd_out(
+            ["nvidia-smi", "--query-gpu=name,memory.total,driver_version", "--format=csv,noheader"]
+        ),
         "psutil_version": psutil.__version__,
         "git_head": cmd_out(["git", "-C", str(REPO), "rev-parse", "HEAD"]),
         "bench_timestamp": time.strftime("%Y-%m-%d %H:%M:%S%z"),
@@ -1488,8 +1769,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("candidate", choices=["b1", "b2", "b3", "b4", "b5", "all"])
     ap.add_argument("--runs", type=int, default=3, help="每个候选的冷启动重复次数 (默认 3)")
     ap.add_argument("--skip-build", action="store_true", help="跳过 npm 安装/构建 (复用已有产物)")
-    ap.add_argument("--skip-tauri-build", action="store_true",
-                    help="跳过完整 Tauri 编译 (只用最小链接测试判定阻断原因)")
+    ap.add_argument(
+        "--skip-tauri-build",
+        action="store_true",
+        help="跳过完整 Tauri 编译 (只用最小链接测试判定阻断原因)",
+    )
     args = ap.parse_args(argv)
 
     python = resolve_python()
@@ -1502,14 +1786,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         "environment": environment_info(),
         "methodology": {
             "cold_start": "进程 spawn 瞬间到健康检查 200 / 窗口 ready 标记的墙钟毫秒 (time.perf_counter), "
-                          "每次独立起进程, 跑 N 次取中位数",
+            "每次独立起进程, 跑 N 次取中位数",
             "memory": "Windows GetProcessMemoryInfo().WorkingSetSize (psutil memory_info().rss), "
-                      "进程树(父+递归子进程)求和; 稳定期先 settle 再连采 3 次取中位数; 另记 peak_wset",
+            "进程树(父+递归子进程)求和; 稳定期先 settle 再连采 3 次取中位数; 另记 peak_wset",
             "distribution": "构建产物磁盘字节数 (os.walk 递归求和)",
             "offline": "HTTP(S)/ALL_PROXY 指向黑洞 127.0.0.1:9 + 50ms 间隔 netstat -ano 快照断言无非回环 TCP; "
-                       "本机无管理员权限, 未能用防火墙做物理断网",
-            "gpu_isolation": "所有被测子进程注入 CUDA_VISIBLE_DEVICES=\"\" 与 MEDIASCRIBE_DEVICE=cpu, "
-                             "避免与并行推理实测争抢显存; 本脚本只做壳层与健康检查, 不做推理",
+            "本机无管理员权限, 未能用防火墙做物理断网",
+            "gpu_isolation": '所有被测子进程注入 CUDA_VISIBLE_DEVICES="" 与 MEDIASCRIBE_DEVICE=cpu, '
+            "避免与并行推理实测争抢显存; 本脚本只做壳层与健康检查, 不做推理",
             "runs": args.runs,
         },
     }

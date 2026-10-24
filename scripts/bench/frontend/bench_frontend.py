@@ -94,7 +94,9 @@ def _npm_bin() -> str:
     return shutil.which("npm") or "npm"
 
 
-def _run(cmd: List[str], cwd: Optional[Path] = None, timeout: int = 900) -> subprocess.CompletedProcess:
+def _run(
+    cmd: List[str], cwd: Optional[Path] = None, timeout: int = 900
+) -> subprocess.CompletedProcess:
     proc = subprocess.run(
         cmd,
         cwd=str(cwd) if cwd else None,
@@ -203,7 +205,9 @@ def build_candidate(name: str, candidate_dir: Path, install: bool) -> Dict[str, 
     # vanilla 是零依赖的静态页面，没有 package.json —— 对它跑 npm install
     # 必然失败（ENOENT package.json），会让人误以为候选不可用。
     if install and name != "vanilla":
-        proc = _run([_npm_bin(), "install", "--no-audit", "--no-fund"], cwd=candidate_dir, timeout=1800)
+        proc = _run(
+            [_npm_bin(), "install", "--no-audit", "--no-fund"], cwd=candidate_dir, timeout=1800
+        )
         if proc.returncode != 0:
             result["install_ok"] = False
             result["install_error"] = (proc.stderr or proc.stdout)[-2000:]
@@ -265,25 +269,19 @@ def measure_once(page: Any, url: str) -> Dict[str, Any]:
     """跑一次浏览器测量（冷启动 → 滚动 → 筛选）。"""
     out: Dict[str, Any] = {}
     page.goto(url, wait_until="load", timeout=60_000)
-    page.wait_for_function(
-        "window.__bench && window.__bench.ready === true", timeout=30_000
-    )
+    page.wait_for_function("window.__bench && window.__bench.ready === true", timeout=30_000)
     out["cold_start_ms"] = page.evaluate("window.__bench.coldStartMs")
     out["render_ms"] = page.evaluate("window.__bench.renderMs")
     out["rows"] = page.evaluate("window.__bench.rows")
 
-    scroll = page.evaluate(
-        f"window.__benchScroll({SCROLL_PX}, {SCROLL_FRAMES})"
-    )
+    scroll = page.evaluate(f"window.__benchScroll({SCROLL_PX}, {SCROLL_FRAMES})")
     out["scroll_avg_frame_ms"] = scroll.get("avgFrameMs")
     out["scroll_max_frame_ms"] = scroll.get("maxFrameMs")
     out["scroll_dropped_frames"] = scroll.get("dropped")
     out["scroll_frames"] = scroll.get("frames")
 
     page.fill("#filter", FILTER_CHAR)
-    page.wait_for_function(
-        "window.__bench && window.__bench.filterDone === true", timeout=60_000
-    )
+    page.wait_for_function("window.__bench && window.__bench.filterDone === true", timeout=60_000)
     out["filter_ms"] = page.evaluate("window.__bench.filterMs")
     return out
 
@@ -374,9 +372,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.scaffold:
         print("[scaffold] 生成候选工程…")
-        proc = _run(
-            [sys.executable, str(BENCH_DIR / "scaffold_candidates.py")], cwd=REPO_ROOT
-        )
+        proc = _run([sys.executable, str(BENCH_DIR / "scaffold_candidates.py")], cwd=REPO_ROOT)
         print(proc.stdout[-3000:])
         if proc.returncode != 0:
             print(proc.stderr[-3000:], file=sys.stderr)
@@ -406,7 +402,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             build_info["prod_dep_count"] = prod_dep_count(candidate_dir)
         else:
             build_info = build_candidate(name, candidate_dir, install=not args.skip_install)
-        print(f"  build_s={build_info.get('build_s')}  dist_gzip={build_info.get('dist_gzip_bytes')}")
+        print(
+            f"  build_s={build_info.get('build_s')}  dist_gzip={build_info.get('dist_gzip_bytes')}"
+        )
 
         publish_to_serve(name, candidate_dir)
 
@@ -471,9 +469,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             merged.append(prev[name])
     payload["candidates"] = merged
     payload["generated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
-    RESULTS_PATH.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    RESULTS_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n[ok] 结果（{len(merged)} 个候选）-> {RESULTS_PATH}")
     return 0
 

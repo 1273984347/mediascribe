@@ -35,6 +35,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`uvicorn mediascribe.web.app:app` 此前必然失败**（`Attribute "app" not found in module`）—— 模块没有模块级
   `app` 对象，而模块 docstring 与 `scripts/one_click_up.py` 一直宣称该启动方式。已补 `app = create_app()`
   （仅导入时创建，避免 `python -m` 路径重复建实例）。
+- **`docs_site/benchmarking.md` 文档漂移** —— 该页描述了**不存在的** CLI（`--real` / `--audio-path` / `--engine` /
+  `--audio-seconds` / `--iterations`）与**不存在的**输出目录 `./bench-results/`，而真引擎路径长期是
+  `NotImplementedError` ⇒ 文档里的命令根本不可能跑通。已按实际实现重写该页（四套基准的真实参数、口径、
+  硬件自适应与护栏说明、复现性与局限）。
+- **新增启动路径回归测试** `tests/test_web_app_startup_paths.py`（6 项）—— 断言模块级 `app` 存在且能返回
+  `/api/health` 200、断言 `__main__` 块位于所有路由注册函数之后（直接锁住上面两个缺陷的根因）、
+  断言 `python -m mediascribe.web.app` 可执行。自动进入 CI `unit` 门禁。
 
 ### Added (2026-10-08 存疑复核闭环)
 - **`verify` 子命令**: `python -m mediascribe verify <转录稿.md>` — 第三采样验证。

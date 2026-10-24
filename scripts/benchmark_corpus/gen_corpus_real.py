@@ -553,12 +553,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         # 注意：--skip-existing 时**不能**重复做降级，否则已降级的音频会被
         # 二次处理，语料难度悄悄漂移（基准就不可比了）。
         if clip.harsh and not was_skipped:
-            print(f"[harsh] {clip.name} (noise={clip.harsh_noise} lowpass={clip.harsh_lowpass_hz}Hz)")
+            print(
+                f"[harsh] {clip.name} (noise={clip.harsh_noise} lowpass={clip.harsh_lowpass_hz}Hz)"
+            )
             # ffmpeg 不能原地读写同一个文件 —— 先写临时文件再替换
             tmp_wav = wav_path.with_name(wav_path.stem + ".harsh.tmp.wav")
-            make_harsh(
-                wav_path, tmp_wav, level=clip.harsh_noise, lowpass_hz=clip.harsh_lowpass_hz
-            )
+            make_harsh(wav_path, tmp_wav, level=clip.harsh_noise, lowpass_hz=clip.harsh_lowpass_hz)
             tmp_wav.replace(wav_path)
             duration = probe_duration(wav_path)
             ref["duration_s"] = duration
@@ -608,9 +608,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         },
         "files": files,
     }
-    manifest_path.write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
     total = sum(f["duration_s"] for f in files)
     print(f"\n[ok] {len(files)} clips, total {total / 60:.1f} min -> {out_dir}")

@@ -284,8 +284,7 @@ VANILLA_HTML = """<!doctype html>
 </html>
 """
 
-VANILLA_JS = (
-    """
+VANILLA_JS = """
 var listEl = document.getElementById('list');
 var countEl = document.getElementById('count');
 
@@ -343,7 +342,6 @@ fetch('../data/transcripts.json')
     window.__bench.ready = true;
   });
 """
-)
 
 # --- react -----------------------------------------------------------------
 
