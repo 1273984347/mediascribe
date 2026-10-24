@@ -88,6 +88,7 @@ try:
     from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, status
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import HTMLResponse, Response
+    from fastapi.staticfiles import StaticFiles
     from pydantic import BaseModel, Field, field_validator
 
     _FASTAPI_AVAILABLE = True
@@ -1518,6 +1519,14 @@ def _register_extension_routes(app: "FastAPI") -> None:
 def _register_page_routes(app: "FastAPI") -> None:
     """Route registrar — create_app 装配时调用(2026-10-03 审查拆分, 路由逐字搬移)。"""
 
+    # -------------------------------------------------------------------
+    # 静态资源（v3.4.x P4：前端拆成原生 ES modules 后，页面要引用
+    # styles.css / app.js / modules/*.js —— 必须真的能被服务端提供，
+    # 否则页面在生产环境下是**坏的**（CSS/JS 全 404）。
+    # -------------------------------------------------------------------
+    if STATIC_DIR.is_dir():
+        app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
     @app.get("/", response_class=HTMLResponse)
     def index() -> HTMLResponse:
         html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
@@ -1951,6 +1960,9 @@ def _register_submit_jobs_route(app: "FastAPI", workspace: Path) -> None:
             "jobs": jobs_out,
             "requested": len(req.urls),
             "unique": len(urls),
+            # 资源守卫的降档说明 —— 降档发生在 pipeline 构建时(= 提交这一刻)，
+            # 所以**提交响应**就是最直接的告知时机，比事后读 metadata 更及时。
+            "notices": list(getattr(pipeline, "_resource_notices", [])),
         }
 
 

@@ -1061,7 +1061,66 @@ gzip 的这点代价换来的可读性收益更大；若将来要压缩传输体
    ⇒ 断言对象改为「**前端资源集合**」，并新增一条「index.html 必须保持精简」
    的断言（防止将来又被塞回大段内联）。
 
-### 13.9 本批的测试与门禁
+### 13.10 端到端集成验证（抓到三个「只有真跑才暴露」的问题）
+
+改了降档、简繁、引擎注册、前端拆分这些**核心路径**之后，必须跑一次真实转录 +
+真实 Web 服务 —— 否则「测试全绿」并不代表产品能用。
+
+#### 真实转写（CLI，本地语料）
+
+```
+python -m mediascribe transcribe output/bench/corpus/01_zh_huihui.wav \
+    --engine faster-whisper --model small --device cpu --output output/bench/e2e
+```
+
+结果：转写稿正文**全为简体** ✓、`metadata.resource_notices` 字段已就位 ✓、
+engine/model 记录正确 ✓。
+
+#### 真实 Web 服务 + 浏览器交互
+
+起真后端（`uvicorn mediascribe.web.app:app`）+ Playwright 打开工作台：
+零 console 错误、零 4xx/5xx、零外部请求、6 个模块全部加载、
+`/api/health` 200、GPU 指示正确显示「CPU 模式」、主题切换正常、引擎下拉 4 项。
+
+#### 抓到的三个问题
+
+**① 静态资源全部 404 —— 生产环境下页面完全不可用（严重）。**
+P4 拆分后页面引用了 `styles.css` / `app.js` / `modules/*.js`，但 FastAPI 侧
+**只有 `/` 与 `/wiki` 两个路由**（读 HTML 文本返回），**没有任何静态文件服务**
+⇒ CSS/JS 全部 404，页面既没样式也没功能。
+**而既有测试一个都没红** —— 因为测试只读 HTML **文本**，从不验证资源**可达**。
+修正：挂载 `StaticFiles` 到 `/static` + HTML 改绝对路径；并补
+`tests/test_web_app_static.py`（5 项），其中一项是**通用断言**：解析页面里所有
+本地 `href`/`src`，逐个断言 200 ⇒ 以后再加文件漏路由会立刻被抓住。
+
+**② Web UI 的引擎下拉漏了 whisper-cpp。**
+与 §13.5 的「四处名单」同类 —— CLI choices 改了，**页面上的 `<select>` 没改**。
+现已被 `test_engine_selector_lists_all_engines` 覆盖。
+
+**③ 转写稿的「转录引擎」字段错显模型名。**
+此前 markdown 里写的是 `- **转录引擎**: small`（取的是 `transcription["model"]`），
+而 metadata 里 `engine` 是对的（`faster-whisper`）⇒ 同一份产物里两处说法不一致。
+修正：引擎名与模型名**分两行**显示。
+
+> 这三个问题的共同点：**它们都在「代码看起来对、单元测试全绿」之外**。
+> 端到端跑一次真后端 + 真浏览器 + 真转写，是唯一能抓住它们的办法。
+
+#### 降档通知的呈现路径（三处，缺一不可）
+
+降档发生在 **pipeline 构建时**（= 提交这一刻）⇒ 通知的时机天然是「提交时」，
+而不是等转写完。三处呈现：
+
+| 路径 | 载体 | 何时可见 |
+|---|---|---|
+| **提交响应** | `POST /api/jobs` → `{"notices": [...]}` | **当场**（用户点「运行转写」后立刻看到） |
+| 前端状态条 | `modules/jobs.js` 把 notices 拼进状态文案 | 同上 |
+| 转写稿 metadata | `metadata.resource_notices` | 转写完成后（可追溯） |
+
+选「提交响应」而不是「WebSocket 事件」的理由：降档决策发生在**任务创建之前**
+（pipeline 一建好就定了），此时 WS 还没连上；而提交响应是**同步**返回的，
+信息到达最早、不依赖前端时序。
+
+### 13.11 本批的测试与门禁
 
 | 项 | 结果 |
 |---|---|
