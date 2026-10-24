@@ -7,7 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added (2026-10-23 选型落地：权重预置 + 简繁统一 + whisper.cpp 第三条腿)
+### Added (2026-10-24 选型落地：权重预置 + 简繁统一 + whisper.cpp 第三条腿)
+
+- **运行时资源守卫** `mediascribe/runtime_guard.py` —— 把基准侧的硬件自适应与
+  过载护栏**下沉到产品运行时**（此前护栏只护基准脚本，转录产品本身无保护）：
+  * 转录前按资源**自动降档**（`large-v3 → medium → small → base → tiny`）或换引擎
+  * 四条规则各有实测出处：Apple Silicon（faster-whisper 无 Metal 后端）⇒ 换
+    whisper-cpp；CPU + 可用内存 < 4 GB ⇒ 换 whisper-cpp（实测最省内存 291 MiB）；
+    显存/内存不足 ⇒ 按阶梯降模型档
+  * 转录中后台线程每 2s 采样内存/显存/温度，越紧急线 ⇒ **通知 + 请求取消**
+  * 转录结束后若确曾紧急过载 ⇒ 抛 `ResourcePressureError`，**不交付可能不完整的结果**
+  * 降档说明随转写稿 `metadata.resource_notices` 落盘 ⇒ 用户能看到「为什么换了小模型」
+- **修复**：降档只改局部变量导致 `settings.model` 与实际用量不符（metadata 会记错）；
+  降档阶梯在大模型族上死循环（`large-v3 → large-v2 → large-v2…`）；
+  `mediascribe/transcribers/__init__.py` 漏导出 `WhisperCppTranscriber`（整个包 ImportError）。
+- **估算表对齐**：产品侧用实测值、基准侧仍是早期估算（7 处，如 faster-whisper/small
+  显存 614 vs 800 MiB）⇒ 新增 `tests/test_estimate_tables_consistency.py` 锁住两表一致。
 
 - **模型权重清单** `mediascribe/model_weights.py` —— 把「某 engine×model 需要什么权重、
   在哪、怎么预置」变成可查询的数据。三个引擎的目录约定各不相同（faster-whisper /

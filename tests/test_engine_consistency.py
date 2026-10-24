@@ -79,6 +79,28 @@ class TestEngineNameConsistency(unittest.TestCase):
             transcriber = get_transcriber(engine, model="tiny", device="cpu")
             self.assertTrue(hasattr(transcriber, "transcribe"))
 
+    def test_transcribers_package_exports_every_engine(self):
+        """``mediascribe.transcribers`` 必须导出每个引擎的实现类。
+
+        实战踩坑：新增 whisper-cpp 时忘了加进 ``__init__.py`` ⇒
+        ``from .transcribers import WhisperCppTranscriber`` 直接 ImportError，
+        整个包都起不来（而引擎本身是好的）。
+        """
+        import mediascribe.transcribers as pkg
+
+        expected = {
+            "whisper": "WhisperTranscriber",
+            "faster-whisper": "FasterWhisperTranscriber",
+            "whisperx": "WhisperXTranscriber",
+            "whisper-cpp": "WhisperCppTranscriber",
+        }
+        for engine, cls_name in expected.items():
+            self.assertTrue(
+                hasattr(pkg, cls_name),
+                msg=f"mediascribe.transcribers 缺少 {cls_name}（引擎 {engine}）",
+            )
+            self.assertIn(cls_name, pkg.__all__)
+
 
 class TestWebAcceptsWhisperCpp(unittest.TestCase):
     """Web 层必须真的接受 whisper-cpp（不是只在校验名单里）。"""

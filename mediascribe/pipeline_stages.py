@@ -65,6 +65,7 @@ from .downloaders import (
 )
 from .inputs import parse_source, safe_stem
 from .models import DownloadResult, SourceRef, TranscriptResult
+from .runtime_guard import ResourcePressureError, RuntimeMonitor
 from .transcribers import Transcriber
 
 logger = logging.getLogger(__name__)
@@ -175,6 +176,8 @@ class PipelineContext:
     # 控制
     cancel_event: Optional[threading.Event] = field(default=None)
     progress_cb: Optional[Callable[[str, float], None]] = field(default=None)
+    # v3.2.0e+ 资源守卫：降档 / 过载的**人类可读**说明，随转写稿 metadata 落盘
+    resource_notices: List[str] = field(default_factory=list)
 
     def emit_progress(self, stage: str, percent: float) -> None:
         """调 ``progress_cb``,保护性捕获所有异常以避免污染 stage。"""
@@ -475,12 +478,25 @@ class TranscribeStage(Stage):
         if not prompt:
             prompt = self._auto_prompt(ctx)
 
-        transcription = self._transcriber.transcribe(
-            ctx.audio_path,
-            prompt=prompt,
-            progress=True,
-            language=lang,
-        )
+        # ---- 转录期间的资源守卫 ----
+        # 后台线程持续采样内存/显存/温度；越过紧急线时通知 + 请求取消。
+        # Python 无法安全打断正在跑的 C 扩展调用，所以真正的强制终止交给外部，
+        # 这里负责的是「及时告知」+「结束后不交付可能不完整的结果」。
+        with RuntimeMonitor(
+            cancel_event=ctx.cancel_event,
+            on_notice=ctx.resource_notices.append,
+        ) as monitor:
+            transcription = self._transcriber.transcribe(
+                ctx.audio_path,
+                prompt=prompt,
+                progress=True,
+                language=lang,
+            )
+        if monitor.pressured:
+            raise ResourcePressureError(
+                f"转录期间资源过载（{monitor.pressure_reason}）—— "
+                "结果可能不完整，已放弃本次转录。请降低模型档位或关闭其它占用资源的程序后重试。"
+            )
         ctx.raise_if_cancelled()  # ASR 后
         text = (transcription.get("text") or "").strip()
         if not text:
@@ -634,6 +650,8 @@ class AssembleStage(Stage):
             },
             "hallucination_repeats_removed": halluc_removed,
             "repeated_pairs_suspect": repeated_pairs[:10],
+            # 资源守卫的降档/过载说明 —— 让用户知道「这次为什么用了小模型」
+            "resource_notices": list(ctx.resource_notices),
             "generated_at": datetime.now().isoformat(),
         }
         _atomic_write_text(metadata_path, _json_dump(metadata), encoding="utf-8")
