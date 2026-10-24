@@ -22,6 +22,7 @@ from .factory import (
 )
 from .faster_whisper import FasterWhisperTranscriber
 from .whisper import WhisperTranscriber
+from .whisper_cpp import WhisperCppTranscriber
 from .whisperx import WhisperXTranscriber
 
 __all__ = [
@@ -29,6 +30,7 @@ __all__ = [
     "WhisperTranscriber",
     "WhisperXTranscriber",
     "FasterWhisperTranscriber",
+    "WhisperCppTranscriber",
     "ChunkedTranscriber",
     "Chunk",
     "ChunkResult",

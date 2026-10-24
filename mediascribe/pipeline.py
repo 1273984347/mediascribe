@@ -38,9 +38,11 @@ from .pipeline_stages import (
     default_chain,
     print_cleanup_review_hint,
 )
+from .runtime_guard import plan as plan_resources
 from .transcribers import (
     FasterWhisperTranscriber,
     Transcriber,
+    WhisperCppTranscriber,
     WhisperTranscriber,
     WhisperXTranscriber,
 )
@@ -366,6 +368,9 @@ class Pipeline:
         """
         self.settings = settings
         self.downloader = downloader
+        # 资源守卫的降档/过载说明 —— 会随转写稿 metadata 落盘，
+        # 让用户知道「这次为什么用了小模型 / 为什么中止」。
+        self._resource_notices: List[str] = []
         self.transcriber = transcriber or self._create_transcriber(settings)
         self.profile = bool(profile)
         self.profile_log = Path(profile_log) if profile_log else None
@@ -385,15 +390,37 @@ class Pipeline:
         resolved_model = model or settings.model
         if resolved_model == "auto":
             return _AutoModelTranscriber(self)  # type: ignore[return-value]
-        if settings.engine == "whisperx":
+
+        # ---- 资源守卫：按当前硬件自动降档 / 换引擎 ----
+        # 决策依据见 mediascribe/runtime_guard.py（每条规则都有实测出处）。
+        # 降档是**自动**的，但**必须明确通知** —— 通知会进转写稿 metadata，
+        # 不能只写日志（用户看不到日志）。
+        decision = plan_resources(settings.engine, resolved_model, device)
+        if decision.changed:
+            for notice in decision.notices:
+                logger.warning("资源守卫: %s", notice)
+                self._resource_notices.append(notice)
+            settings.engine = decision.engine
+            # ⚠️ 必须同时改 settings.model —— 只改局部变量的话，转录实际用
+            # medium、而 settings/metadata 仍记 large-v3 ⇒ 记录与事实不符。
+            settings.model = decision.model
+            resolved_model = decision.model
+
+        engine = settings.engine
+        if engine == "whisperx":
             return WhisperXTranscriber(
                 model=resolved_model,
                 device=device,
                 hf_token=settings.hf_token,
                 diarization=settings.diarization,
             )
-        elif settings.engine == "faster-whisper":
+        elif engine == "faster-whisper":
             return FasterWhisperTranscriber(
+                model=resolved_model,
+                device=device,
+            )
+        elif engine == "whisper-cpp":
+            return WhisperCppTranscriber(
                 model=resolved_model,
                 device=device,
             )
@@ -482,6 +509,8 @@ class Pipeline:
         ctx = PipelineContext(
             settings=self.settings,
             source_input=source_input,
+            # 资源守卫在转录器创建阶段产生的降档说明 ⇒ 带进 ctx ⇒ 进 metadata
+            resource_notices=list(self._resource_notices),
             prompt=prompt,
             output=output,
             language=language,

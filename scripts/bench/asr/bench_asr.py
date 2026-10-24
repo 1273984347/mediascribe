@@ -231,24 +231,24 @@ def detect_hardware() -> HardwareProfile:
 #: 经验值 + 实测校准，用于在加载前就判定「这台机器跑不跑得动」。
 VRAM_ESTIMATE_MB: Dict[Tuple[str, str, str], int] = {
     ("faster_whisper", "small", "int8"): 700,
-    ("faster_whisper", "small", "int8_float16"): 800,
+    ("faster_whisper", "small", "int8_float16"): 614,
     ("faster_whisper", "medium", "int8"): 1400,
     ("faster_whisper", "medium", "int8_float16"): 1600,
     ("faster_whisper", "medium", "float16"): 2600,
     ("faster_whisper", "large-v3", "int8"): 2200,
-    ("faster_whisper", "large-v3", "int8_float16"): 2800,
+    ("faster_whisper", "large-v3", "int8_float16"): 2816,
     ("faster_whisper", "large-v3", "float16"): 5200,
-    ("openai_whisper", "small", "float16"): 1200,
-    ("openai_whisper", "medium", "float16"): 2000,
+    ("openai_whisper", "small", "float16"): 1965,
+    ("openai_whisper", "medium", "float16"): 4774,
     ("openai_whisper", "large-v3", "float16"): 3600,
 }
 
 #: CPU 推理时的**估算**常驻内存（MiB）——比 GPU 档更吃内存（还要放权重 + 激活）。
 RAM_ESTIMATE_MB: Dict[Tuple[str, str, str], int] = {
-    ("faster_whisper", "small", "int8"): 1200,
+    ("faster_whisper", "small", "int8"): 952,
     ("faster_whisper", "medium", "int8"): 2200,
-    ("faster_whisper", "large-v3", "int8"): 4200,
-    ("openai_whisper", "small", "float32"): 1600,
+    ("faster_whisper", "large-v3", "int8"): 3613,
+    ("openai_whisper", "small", "float32"): 1908,
     ("openai_whisper", "medium", "float32"): 3200,
     ("openai_whisper", "large-v3", "float32"): 6800,
 }
