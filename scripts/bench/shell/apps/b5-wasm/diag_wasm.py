@@ -85,7 +85,9 @@ def main() -> int:
     )
     js = path.read_bytes()
     wasm = extract_wasm(js)
-    print(f"[wasm] 提取到 {len(wasm):,} 字节, magic={wasm[:4]!r}, version={int.from_bytes(wasm[4:8], 'little')}")
+    print(
+        f"[wasm] 提取到 {len(wasm):,} 字节, magic={wasm[:4]!r}, version={int.from_bytes(wasm[4:8], 'little')}"
+    )
 
     pos = 8
     type_forms: dict[int, int] = {}
@@ -109,7 +111,9 @@ def main() -> int:
                     p += nr
                 else:
                     # 非函数类型（GC 提案的 struct/array/sub/rec 等）
-                    print(f"    类型[{idx}] form=0x{form:02X} ({form})  <== Chrome 不认识的类型形式")
+                    print(
+                        f"    类型[{idx}] form=0x{form:02X} ({form})  <== Chrome 不认识的类型形式"
+                    )
                     break
         pos += size
     print(f"[wasm] 类型 form 统计: { {hex(k): v for k, v in type_forms.items()} }")

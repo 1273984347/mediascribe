@@ -16,6 +16,7 @@
 
 全部落盘到 output/bench/shell/b5-app/ (被 gitignore 忽略, 不入库)。
 """
+
 from __future__ import annotations
 
 import argparse
@@ -30,9 +31,21 @@ FILES = [
     ("main.js", "https://ggml.ai/whisper.cpp/main.js", "official prebuilt Emscripten bundle"),
     ("libmain.js", "https://ggml.ai/whisper.cpp/libmain.js", "official prebuilt bundle (alias)"),
     ("helpers.js", "https://ggml.ai/whisper.cpp/helpers.js", "official demo helpers"),
-    ("coi-serviceworker.js", "https://ggml.ai/whisper.cpp/coi-serviceworker.js", "cross-origin isolation"),
-    ("ggml-tiny.bin", "https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin", "ggml model (hf-mirror)"),
-    ("jfk.wav", "https://raw.githubusercontent.com/ggml-org/whisper.cpp/master/samples/jfk.wav", "official sample audio"),
+    (
+        "coi-serviceworker.js",
+        "https://ggml.ai/whisper.cpp/coi-serviceworker.js",
+        "cross-origin isolation",
+    ),
+    (
+        "ggml-tiny.bin",
+        "https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
+        "ggml model (hf-mirror)",
+    ),
+    (
+        "jfk.wav",
+        "https://raw.githubusercontent.com/ggml-org/whisper.cpp/master/samples/jfk.wav",
+        "official sample audio",
+    ),
 ]
 
 UA = {"User-Agent": "mediascribe-bench/1.0"}
@@ -69,21 +82,46 @@ def main() -> int:
         t0 = time.perf_counter()
         if dest.is_file() and dest.stat().st_size > 0:
             # 已下载过 —— 跳过, 避免重复拉 74 MiB 权重
-            report.append({"file": name, "url": url, "ok": True,
-                           "bytes": dest.stat().st_size, "sha256": sha256(dest),
-                           "elapsed_ms": 0, "note": note + " (已存在, 跳过下载)"})
+            report.append(
+                {
+                    "file": name,
+                    "url": url,
+                    "ok": True,
+                    "bytes": dest.stat().st_size,
+                    "sha256": sha256(dest),
+                    "elapsed_ms": 0,
+                    "note": note + " (已存在, 跳过下载)",
+                }
+            )
             print(f"[b5-assets] SKIP {name:<22} {dest.stat().st_size:>12,} B  (已存在)")
             continue
         try:
             size = fetch(url, dest)
             ms = round((time.perf_counter() - t0) * 1000, 1)
-            report.append({"file": name, "url": url, "ok": True, "bytes": size,
-                           "sha256": sha256(dest), "elapsed_ms": ms, "note": note})
+            report.append(
+                {
+                    "file": name,
+                    "url": url,
+                    "ok": True,
+                    "bytes": size,
+                    "sha256": sha256(dest),
+                    "elapsed_ms": ms,
+                    "note": note,
+                }
+            )
             print(f"[b5-assets] OK   {name:<22} {size:>12,} B  {ms:>8} ms  <- {url}")
         except Exception as exc:
             ms = round((time.perf_counter() - t0) * 1000, 1)
-            report.append({"file": name, "url": url, "ok": False,
-                           "error": f"{type(exc).__name__}: {exc}", "elapsed_ms": ms, "note": note})
+            report.append(
+                {
+                    "file": name,
+                    "url": url,
+                    "ok": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "elapsed_ms": ms,
+                    "note": note,
+                }
+            )
             print(f"[b5-assets] FAIL {name:<22} {type(exc).__name__}: {exc}  <- {url}")
     return 0 if all(r["ok"] for r in report) else 1
 

@@ -66,6 +66,7 @@ except Exception:  # pragma: no cover - 归一化不可用时退化为原样比�
     def normalize_cjk(text: str, language: str) -> str:  # type: ignore
         return text
 
+
 try:
     import psutil  # type: ignore
 except Exception:  # pragma: no cover
@@ -305,15 +306,26 @@ def plan_matrix(
             for device in devices:
                 if device == "cuda" and not prof.cuda_available:
                     plan.append(
-                        PlanItem(engine, model, device, _default_precision(engine, device),
-                                 enabled=False, skip_reason="本机无 CUDA 设备")
+                        PlanItem(
+                            engine,
+                            model,
+                            device,
+                            _default_precision(engine, device),
+                            enabled=False,
+                            skip_reason="本机无 CUDA 设备",
+                        )
                     )
                     continue
                 if device == "cuda" and prof.gpu_vram_free_mb < min_vram_free_mb:
                     plan.append(
-                        PlanItem(engine, model, device, _default_precision(engine, device),
-                                 enabled=False,
-                                 skip_reason=f"可用显存 {prof.gpu_vram_free_mb}MiB < 下限 {min_vram_free_mb}MiB")
+                        PlanItem(
+                            engine,
+                            model,
+                            device,
+                            _default_precision(engine, device),
+                            enabled=False,
+                            skip_reason=f"可用显存 {prof.gpu_vram_free_mb}MiB < 下限 {min_vram_free_mb}MiB",
+                        )
                     )
                     continue
 
@@ -342,9 +354,7 @@ def plan_matrix(
                                 )
                             else:
                                 item.enabled = False
-                                item.skip_reason = (
-                                    f"显存不足：最轻档 {need}MiB > 预算 {budget}MiB"
-                                )
+                                item.skip_reason = f"显存不足：最轻档 {need}MiB > 预算 {budget}MiB"
                     else:
                         need = RAM_ESTIMATE_MB.get((engine, model, prec), 3000)
                         if need > prof.ram_available_mb:
@@ -589,7 +599,10 @@ class Guard:
             if total:
                 used_pct = used / total * 100
                 if used_pct >= self.vram_abort_pct:
-                    return (False, f"显存占用 {used_pct:.1f}% ≥ 上限 {self.vram_abort_pct}%，拒绝启动")
+                    return (
+                        False,
+                        f"显存占用 {used_pct:.1f}% ≥ 上限 {self.vram_abort_pct}%，拒绝启动",
+                    )
         free_ram = self.sys_ram_free_mb()
         if free_ram < self.sys_ram_start_mb:
             return (False, f"系统可用内存 {free_ram}MiB < 就绪线 {self.sys_ram_start_mb}MiB")
@@ -708,7 +721,11 @@ def tokenize(text: str, language: str) -> List[str]:
         return re.findall(r"[a-z0-9']+", text.lower())
     if language == "mixed":
         toks = re.findall(r"[A-Za-z0-9']+|[^\s]", text)
-        return [t.lower() if t.isascii() else t for t in toks if re.search(r"[0-9A-Za-z\u4e00-\u9fff]", t)]
+        return [
+            t.lower() if t.isascii() else t
+            for t in toks
+            if re.search(r"[0-9A-Za-z\u4e00-\u9fff]", t)
+        ]
     return [c for c in text if re.search(r"[0-9A-Za-z\u4e00-\u9fff]", c)]
 
 
@@ -793,9 +810,7 @@ def run_worker(args: argparse.Namespace) -> int:
                     fp16=(device == "cuda"),
                 )
                 if device == "cuda":
-                    torch_alloc_mb = int(
-                        torch.cuda.max_memory_allocated() / 1024 / 1024
-                    )
+                    torch_alloc_mb = int(torch.cuda.max_memory_allocated() / 1024 / 1024)
             except Exception:
                 raise
             text = result.get("text", "")
@@ -831,7 +846,9 @@ def run_worker(args: argparse.Namespace) -> int:
         payload["normalized_reference"] = normalize_for_cer(ref_text, language)
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.out).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        Path(args.out).write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
     else:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
@@ -868,8 +885,10 @@ def _sample_gpu_usage() -> Tuple[int, int, int]:
 
 def _round_file(out_dir: Path, item: PlanItem, wav_name: str) -> Path:
     """一轮结果的落盘路径（主进程与 worker 共用同一命名规则）。"""
-    return out_dir / "rounds" / (
-        f"{item.engine}_{item.model}_{item.device}_{item.precision}_{Path(wav_name).stem}.json"
+    return (
+        out_dir
+        / "rounds"
+        / (f"{item.engine}_{item.model}_{item.device}_{item.precision}_{Path(wav_name).stem}.json")
     )
 
 
@@ -939,13 +958,20 @@ def run_round(
         sys.executable,
         str(Path(__file__).resolve()),
         "--worker",
-        "--engine", item.engine,
-        "--model", item.model,
-        "--device", item.device,
-        "--precision", item.precision,
-        "--file", wav_name,
-        "--corpus", str(corpus_dir),
-        "--out", str(res_file),
+        "--engine",
+        item.engine,
+        "--model",
+        item.model,
+        "--device",
+        item.device,
+        "--precision",
+        item.precision,
+        "--file",
+        wav_name,
+        "--corpus",
+        str(corpus_dir),
+        "--out",
+        str(res_file),
     ]
     env = dict(os.environ)
     t0 = time.perf_counter()
@@ -1061,9 +1087,7 @@ def run_round(
     # 采样值必须**写回轮次文件** —— 否则断点续跑复用时，峰值显存/内存/温度
     # 这些主进程侧采集的指标会丢失（worker 自己写不了这些）。
     try:
-        res_file.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        res_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception:
         pass
     return payload
@@ -1097,11 +1121,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--enable-float16", action="store_true", help="显存≥12GB 时额外跑 float16 对比")
     p.add_argument("--max-gpu-temp-c", type=int, default=82, help="GPU 软阈值：超过则等待降温")
     p.add_argument("--hard-gpu-temp-c", type=int, default=92, help="GPU 硬阈值：超过则紧急停止")
-    p.add_argument("--sys-ram-abort-mb", type=int, default=512, help="运行中系统可用内存紧急线，跌破即停止")
-    p.add_argument("--sys-ram-start-mb", type=int, default=2048, help="跑前系统可用内存就绪线，不足则等待")
+    p.add_argument(
+        "--sys-ram-abort-mb", type=int, default=512, help="运行中系统可用内存紧急线，跌破即停止"
+    )
+    p.add_argument(
+        "--sys-ram-start-mb", type=int, default=2048, help="跑前系统可用内存就绪线，不足则等待"
+    )
     p.add_argument("--wait-seconds", type=float, default=300.0, help="资源未就绪时的最长等待秒数")
-    p.add_argument("--cpu-abort-pct", type=float, default=97.0, help="CPU 持续占用超过此值即紧急停止")
-    p.add_argument("--disk-min-free-mb", type=int, default=2048, help="输出盘剩余低于此值即紧急停止")
+    p.add_argument(
+        "--cpu-abort-pct", type=float, default=97.0, help="CPU 持续占用超过此值即紧急停止"
+    )
+    p.add_argument(
+        "--disk-min-free-mb", type=int, default=2048, help="输出盘剩余低于此值即紧急停止"
+    )
     p.add_argument("--heartbeat-s", type=float, default=5.0, help="轮内心跳间隔（秒）")
     p.add_argument("--timeout-s", type=int, default=1800)
     p.add_argument("--cooldown-s", type=float, default=3.0)
@@ -1141,9 +1173,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     models = [m.strip() for m in args.models.split(",") if m.strip()]
     devices = [d.strip() for d in args.devices.split(",") if d.strip()]
 
-    plan = plan_matrix(
-        prof, engines, models, devices, enable_float16=args.enable_float16
-    )
+    plan = plan_matrix(prof, engines, models, devices, enable_float16=args.enable_float16)
     files = load_corpus(corpus_dir)
     if args.files:
         wanted = {f.strip() for f in args.files.split(",") if f.strip()}
@@ -1195,8 +1225,13 @@ def main(argv: Optional[List[str]] = None) -> int:
                         rtf_hist.setdefault(it.key(), []).append(float(rt))
                     print(f"{label}\n  [skip] 已有结果，续跑跳过（RTF={rt}）", flush=True)
                     _write_progress(
-                        out_dir, done=done, total=total, current=label,
-                        eta_seconds=_eta(run_times, total - done), prof=prof, guard=guard,
+                        out_dir,
+                        done=done,
+                        total=total,
+                        current=label,
+                        eta_seconds=_eta(run_times, total - done),
+                        prof=prof,
+                        guard=guard,
                     )
                     continue
 
@@ -1215,14 +1250,24 @@ def main(argv: Optional[List[str]] = None) -> int:
                     }
                 )
                 _write_progress(
-                    out_dir, done=done, total=total, current=label,
-                    eta_seconds=_eta(run_times, total - done), prof=prof, guard=guard,
+                    out_dir,
+                    done=done,
+                    total=total,
+                    current=label,
+                    eta_seconds=_eta(run_times, total - done),
+                    prof=prof,
+                    guard=guard,
                 )
                 continue
 
             payload = run_round(
-                it, wav, corpus_dir, guard, out_dir,
-                rtf_hist=rtf_hist, heartbeat_s=args.heartbeat_s,
+                it,
+                wav,
+                corpus_dir,
+                guard,
+                out_dir,
+                rtf_hist=rtf_hist,
+                heartbeat_s=args.heartbeat_s,
             )
             elapsed = float(payload.get("driver_wall_clock_s") or 0.0)
             if elapsed:
@@ -1240,8 +1285,13 @@ def main(argv: Optional[List[str]] = None) -> int:
             )
             results.append(payload)
             _write_progress(
-                out_dir, done=done, total=total, current=label,
-                eta_seconds=_eta(run_times, total - done), prof=prof, guard=guard,
+                out_dir,
+                done=done,
+                total=total,
+                current=label,
+                eta_seconds=_eta(run_times, total - done),
+                prof=prof,
+                guard=guard,
             )
             guard.cooldown(args.cooldown_s)
 

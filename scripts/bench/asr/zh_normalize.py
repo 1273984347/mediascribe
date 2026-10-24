@@ -40,9 +40,7 @@ def _windows_to_simplified(text: str) -> str:
 
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     # 1) 问需要多少个 UTF-16 码元
-    need = kernel32.LCMapStringW(
-        _LOCALE_ZH_CN, _LCMAP_SIMPLIFIED_CHINESE, text, len(text), None, 0
-    )
+    need = kernel32.LCMapStringW(_LOCALE_ZH_CN, _LCMAP_SIMPLIFIED_CHINESE, text, len(text), None, 0)
     if need <= 0:
         return text
     buf = ctypes.create_unicode_buffer(need + 1)

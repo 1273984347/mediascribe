@@ -70,13 +70,18 @@ def run_one(
 
     cmd = [
         str(exe),
-        "-m", str(model),
-        "-f", str(wav),
-        "-l", "auto" if language == "mixed" else language,
+        "-m",
+        str(model),
+        "-f",
+        str(wav),
+        "-l",
+        "auto" if language == "mixed" else language,
         "-otxt",
-        "-of", str(out_prefix),
+        "-of",
+        str(out_prefix),
         "-nt",
-        "-t", str(threads),
+        "-t",
+        str(threads),
     ]
     if extra_args:
         cmd += extra_args
@@ -143,11 +148,27 @@ def run_one(
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    p = argparse.ArgumentParser(description="whisper.cpp benchmark (same corpus & CER as bench_asr)")
+    p = argparse.ArgumentParser(
+        description="whisper.cpp benchmark (same corpus & CER as bench_asr)"
+    )
     p.add_argument("--corpus", type=Path, default=REPO_ROOT / "output" / "bench" / "corpus")
-    p.add_argument("--exe", type=Path, default=REPO_ROOT / "output" / "bench" / "whisper_cpp" / "bin" / "Release" / "whisper-cli.exe")
-    p.add_argument("--models-dir", type=Path, default=REPO_ROOT / "output" / "bench" / "whisper_cpp")
-    p.add_argument("--models", default="ggml-tiny.bin", help="逗号分隔的模型文件名（相对 --models-dir）")
+    p.add_argument(
+        "--exe",
+        type=Path,
+        default=REPO_ROOT
+        / "output"
+        / "bench"
+        / "whisper_cpp"
+        / "bin"
+        / "Release"
+        / "whisper-cli.exe",
+    )
+    p.add_argument(
+        "--models-dir", type=Path, default=REPO_ROOT / "output" / "bench" / "whisper_cpp"
+    )
+    p.add_argument(
+        "--models", default="ggml-tiny.bin", help="逗号分隔的模型文件名（相对 --models-dir）"
+    )
     p.add_argument("--files", default="", help="逗号分隔的语料文件名；空=全部")
     p.add_argument("--threads", type=int, default=8)
     p.add_argument("--out", type=Path, default=REPO_ROOT / "output" / "bench" / "asr_cpp")

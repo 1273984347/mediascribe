@@ -66,9 +66,7 @@ def summarize(results_path: Path) -> Dict[str, Any]:
     for key, rs in sorted(buckets.items()):
         ok = [r for r in rs if classify(r) == "ok"]
         other = [r for r in rs if classify(r) != "ok"]
-        reasons = Counter(
-            str(r.get("abort_reason") or r.get("error") or "")[:90] for r in other
-        )
+        reasons = Counter(str(r.get("abort_reason") or r.get("error") or "")[:90] for r in other)
         rows.append(
             {
                 "engine": key[0],
@@ -119,11 +117,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         )
         print("|---|---|---|---|---|---|---|---|---|---|")
         for r in rows:
-            span = (
-                f"{r['err_min']:.2f}–{r['err_max']:.2f}"
-                if r["err_min"] is not None
-                else "—"
-            )
+            span = f"{r['err_min']:.2f}–{r['err_max']:.2f}" if r["err_min"] is not None else "—"
             print(
                 f"| {r['engine']} | {r['model']} | {r['device']} | {r['precision'] or '—'} "
                 f"| {r['n_ok']}/{r['n_total']} | {r['rtf_median'] if r['rtf_median'] is not None else '—'} "
@@ -142,9 +136,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
-        args.out.write_text(
-            json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        args.out.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"\n[ok] 汇总 -> {args.out}")
     return 0
 

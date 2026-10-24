@@ -9,6 +9,7 @@
 为什么自带生成器: Tauri 在 Windows 上构建时会把 bundle.icon 的 .ico 嵌进 exe 资源,
 图标缺失会让构建在更早的阶段就失败, 从而掩盖真正的阻断原因 (缺 MSVC 链接器)。
 """
+
 from __future__ import annotations
 
 import struct
@@ -27,7 +28,9 @@ def _png(width: int, height: int, pixel) -> bytes:
 
     def chunk(tag: bytes, data: bytes) -> bytes:
         body = tag + data
-        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+        return (
+            struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+        )
 
     return (
         b"\x89PNG\r\n\x1a\n"
@@ -55,21 +58,24 @@ def _ico_bmp(size: int, pixel) -> bytes:
     """单张 size x size 的 BMP/DIB 图像数据 (BITMAPINFOHEADER + BGRA + AND mask)。"""
     header = struct.pack(
         "<IiiHHIIiiII",
-        40,            # biSize
-        size,          # biWidth
-        size * 2,      # biHeight (XOR + AND 合并)
-        1,             # biPlanes
-        32,            # biBitCount
-        0,             # biCompression = BI_RGB
-        0,             # biSizeImage (0 = 可算)
-        0, 0, 0, 0,
+        40,  # biSize
+        size,  # biWidth
+        size * 2,  # biHeight (XOR + AND 合并)
+        1,  # biPlanes
+        32,  # biBitCount
+        0,  # biCompression = BI_RGB
+        0,  # biSizeImage (0 = 可算)
+        0,
+        0,
+        0,
+        0,
     )
     xor = bytearray()
-    for y in range(size - 1, -1, -1):          # BMP 自下而上
+    for y in range(size - 1, -1, -1):  # BMP 自下而上
         for x in range(size):
             r, g, b, a = pixel(x, y, size)
             xor.extend((b, g, r, a))
-    and_stride = ((size + 31) // 32) * 4         # 1bpp, 4 字节对齐
+    and_stride = ((size + 31) // 32) * 4  # 1bpp, 4 字节对齐
     and_mask = bytearray(and_stride * size)
     return bytes(header) + bytes(xor) + bytes(and_mask)
 
