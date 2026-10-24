@@ -2,7 +2,7 @@
 Transcriber factory with automatic fallback.
 
 Order (highest accuracy first):
-    whisperx  →  faster-whisper  →  whisper
+    whisperx  →  faster-whisper  →  whisper  →  whisper-cpp
 
 Each engine has its own strengths:
 - ``whisperx``: best accuracy for Chinese / multilingual + speaker
@@ -10,6 +10,11 @@ Each engine has its own strengths:
 - ``faster-whisper``: pure-Python, no PyTorch. Fast CPU inference.
 - ``whisper``: the original OpenAI Whisper. Always available as a
   baseline.
+- ``whisper-cpp``: the C++/GGML engine — no Python deps at all, and the
+  **lowest memory** of the four (measured peak RSS: 291 MiB for tiny vs
+  952 MiB for faster-whisper small). It needs an external binary + GGML
+  weights, so it is the **last** fallback; when the host is under memory
+  pressure it is moved ahead of ``faster-whisper`` instead.
 """
 
 from __future__ import annotations

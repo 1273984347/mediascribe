@@ -26,7 +26,7 @@ class TestCostProfile(unittest.TestCase):
     """All three engines must have a valid cost profile entry."""
 
     def test_all_engines_have_profile(self):
-        for engine in ("whisper", "faster-whisper", "whisperx"):
+        for engine in ("whisper", "faster-whisper", "whisperx", "whisper-cpp"):
             self.assertIn(engine, benchmark_transcribers.COST_PROFILE)
 
     def test_profile_shape(self):
