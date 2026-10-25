@@ -508,7 +508,10 @@ class TestRunBatchJobErrorHandling(unittest.TestCase):
             async def run_batch(self, urls, runners=None):
                 raise ValueError("boom")
 
-        logger_name = app_module.__name__
+        # _run_batch_job 搬到了 mediascribe.web.job_runner(2026-10-25 职责拆分),
+        # 错误日志打在**该模块自己的** logger 上 —— 断言跟着搬家, 意图不变
+        # (「异常被记录」), 只是记录位置更精确。
+        logger_name = "mediascribe.web.job_runner"
         with self.assertLogs(logging.getLogger(logger_name), level="ERROR"):
             app_module._run_batch_job(FakeAP(), ["u"], {}, [], {})
 

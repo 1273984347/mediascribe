@@ -28,18 +28,20 @@ sys.path.insert(0, str(ROOT))
 
 STATIC = ROOT / "mediascribe" / "web" / "static"
 
-#: 页面里可能出现的本地资源引用（href / src）
-_LOCAL_REF = re.compile(r'(?:href|src)="(/[^"#?]+)"')
+#: 页面里可能出现的本地资源引用（href / src）。
+#: 允许带 query —— 静态资源引用带 ``?v=<缓存版本>``, 用于绕开浏览器旧缓存。
+_LOCAL_REF = re.compile(r'(?:href|src)="(/[^"#]+)"')
 
 
 def _page_refs(html: str) -> list:
-    """从 HTML 里取出所有以 / 开头的本地资源引用（去重、保持顺序）。"""
+    """从 HTML 里取出所有以 / 开头的本地资源引用（去 query、去重、保持顺序）。"""
     seen = []
     for ref in _LOCAL_REF.findall(html):
-        if ref.startswith("/api/") or ref.startswith("/ws"):
+        path = ref.split("?", 1)[0]
+        if path.startswith("/api/") or path.startswith("/ws"):
             continue  # 接口不是静态资源
-        if ref not in seen:
-            seen.append(ref)
+        if path not in seen:
+            seen.append(path)
     return seen
 
 
@@ -163,6 +165,82 @@ class TestStaticAssetsServed(unittest.TestCase):
         """前端必须真的把 notices 显示出来（否则字段传了也白传）。"""
         jobs_js = (STATIC / "modules" / "jobs.js").read_text(encoding="utf-8")
         self.assertIn("notices", jobs_js, msg="jobs.js 未处理提交响应的 notices")
+
+
+class TestStaticCacheControl(unittest.TestCase):
+    """静态资源缓存 —— 改了前端样式, 刷新就必须能看到。
+
+    背景：2026-10-25 排查「改了 styles.css 但页面仍是旧的」，根因是
+    Starlette 的 ``StaticFiles`` 不发 ``Cache-Control``，浏览器按启发式
+    规则长期持有旧样式。修复分两层：
+
+    1. 页面引用带 ``?v=<文件 mtime 毫秒>``（后端注入, 文件一改 URL 就变）
+    2. ``/static/*`` 响应带 ``Cache-Control: no-cache, must-revalidate``
+       —— 这一层是必需的, 因为 ES module 内部的 ``import "./modules/x.js"``
+       路径是静态写死的, query 参数根本管不到它们
+    """
+
+    @staticmethod
+    def _client():
+        from importlib import util
+
+        if util.find_spec("fastapi") is None:
+            raise unittest.SkipTest("fastapi 未安装")
+        from fastapi.testclient import TestClient
+
+        from mediascribe.web.app import create_app
+
+        return TestClient(create_app())
+
+    def test_static_responses_carry_no_cache_header(self):
+        with self._client() as client:
+            resp = client.get("/static/styles.css")
+            self.assertEqual(resp.status_code, 200)
+            self.assertIn(
+                "no-cache",
+                resp.headers.get("cache-control", ""),
+                msg="/static/* 缺少 Cache-Control: no-cache —— 浏览器会一直用旧样式",
+            )
+
+    def test_static_module_responses_carry_no_cache_header(self):
+        """ES module 的 import 路径无法加 query, 只能靠响应头兜底。"""
+        with self._client() as client:
+            resp = client.get("/static/modules/jobs.js")
+            self.assertEqual(resp.status_code, 200)
+            self.assertIn(
+                "no-cache",
+                resp.headers.get("cache-control", ""),
+                msg="模块资源缺少 Cache-Control —— 改模块代码刷新看不到",
+            )
+
+    def test_page_references_carry_version_param(self):
+        """模板里的本地资源引用必须带 ?v= 占位符。"""
+        for page in ("index.html", "wiki.html"):
+            html = (STATIC / page).read_text(encoding="utf-8")
+            refs = re.findall(r'(?:href|src)="(/static/[^"]+)"', html)
+            self.assertTrue(refs, msg=f"{page} 未引用任何静态资源")
+            for ref in refs:
+                self.assertIn(
+                    "?v={{STATIC_VERSION}}",
+                    ref,
+                    msg=f"{page} 的 {ref} 缺少版本占位符 —— 改了样式不会生效",
+                )
+
+    def test_rendered_pages_have_resolved_version(self):
+        """渲染后占位符必须被替换成真实版本号(不留裸占位符)。"""
+        with self._client() as client:
+            for path in ("/", "/wiki"):
+                html = client.get(path).text
+                self.assertNotIn(
+                    "{{STATIC_VERSION}}",
+                    html,
+                    msg=f"{path} 渲染后仍有未替换的 {{STATIC_VERSION}} 占位符",
+                )
+                self.assertRegex(
+                    html,
+                    r'/static/[^"]+\?v=\d+',
+                    msg=f"{path} 的静态资源引用没有带上解析后的版本号",
+                )
 
 
 if __name__ == "__main__":

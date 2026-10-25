@@ -1,4 +1,17 @@
 <!DOCTYPE html>
+<!--
+  MediaScribe 工作台 — 页面模板（Template），不是可直接双击打开的静态页。
+
+  ⚠️ 双击本文件（file://）会看到「坏掉」的页面：无样式、JS 模块不执行、
+     页脚露出 {{APP_VERSION}} 占位符。原因有三：
+     1. 资源用绝对路径 /static/... —— file:// 下会解析到文件系统根，取不到；
+     2. 前端是原生 ES modules（import "./modules/x.js"）—— file:// 被 CORS 拦；
+     3. {{APP_VERSION}} / {{STATIC_VERSION}} 由后端注入（版本号单一真源 +
+        静态资源缓存版本），只有经服务端渲染才会被替换。
+
+  正确用法：python -m mediascribe.web.app --port 8000
+  然后访问 http://127.0.0.1:8000/
+-->
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
@@ -17,7 +30,7 @@
       document.documentElement.dataset.theme = t;
     })();
   </script>
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/styles.css?v={{STATIC_VERSION}}">
 </head>
 <body>
   <header class="console-top">
@@ -143,11 +156,11 @@ https://www.youtube.com/watch?v=…" required></textarea>
     </section>
 
     <footer>
-      <span>MediaScribe v3.3.0 — 本地优先的视频转写工具</span>
+      <span>MediaScribe v{{APP_VERSION}} — 本地优先的视频转写工具</span>
       <span><a href="/wiki">知识库</a> · <a href="/api/health" target="_blank" rel="noopener">/api/health</a> · <a href="/extension" target="_blank" rel="noopener">浏览器扩展</a></span>
     </footer>
   </main>
 
-  <script type="module" src="/static/app.js"></script>
+  <script type="module" src="/static/app.js?v={{STATIC_VERSION}}"></script>
 </body>
 </html>

@@ -7,7 +7,7 @@ Coverage:
 2. ``POST /api/jobs`` async submission + ``GET /api/jobs/{id}/result``
 3. ``POST /api/jobs/{id}/cancel`` REST endpoint + AsyncPipeline linkage
 4. ``ws_progress`` accepts ``{"event": "cancel"}`` from clients
-5. ``/api/health`` exposes ``version: "3.2.0c"`` + cached ``gpu`` block
+5. ``/api/health`` exposes the package ``version`` + cached ``gpu`` block
 
 FastAPI is required; tests skip cleanly when it is missing.
 """
@@ -160,14 +160,16 @@ def _make_client(tmp: Path):
 # ---------------------------------------------------------------------------
 @unittest.skipUnless(_FASTAPI_AVAILABLE, "fastapi not installed")
 class TestHealthV320c(unittest.TestCase):
-    def test_health_reports_v320c_version(self):
+    def test_health_reports_package_version(self):
+        from mediascribe import __version__
+
         with tempfile.TemporaryDirectory() as td:
             client, _ = _make_client(Path(td))
             r = client.get("/api/health")
             self.assertEqual(r.status_code, 200)
             body = r.json()
             self.assertEqual(body["ok"], True)
-            self.assertEqual(body["version"], "3.2.0c")
+            self.assertEqual(body["version"], __version__)
             self.assertIn("gpu", body)
             self.assertIsInstance(body["gpu"], dict)
 
