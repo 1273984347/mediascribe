@@ -167,6 +167,62 @@ class TestStaticAssetsServed(unittest.TestCase):
         self.assertIn("notices", jobs_js, msg="jobs.js 未处理提交响应的 notices")
 
 
+class TestSecondaryTextContrast(unittest.TestCase):
+    """所有前端 CSS 的**次级文字色**不得低于对比度底线。
+
+    2026-10-25 实证：修 Web UI 对比度那轮只改了 ``styles.css``，漏了
+    ``wiki.css`` —— 两者**各自维护一套同名变量**（``--fg-3`` 等），
+    漏改一个就是漏改一整个页面（知识库页的次级文字只有 2.76:1）。
+
+    这条测试遍历 ``static/`` 下所有 CSS：凡是用 ``--fg-3`` 的文件，
+    其浅色/暗色 alpha 都必须达到底线 ⇒ 新增样式文件自动纳入检查。
+    """
+
+    #: 浅色主题下 --fg-3 的 alpha 下限（0.5 ⇒ 约 4.5:1 on #ffffff）
+    MIN_ALPHA_LIGHT = 0.5
+    #: 暗色主题下 --fg-3 的 alpha 下限（0.45 ⇒ 约 4.5:1 on #181817）
+    MIN_ALPHA_DARK = 0.45
+
+    @staticmethod
+    def _alpha(block: str, name: str) -> float | None:
+        """从 CSS 变量块里取 ``--name: rgba(0,0,0,X)`` 的 alpha。"""
+        m = re.search(
+            rf"{re.escape(name)}:\s*rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*([\d.]+)\s*\)",
+            block,
+        )
+        return float(m.group(1)) if m else None
+
+    def test_secondary_text_alpha_meets_contrast_floor(self):
+        checked = 0
+        for css in sorted(STATIC.glob("*.css")):
+            text = css.read_text(encoding="utf-8")
+            for theme, floor in (
+                ("light", self.MIN_ALPHA_LIGHT),
+                ("dark", self.MIN_ALPHA_DARK),
+            ):
+                if theme == "light":
+                    # 浅色是显式的 ``:root[data-theme="light"]`` 块
+                    m = re.search(r'\[data-theme="light"\]\s*\{(.*?)\n\}', text, re.S)
+                else:
+                    # 暗色是**默认**的 ``:root`` 块(浅色块带属性选择器,
+                    # 不会被 ``:root\s*\{`` 匹配到)
+                    m = re.search(r":root\s*\{(.*?)\n\}", text, re.S)
+                self.assertIsNotNone(m, f"{css.name} 里找不到 {theme} 主题块")
+                alpha = self._alpha(m.group(1), "--fg-3")
+                if alpha is None:
+                    continue  # 该文件不定义 --fg-3（用了别的变量体系）
+                checked += 1
+                self.assertGreaterEqual(
+                    alpha,
+                    floor,
+                    msg=(
+                        f"{css.name} 的 {theme} 主题 --fg-3 alpha={alpha} "
+                        f"低于底线 {floor} ⇒ 次级文字对比度不足 WCAG AA"
+                    ),
+                )
+        self.assertGreater(checked, 0, "没有任何 CSS 被检查 —— 规则本身失效了")
+
+
 class TestStaticCacheControl(unittest.TestCase):
     """静态资源缓存 —— 改了前端样式, 刷新就必须能看到。
 
