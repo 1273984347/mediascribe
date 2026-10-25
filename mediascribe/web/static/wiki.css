@@ -5,7 +5,7 @@
   --raised: #1f1f1f;
   --fg: rgba(255, 255, 255, 0.84);
   --fg-2: rgba(255, 255, 255, 0.56);
-  --fg-3: rgba(255, 255, 255, 0.26);
+  --fg-3: rgba(255, 255, 255, 0.48);   /* 4.9:1 on --bg (WCAG AA) */
   --line: rgba(255, 255, 255, 0.12);
   --fill: rgba(255, 255, 255, 0.05);
   --fill-hover: rgba(255, 255, 255, 0.09);
@@ -19,8 +19,8 @@
   --surface: #ffffff;
   --raised: #ffffff;
   --fg: rgba(0, 0, 0, 0.9);
-  --fg-2: rgba(0, 0, 0, 0.56);
-  --fg-3: rgba(0, 0, 0, 0.38);
+  --fg-2: rgba(0, 0, 0, 0.66);        /* 7.3:1 on --surface (WCAG AA) */
+  --fg-3: rgba(0, 0, 0, 0.55);        /* 4.8:1 on --surface (WCAG AA) */
   --line: rgba(0, 0, 0, 0.12);
   --fill: rgba(0, 0, 0, 0.04);
   --fill-hover: rgba(0, 0, 0, 0.07);

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (2026-10-25 知识库页次级文字对比度补齐 + 对比度底线回归测试)
+
+补上一批 Web UI 对比度修复**漏掉的文件**：`mediascribe/web/static/wiki.css` 与
+`styles.css` **各自维护一套同名变量**（`--fg-2` / `--fg-3` 等），那轮只改了
+`styles.css`，知识库页的次级文字仍是浅色 2.76:1 / 暗色 2.35:1。
+
+- `wiki.css` 浅色 `--fg-3` 0.38 → 0.55（4.8:1）、`--fg-2` 0.56 → 0.66（7.3:1），
+  暗色 `--fg-3` 0.26 → 0.48（4.9:1），与 `styles.css` 对齐。
+- 新增 `TestSecondaryTextContrast`：**遍历 `static/` 下所有 CSS**，凡用 `--fg-3`
+  的文件其浅色/暗色 alpha 都必须达到底线 ⇒ 新增样式文件自动纳入检查，
+  不会再漏掉「另一套变量体系」。已做反向验证（退回 0.38 立刻变红）。
+- 顺带实测确认 `extension/popup.css`（`--fg-dim`）与 `extension/options.html`
+  （内联样式）的对比度本就达标（4.55:1 / 7.58:1），未改动。
+
 ### Changed (2026-10-25 Web 层职责拆分：app.py 2088 → 515 行)
 
 执行记录见 [`docs/reports/T03-Web-层职责拆分-任务计划执行与经验沉淀报告-2026-10-25.md`](docs/reports/T03-Web-层职责拆分-任务计划执行与经验沉淀报告-2026-10-25.md)。
