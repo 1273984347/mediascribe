@@ -54,6 +54,7 @@ MODULES = [
     "mediascribe.web.route_wiki",
     "mediascribe.web.route_ws",
     "mediascribe.web.extension_builder",
+    "mediascribe.web.assembly",
     "mediascribe.web.app",
 ]
 

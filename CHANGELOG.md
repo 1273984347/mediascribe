@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (2026-10-25 app.py 二次拆分：装配逻辑抽出 → 391 行)
+
+T03 把 `app.py` 拆到 515 行后，剩下最大的一块是 `create_app`（156 行，占 30%）。
+本轮把它抽到 `mediascribe/web/assembly.py`，`app.py` 只剩**公共门面**。
+
+- 薄壳 `create_app`（56 行）+ 全部历史公共名字的 re-export。
+- **两条不能破的约束**：① fastapi 可用性检查必须留在 `app.py` —— 测试
+  `test_create_app_raises_when_fastapi_missing` 会把 `app._FASTAPI_AVAILABLE`
+  置 False 再调 `create_app()` 期望 RuntimeError，检查若在别的模块就读不到
+  那个 patch；② `pipeline_factory` 由 `app.py` 注入 —— 它在**调用时**才查
+  app 模块全局的 `_build_pipeline`（那里有测试 patch 目标）。
+- `assembly.py` 的 fastapi import 放在**函数体内** —— 顶层会让本模块在无
+  fastapi 时 ImportError；`tests/test_web_optional_deps.py` 的探针已把它纳入
+  覆盖（新增 web 模块漏进探针时那条测试立刻变红 —— 本轮已实测触发一次并
+  补齐）。
+- 顺带清掉 T03 搬移残留的空注释块与死代码，`__all__` 按职责分组紧凑化。
+
+`app.py`：515 → **391 行**（再降 24%）。门禁与端到端实测（真实 HTTP + 真实
+WebSocket）事件流与终态保持一致。
+
 ### Fixed (2026-10-25 知识库页次级文字对比度补齐 + 对比度底线回归测试)
 
 补上一批 Web UI 对比度修复**漏掉的文件**：`mediascribe/web/static/wiki.css` 与

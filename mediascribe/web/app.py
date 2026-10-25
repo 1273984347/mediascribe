@@ -62,21 +62,15 @@ import argparse
 import logging
 import os
 import sys
-import threading
-from concurrent.futures import ThreadPoolExecutor
-from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
-
-if TYPE_CHECKING:  # pragma: no cover - 仅类型检查用
-    pass
+from typing import List, Optional
 
 # FastAPI / Pydantic are optional dependencies.  The CLI may
 # still want to print the help without them, so we keep imports
 # inside the route handlers.
 #
 # 2026-10-25 职责拆分后, 这里的一批 import 只剩下「**探测可用性**」的用途
-# (真正的使用点已搬到 route_*.py / models.py) ⇒ 标 noqa: F401。
+# (真正的使用点已搬到 route_*.py / models.py / assembly.py) ⇒ 标 noqa: F401。
 try:
     from fastapi import (  # noqa: F401 — 仅探测可用性
         Depends,
@@ -87,7 +81,6 @@ try:
         WebSocket,
         status,
     )
-    from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import HTMLResponse, Response  # noqa: F401 — 仅探测可用性
     from fastapi.staticfiles import StaticFiles  # noqa: F401 — 仅探测可用性
     from pydantic import BaseModel, Field, field_validator  # noqa: F401 — 仅探测可用性
@@ -209,20 +202,23 @@ if _FASTAPI_AVAILABLE:
 #: 就住在 app.py, 测试与外部代码用 ``from app import X`` 取)。
 #: 列出它们可让 ruff 认出「这是有意导出」而不是「未使用的 import」。
 __all__ = [
+    # 路由 registrar
     "_register_health_routes",
     "_register_extension_routes",
-    "_import_extension_builder",
-    "_read_extension_manifest_version",
-    "_EXTENSION_MANIFEST_VERSION",
     "_register_page_routes",
     "_register_wiki_routes",
     "_register_transcribe_route",
     "_register_ws_progress_route",
-    "_job_registry",
-    "_pipeline_init_error",
     "_register_job_control_routes",
     "_register_submit_jobs_route",
     "_register_job_result_route",
+    # 路由辅助
+    "_import_extension_builder",
+    "_read_extension_manifest_version",
+    "_EXTENSION_MANIFEST_VERSION",
+    "_job_registry",
+    "_pipeline_init_error",
+    # 基础设置 / URL / CORS / 静态资源
     "_configure_logging_from_env",
     "_public_base_url",
     "_default_cors_origins",
@@ -230,36 +226,45 @@ __all__ = [
     "_resolve_cors_origins",
     "_StaticCacheControl",
     "_static_asset_version",
+    # 校验
     "_validate_public_url",
     "_is_local_path_source",
     "_validate_local_source",
     "_validate_submitted_urls",
     "_revalidate_short_link_target",
+    # 鉴权
     "_trusted_no_auth_client",
     "_require_api_token",
     "_verify_api_token",
     "_env_float",
     "_require_json_content_type",
+    # 限流
     "_RateLimiter",
     "_build_rate_limiter",
     "_enforce_rate_limit",
+    # GPU 健康
     "_cached_gpu_health",
     "_reset_gpu_health_cache",
     "_gpu_health_cache",
     "_gpu_health_lock",
+    # 任务执行
     "_store_job_result",
     "_run_job_safely",
     "_run_batch_job",
+    # WS 桥接
     "_WS_TERMINAL_EVENTS",
     "_aio_queue_put_drop_oldest",
     "_JobEventBridge",
+    # pydantic 模型
     "TranscribeRequest",
     "TranscribeItem",
     "TranscribeResponse",
+    # Pipeline
     "_build_pipeline",
     "_PIPELINE_CACHE",
     "_PIPELINE_CACHE_LOCK",
     "_run_one",
+    # 本模块
     "create_app",
     "main",
     "ROOT",
@@ -269,15 +274,6 @@ __all__ = [
 ROOT = Path(__file__).parent.parent.parent
 
 
-# ---------------------------------------------------------------------------
-# App factory
-# ---------------------------------------------------------------------------
-
-
-# v3.2.0e: Pipeline 实例缓存，按 (engine, model, device, language) 复用。
-# 避免每个 Web 请求重新加载 Whisper 模型（5s+ → 0ms）。
-# v3.2.0e+: 保护 _PIPELINE_CACHE 的 LRU 淘汰与写入，防止并发 race。
-# ---------------------------------------------------------------------------
 # Pipeline 工厂 — 路由层通过它拿 pipeline
 # ---------------------------------------------------------------------------
 # 间接一层是**刻意**的: ``_build_pipeline`` 有测试 patch 目标
@@ -289,16 +285,6 @@ ROOT = Path(__file__).parent.parent.parent
 def _pipeline_factory(req, workspace):
     """构造 Pipeline —— 委托 app 模块的 ``_build_pipeline``。"""
     return _build_pipeline(req, workspace)
-
-
-# ---------------------------------------------------------------------------
-# Background job runner (v3.2.0c Tier 1 — cancel WS bridge)
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# WS progress plumbing (P2-9) — 常驻 drain 线程桥接阻塞 events 队列
-# ---------------------------------------------------------------------------
 
 
 def create_app(
@@ -318,6 +304,18 @@ def create_app(
         cors_origins: explicit list of allowed origins.  ``None`` falls
             back to ``MEDIASCRIBE_CORS_ORIGINS`` or the built-in
             extension-friendly defaults.
+
+    装配逻辑在 ``mediascribe/web/assembly.py``(2026-10-25 拆出); 本函数
+    只做三件**必须留在这里**的事:
+
+    1. **fastapi 可用性检查** —— 必须读本模块的 ``_FASTAPI_AVAILABLE``;
+       测试 ``test_create_app_raises_when_fastapi_missing`` 会把它置 False
+       再调本函数期望 RuntimeError —— 检查若在别的模块, 读到的就是**另一个
+       模块**的标志 ⇒ patch 失效。
+    2. 解析版本号(单一真源)并在**函数体内**导入 —— 顶层导入会把整个
+       ASR 栈(torch)拖进 Web 启动路径。
+    3. 注入 ``_pipeline_factory`` —— 它在**调用时**才查本模块全局的
+       ``_build_pipeline``(那里有测试 patch 目标)。
     """
     if not _FASTAPI_AVAILABLE:
         raise RuntimeError("FastAPI is not installed. Run: pip install mediascribe[web]")
@@ -336,127 +334,15 @@ def create_app(
             "暴露到本机以外之前请务必设置该环境变量。"
         )
 
-    # v3.2.0c-fix: release worker threads + GPU memory on shutdown.
-    # Without this the ``ThreadPoolExecutor`` threads outlive the app
-    # (it is the only deviation in the codebase — every other usage
-    # wraps the executor in a ``with`` block) and may write to a
-    # tempdir that's already been deleted.  ``cancel_futures=True``
-    # abandons not-yet-started submissions; running tasks cooperate
-    # via the ``job.cancelled`` flag between stages.
-    @asynccontextmanager
-    async def _lifespan(app: "FastAPI"):
-        yield
-        executor = getattr(app.state, "job_executor", None)
-        if executor is not None:
-            try:
-                executor.shutdown(wait=False, cancel_futures=True)
-            except Exception as exc:  # pragma: no cover - defensive
-                logger.warning("executor 关闭异常: %r", exc)
-        # P2-9: 停机时叫停所有 WS bridge drain 线程。
-        for bridge in list(getattr(app.state, "ws_bridges", {}).values()):
-            bridge.close()
+    from mediascribe.web.assembly import build_app
 
-    app = FastAPI(
-        title="MediaScribe Web UI",
-        version=__version__,
-        description="Transcribe videos to Markdown from your browser.",
-        lifespan=_lifespan,
+    return build_app(
+        workspace=workspace,
+        api_token=api_token,
+        cors_origins=cors_origins,
+        app_version=__version__,
+        pipeline_factory=_pipeline_factory,
     )
-
-    # CORS — pre-allow extension + local origins; the user can override.
-    if api_token is None:
-        api_token = os.environ.get("MEDIASCRIBE_API_TOKEN", "").strip() or None
-    if cors_origins is None:
-        cors_origins, cors_regex = _resolve_cors_origins()
-    else:
-        cors_regex = None
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=cors_origins,
-        allow_origin_regex=cors_regex,
-        allow_credentials=False,
-        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type"],
-    )
-    # Persist the active token on app.state for tests / introspection.
-    app.state.api_token_configured = bool(api_token)
-    # Rate limiter: per-client, sliding-window.  Default = 10 req / 60 s.
-    # Disable by setting ``MEDIASCRIBE_RATE_LIMIT=0``.
-    app.state.rate_limiter = _build_rate_limiter()
-    # Job progress registry (v3.2.0a) — backs ``/ws/progress/{job_id}``
-    # and the ``/api/jobs/{job_id}`` REST helpers.
-    from mediascribe.progress import ProgressRegistry
-
-    app.state.jobs = ProgressRegistry()
-    # v3.2.0c Tier 1: background job runner — ThreadPoolExecutor for
-    # ``with_progress`` thunks + a results store keyed by job_id.
-    # The executor lives for the lifetime of the app; on shutdown the
-    # pending tasks are abandoned (cooperative cancel inside
-    # ``with_progress`` checks ``job.cancelled`` between stages).
-    # 并发度可通过环境变量覆盖（参考 AsyncPipeline._default_max_concurrent）。
-    # 默认 2：转录是 GPU/IO 密集型，过多并发反而争抢显存。
-    try:
-        _max_workers = int(os.environ.get("MEDIASCRIBE_MAX_WORKERS", "2"))
-    except ValueError:
-        _max_workers = 2
-    if _max_workers <= 0:
-        _max_workers = 2
-    app.state.job_executor = ThreadPoolExecutor(
-        max_workers=_max_workers, thread_name_prefix="v2t-job"
-    )
-    # app.state 属性不能在赋值处写类型标注(mypy: Type cannot be declared
-    # in assignment to non-self attribute), 类型标注提升到局部变量再挂载。
-    job_results: Dict[str, Dict[str, Any]] = {}
-    app.state.job_results = job_results
-    # v3.2.0c-fix (P3-2): lock guarding ``app.state.job_results`` against
-    # concurrent mutation between the worker thread (``_run_job_safely``)
-    # and the /api/health iteration+pop in the request thread. Without
-    # this, /api/health's ``[k for k in app.state.job_results if ...]``
-    # could raise ``RuntimeError: dictionary changed size during
-    # iteration`` when a worker writes between iterations.
-    #
-    # v3.2.0c-fix (R2-F4 rename): the original name ``job_results_lock``
-    # under-described the lock's actual scope. Per the R6 invariant
-    # declared on ``_run_job_safely``, this lock guards BOTH
-    # ``app.state.job_results`` (markdown dict) AND ``app.state.jobs``
-    # (ProgressRegistry mutate paths — purge, future DELETE endpoints).
-    # The renamed ``jobs_state_lock`` reflects that expanded duty so
-    # future maintainers do not assume a narrower "results-only" scope
-    # and add unsynchronised registry mutations.
-    app.state.jobs_state_lock = threading.Lock()
-    # Optional mapping from job_id → AsyncPipeline (for future
-    # async-wired cancellations).  Populated by callers that wrap
-    # Pipeline in AsyncPipeline; empty by default.
-    async_pipelines: Dict[str, Any] = {}
-    app.state.async_pipelines = async_pipelines
-    # P2-9: job_id → WS event bridge (resident drain thread per job).
-    ws_bridges: Dict[str, _JobEventBridge] = {}
-    app.state.ws_bridges = ws_bridges
-    app.state.ws_bridge_lock = threading.Lock()
-
-    # 附加修复: Docker 镜像已设 ``MEDIASCRIBE_WORKSPACE=/workspace`` 且
-    # compose 已挂卷, 但代码此前不读该变量, 导致容器内数据不落卷。
-    if workspace is None:
-        env_ws = os.environ.get("MEDIASCRIBE_WORKSPACE", "").strip()
-        workspace = Path(env_ws) if env_ws else Path.cwd() / "web-workspace"
-
-    # Karpathy 式知识库 vault (mediascribe.wiki) — 每次任务成功后
-    # 把转写稿归档进 <workspace>/vault/; MEDIASCRIBE_WIKI=0 停用。
-    # 配置了 MEDIASCRIBE_LLM_* 时, 概念提取自动生成 wiki/概念 - X.md。
-    from mediascribe.wiki import ConceptExtractor, vault_for_workspace
-
-    app.state.wiki_vault = vault_for_workspace(workspace, extractor=ConceptExtractor.from_env())
-
-    _register_health_routes(app)
-    _register_extension_routes(app)
-    _register_page_routes(app)
-    _register_wiki_routes(app)
-    _register_transcribe_route(app, workspace, _pipeline_factory)
-    _register_ws_progress_route(app)
-    _register_job_control_routes(app)
-    _register_submit_jobs_route(app, workspace, _pipeline_factory)
-    _register_job_result_route(app)
-    return app
 
 
 # ---------------------------------------------------------------------------
@@ -481,16 +367,6 @@ def main(argv: Optional[List[str]] = None) -> int:
     app = create_app(workspace=args.workspace)
     uvicorn.run(app, host=args.host, port=args.port, reload=args.reload)
     return 0
-
-    # -------------------------------------------------------------------
-
-    # -------------------------------------------------------------------------
-    # Job progress (v3.2.0a) — WebSocket-friendly
-    # -------------------------------------------------------------------------
-
-    # -----------------------------------------------------------------
-    # v3.2.0c Tier 1 — async job submission + result retrieval
-    # -----------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
