@@ -1,4 +1,9 @@
 <!DOCTYPE html>
+<!--
+  MediaScribe 知识库视图 — 页面模板（Template）。
+  与 index.html 同理：{{STATIC_VERSION}} 由后端注入，需经服务端访问：
+  python -m mediascribe.web.app --port 8000 → http://127.0.0.1:8000/wiki
+-->
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
@@ -16,7 +21,7 @@
       document.documentElement.dataset.theme = t;
     })();
   </script>
-  <link rel="stylesheet" href="/static/wiki.css">
+  <link rel="stylesheet" href="/static/wiki.css?v={{STATIC_VERSION}}">
 </head>
 <body>
   <header>
@@ -36,6 +41,6 @@
     </div>
   </main>
 
-  <script type="module" src="/static/wiki.js"></script>
+  <script type="module" src="/static/wiki.js?v={{STATIC_VERSION}}"></script>
 </body>
 </html>

@@ -7,7 +7,8 @@
 
 1. ``mediascribe/config.py`` 的 ``_VALID_ENGINES``
 2. ``mediascribe/__main__.py`` 的 ``--engine`` choices
-3. ``mediascribe/web/app.py`` 的 ``TranscribeRequest.engine`` 正则
+3. ``mediascribe/web/models.py`` 的 ``TranscribeRequest.engine`` 正则
+   （2026-10-25 职责拆分前在 ``mediascribe/web/app.py``）
 4. ``mediascribe/transcribers/factory.py`` 的 ``DEFAULT_FALLBACK_CHAIN``
 
 只改了 1、2、4 ⇒ **Web UI 选 whisper-cpp 会被 422 拒绝**（第 3 处漏改）。
@@ -39,10 +40,14 @@ def _cli_engine_choices() -> set:
 
 
 def _web_engine_pattern() -> set:
-    """从 ``mediascribe/web/app.py`` 里解析 engine 的 pydantic 正则。"""
-    source = (ROOT / "mediascribe" / "web" / "app.py").read_text(encoding="utf-8")
+    """从 ``mediascribe/web/models.py`` 里解析 engine 的 pydantic 正则。
+
+    2026-10-25 职责拆分后, pydantic 模型搬到了 ``mediascribe/web/models.py``
+    (``app.py`` 只是 re-export) ⇒ 正则的真正所在也换了地方。
+    """
+    source = (ROOT / "mediascribe" / "web" / "models.py").read_text(encoding="utf-8")
     match = re.search(r'engine: str = Field\("whisper", pattern="\^?(.*?)\$"\)', source)
-    assert match, "未能在 web/app.py 里定位 engine 的 pattern"
+    assert match, "未能在 web/models.py 里定位 engine 的 pattern"
     raw = match.group(1).replace("(", "").replace(")", "")
     return {part for part in raw.split("|") if part}
 

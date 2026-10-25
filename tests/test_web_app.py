@@ -80,7 +80,13 @@ class TestStaticIndexHtml(unittest.TestCase):
             12000,
             msg=f"index.html 仍有 {len(text)} 字节 —— 拆分未生效",
         )
-        self.assertIn('<script type="module" src="/static/app.js">', text)
+        # 断言写成「前缀 + 形态不敏感」：入口脚本可能带 ?v=<缓存版本> 参数,
+        # 写死完整标签会在加缓存参数时误报。
+        self.assertRegex(
+            text,
+            r'<script type="module" src="/static/app\.js(?:\?[^"]*)?">',
+            msg="index.html 缺少指向 app.js 的 module 脚本",
+        )
 
 
 class TestPydanticModelsIfAvailable(unittest.TestCase):

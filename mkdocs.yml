@@ -103,6 +103,8 @@ nav:
   - Report — E2E results: reports/e2e-results.md
   - Report — publishing guide (v3): reports/publishing-v3.md
   - Report — repo cleanup T01 (2026-10-24): reports/T01-文件分类整理-任务计划执行与经验沉淀报告-2026-10-24.md
+  - Report — Web UI fixes T02 (2026-10-25): reports/T02-Web-UI-版本号收敛与前端质量修复-任务计划执行与经验沉淀报告-2026-10-25.md
+  - Report — Web layer split T03 (2026-10-25): reports/T03-Web-层职责拆分-任务计划执行与经验沉淀报告-2026-10-25.md
 
 extra:
   version:

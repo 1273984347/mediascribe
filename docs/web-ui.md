@@ -22,9 +22,17 @@ Open `http://127.0.0.1:8000`.
 The HTML page.  Pure vanilla JS — no React, no build step.  Polls
 `/api/health` every 5 s to render a GPU pill.
 
+The footer version is injected server-side from `mediascribe.__version__`
+— the page template carries a `{{APP_VERSION}}` placeholder and the
+`/` route substitutes it, so the footer and `/api/health` can never
+drift apart.
+
 ### `GET /api/health`
 
-Liveness probe.  Returns `{"ok": true, "version": "3.2.0c", "gpu": {...}}`.
+Liveness probe.  Returns `{"ok": true, "version": "<package version>", "gpu": {...}}`.
+
+`version` is the package version (`mediascribe.__version__`, currently
+`3.3.0`) — the same value the OpenAPI schema and the page footer use.
 
 The `gpu` block is cached for 1 s server-side (the dashboard polls
 every few seconds; each `torch.cuda.*` probe costs ~30 ms).

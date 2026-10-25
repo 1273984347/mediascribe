@@ -3,6 +3,7 @@ MediaScribe - 视频转文字工具
 深度整合 yt-dlp、bili2text、WhisperX、whisper.cpp
 """
 
+from ._version import __version__
 from .config import Settings
 from .downloaders import DouyinDownloader, Downloader, YtDlpDownloader
 from .learn import (
@@ -33,7 +34,6 @@ from .transcribers import (
     WhisperXTranscriber,
 )
 
-__version__ = "3.3.0"
 __all__ = [
     "Settings",
     "SourceRef",

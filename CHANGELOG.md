@@ -7,6 +7,78 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (2026-10-25 Web 层职责拆分：app.py 2088 → 515 行)
+
+执行记录见 [`docs/reports/T03-Web-层职责拆分-任务计划执行与经验沉淀报告-2026-10-25.md`](docs/reports/T03-Web-层职责拆分-任务计划执行与经验沉淀报告-2026-10-25.md)。
+
+把 `mediascribe/web/app.py`（原 2088 行 / 92 KB，仓库最大单文件）按职责拆成
+**19 个子模块**，app.py 只剩装配层（515 行，−75%）。**本次拆分本身是纯重构，
+对外行为零变化**（同批次的 T02 另有刻意的行为变更，已单列于下）。
+
+- **辅助逻辑层（12 个）** —— `logging_setup` / `public_url` / `cors` / `static_assets` /
+  `validation` / `security` / `ratelimit` / `gpu_health` / `job_runner` / `ws_bridge` /
+  `models` / `pipeline_bridge`。
+- **路由层（7 个）** —— `route_health` / `route_extension` / `route_pages` / `route_wiki` /
+  `route_transcribe` / `route_ws` / `route_jobs`。
+- **函数体逐字搬移**（AST 定位区间 + 脚本切片，不手抄）⇒ 逻辑零改动。
+- **子模块 import 全部用绝对路径** `from mediascribe.web.x import Y` —— 测试同时用
+  `import app`（裸模块）与 `import mediascribe.web.app`（包路径）两条路径加载，
+  相对导入会让两条路径各拿一份子模块实例 ⇒ 类对象 identity 分叉。
+- **`_build_pipeline` 改为经 `_pipeline_factory` 间接注入** —— 它有测试 patch 目标
+  （`mock.patch("app._build_pipeline")`），且测试顺序是「先 `create_app` 再 patch」，
+  直接传参会在装配期捕获原函数 ⇒ patch 失效；工厂在**调用时**才查模块全局，
+  patch 语义与拆分前一致。
+- `app.py` 保留全部历史公共名字的 **re-export**（`__all__` 列 55 个），
+  `from app import X` 的用法不受影响。
+- ⚠️ **可观察变化**：日志来源名从 `mediascribe.web.app` 细化为
+  `mediascribe.web.<子模块>`（定位更准，但运维上可见）。
+- **可选依赖契约修复** —— 独立盲审实测发现：fastapi 缺失时，7 个 route 模块顶层
+  `from fastapi import …` 会让 `import mediascribe.web.app` 直接 ImportError，
+  `create_app()` 的 `RuntimeError("FastAPI is not installed…")` 成了死代码；
+  `security.py` 的兜底把 `Header` 置 `None`，而 `Header(default=None)` 在**默认
+  参数**位置、函数定义时求值 ⇒ 兜底自身就抛 `TypeError`。
+  ⇒ 路由模块改用**惰性 `Depends` 包装**，路由导入纳入 `_FASTAPI_AVAILABLE` 条件。
+  新增 `tests/test_web_optional_deps.py` 锁死该契约（子进程屏蔽 fastapi/pydantic/
+  starlette 后逐个 import 全部 21 个 web 模块，并断言 `create_app()` 抛
+  `RuntimeError`）。
+
+### Fixed (2026-10-25 Web UI 版本号收敛 + 前端质量修复)
+
+执行记录见 [`docs/reports/T02-Web-UI-版本号收敛与前端质量修复-任务计划执行与经验沉淀报告-2026-10-25.md`](docs/reports/T02-Web-UI-版本号收敛与前端质量修复-任务计划执行与经验沉淀报告-2026-10-25.md)。
+
+- **版本号收敛为单一真源** —— 同一产品曾在三处各说各话：`/api/health` 报 `3.2.0c`、
+  页脚写 `v3.3.0`、包真源是 `3.3.0`。新增零依赖的 `mediascribe/_version.py` 持有
+  `__version__`；`FastAPI(version=…)` 与 `/api/health` 改用同一常量，页脚版本号改为
+  后端注入 `{{APP_VERSION}}`（模板不再硬编码字面量）。
+  ⇒ 连带修掉一条**把旧漂移值固化成期望值的旧测试**（`test_health_reports_v320c_version`），
+  并新增 `tests/test_version_consistency.py`（6 条）锁死「真源 → 各出口」，含防回退断言。
+- **首屏整块白闪** —— 入场动画的 `animation-fill-mode: both` 叠加 `nth-child` 延迟链，
+  把主体钉在首帧 `opacity:0`，表现为刷新时白闪一下。去掉延迟链、时长 0.4s → 0.25s、
+  `from` 帧保留 0.35 透明度 ⇒ 实测 229ms 即完整渲染（改前 312–383ms 整块全白）。
+- **次级文字对比度修到 WCAG AA** —— `.hint` 与 `::placeholder` 用的 `--fg-3` 在浅色主题
+  只有 2.76:1、**默认的暗色主题**只有 2.35:1。浅色 `--fg-3` 0.38 → 0.55（4.8:1）、
+  `--fg-2` 0.56 → 0.66（7.3:1，保住三级文字层级），暗色 `--fg-3` 0.26 → 0.48（4.9:1）。
+- **静态资源不再被浏览器缓存** —— Starlette 的 `StaticFiles` 不发 `Cache-Control`，
+  改完前端样式页面仍是旧的（截图字节数与改前完全相同）。改为两层：页面引用带
+  `?v=<文件 mtime 毫秒>`（后端注入）+ `/static/*` 响应带 `no-cache, must-revalidate`。
+  ⇒ 第二层不可省：ES module 内部 `import "./modules/x.js"` 路径是静态写死的，query 根本管不到。
+  新增 `TestStaticCacheControl`（4 条）覆盖两条路径。
+
+### Added (2026-10-25 Web UI 单文件离线预览版)
+
+新增 `scripts/tools/build_standalone_web.py` —— 把 Web UI 打包成**自包含的单文件
+HTML**（双击即开，无需服务端、无需构建）。
+
+- **ES module 图 → IIFE 闭包序列** —— `import { a } from './x.js'` → `const { a } = __mod_x;`、
+  `export { a, b }` → `return { a, b };`，按依赖拓扑序 `dom → theme/status/gpu/auth → jobs`
+  展开。保留模块闭包语义是为了避免跨模块同名符号冲突（`dom.js` 与 `status.js` 都有
+  `statusEl`）；转换规则未覆盖时会直接报错，不产出半坏的文件。
+- **内联 CSS + 替换占位符** —— `{{APP_VERSION}}` 取自 `mediascribe/_version.py`（版本号
+  单一真源），`{{STATIC_VERSION}}` 用 mtime 毫秒。
+- **离线适配层** —— `file://` 下拦截 `fetch` / `WebSocket`，给出「离线预览版：界面可交互，
+  提交转写需启动服务端」而不是 `Failed to fetch`。
+- 边界：单文件版**只有界面**；提交转写 / WS 实时进度 / 结果取回都依赖后端 API。
+
 ### Changed (2026-10-24 全量文件分类整理：单一产品包 + 单一文档面 + 脚本分层)
 
 仓库经过一次覆盖全部目录的结构整理，目标是消除命名误导、目录错位与文档漂移。

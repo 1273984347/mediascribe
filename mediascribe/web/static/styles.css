@@ -12,7 +12,7 @@
   --field-bg: #121212;
   --fg: rgba(255, 255, 255, 0.84);
   --fg-2: rgba(255, 255, 255, 0.56);
-  --fg-3: rgba(255, 255, 255, 0.26);
+  --fg-3: rgba(255, 255, 255, 0.48);   /* 4.9:1 on --bg (WCAG AA) */
   --line: rgba(255, 255, 255, 0.12);
   --line-strong: rgba(255, 255, 255, 0.32);
   --fill: rgba(255, 255, 255, 0.05);
@@ -39,8 +39,8 @@
   --raised: #ffffff;
   --field-bg: rgba(0, 0, 0, 0.03);
   --fg: rgba(0, 0, 0, 0.9);
-  --fg-2: rgba(0, 0, 0, 0.56);
-  --fg-3: rgba(0, 0, 0, 0.38);
+  --fg-2: rgba(0, 0, 0, 0.66);        /* 7.3:1 on --surface (WCAG AA) */
+  --fg-3: rgba(0, 0, 0, 0.55);        /* 4.8:1 on --surface (WCAG AA) */
   --line: rgba(0, 0, 0, 0.12);
   --line-strong: rgba(0, 0, 0, 0.32);
   --fill: rgba(0, 0, 0, 0.04);
@@ -108,12 +108,12 @@ body {
 
 /* ============ 主体 ============ */
 main { max-width: 880px; margin: 0 auto; padding: 36px 20px 40px; }
-main > * { animation: rise 0.4s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
-main > *:nth-child(2) { animation-delay: 0.05s; }
-main > *:nth-child(3) { animation-delay: 0.1s; }
-main > *:nth-child(4) { animation-delay: 0.15s; }
-main > *:nth-child(5) { animation-delay: 0.2s; }
-@keyframes rise { from { opacity: 0; transform: translateY(10px); } }
+/* 入场动效：主体各块同时起、0.25s 走完。
+   关键改动：不设 animation-delay，且 from 帧保留 0.35 透明度 ——
+   旧写法(nth-child 延迟链 + animation-fill-mode:both)会把元素钉在
+   首帧的 opacity:0，表现为「首屏整块白闪一下」。 */
+main > * { animation: rise 0.25s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+@keyframes rise { from { opacity: 0.35; transform: translateY(8px); } }
 
 .hero { margin: 4px 0 28px; }
 .hero h1 {
