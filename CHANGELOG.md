@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (2026-10-29 对抗性审查修复:P0×2 + P1×4)
+
+**P0-1 凭据外泄** —— 平台识别原为「小写 URL 子串匹配」，`https://evil.com/mp.weixin.qq.com/s`
+会被路由进公众号下载器并把**微信登录 cookies 发往攻击者主机**；文章内提取的任意
+video/image URL 下载时同样带 cookies。修复：`match_platform` 改主机名精确/子域匹配
+（`douyinvod.com` 并入指纹表），`wechat_mp/douyin/xiaohongshu` 下载器入口主机断言，
+微信 cookies 仅发腾讯系域名（`security.TENCENT_CDN_DOMAINS` 门控），文章提取的视频/
+图片地址只信腾讯 CDN。**行为变化**：平台域名只出现在路径里的 URL 不再进平台下载器。
+
+**P0-2 硬件自适应回归** —— `runtime_guard.plan()` 规则 1/4 直接把引擎切成
+whisper-cpp 且不查可用性、pipeline 无兜底：没装 whisper.cpp 的 Mac 全部与总内存
+<8192 MiB 的机器，升级后**原本能跑的配置转录期硬失败**。修复：换引擎前先
+`is_available()`，不可用则保留原引擎仅按资源降档，通知给出预置指引。
+
+**P1 修复** —— ① `docs/getting-started.md` / `wechat-mp.md` 快速上手命令实测全部
+不可执行（`--url`/`--ocr-engine`/`--max`/`--bilingual` 均不存在），逐条对照 argparse
+重写；② `TRUSTED_DOMAINS` 缺 4 个受支持平台域名 → batch 下载前检查误拒 +
+MCP `validate_url` 对任意域名报 `safe:true`（改走 `check_url_safety`，返回补 `reason`）；
+③ whisperx 模型缓存键缺 `language` → Web 混语言静默错用模型（键补 language）；
+④ **t() 与英文 docstring 规则恢复执行**：审查点名面（`__main__`/runtime_guard/
+whisper_cpp/model_weights/verify/pipeline 粤语警告/web 校验/下载器报错）全部转
+`t()`（约 130 个双语 key），7 个新模块 58 条 docstring 全量转英文，并新增
+`tests/test_i18n_guard.py` AST 门禁（CJK print/raise 基线外直接红灯，存量基线
+170 处 → 45 处，只减不增）。
+
+新增一致性测试 `tests/test_platform_consistency.py`：指纹表 ⊆ TRUSTED_DOMAINS、
+伪装 URL 不命中平台路由、下载器入口拒绝、cookies 域门控。
+
+
 ### Changed (2026-10-25 app.py 二次拆分：装配逻辑抽出 → 391 行)
 
 T03 把 `app.py` 拆到 515 行后，剩下最大的一块是 `create_app`（156 行，占 30%）。
