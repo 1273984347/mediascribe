@@ -130,9 +130,10 @@ TOOL_LIST = [
     {
         "name": "validate_url",
         "description": (
-            "Check whether a URL is safe to fetch (HTTPS only, trusted domain, "
-            "no embedded scripts). Use before passing user-supplied URLs into "
-            "downloaders."
+            "Check whether a URL is safe to fetch (HTTPS only, trusted domain "
+            "allowlist, no embedded scripts). Use before passing user-supplied "
+            "URLs into downloaders. Returns ``safe`` plus a ``reason`` when "
+            "unsafe — never process URLs reported unsafe."
         ),
         "inputSchema": {
             "type": "object",
@@ -288,10 +289,14 @@ TOOL_LIST = [
 
 
 def _tool_validate_url(args: Dict[str, Any]) -> Dict[str, Any]:
-    from mediascribe.security import is_safe_url
+    # 域名白名单版检查（check_url_safety）。历史上这里用 is_safe_url
+    # （纯格式检查），``https://evil.com/x`` 会得到 safe:true，误导
+    # 下游 Agent（2026-10-29 审查 SEC-004）。
+    from mediascribe.security import check_url_safety
 
     url = args.get("url", "")
-    return {"url": url, "safe": is_safe_url(url)}
+    safe, reason = check_url_safety(url)
+    return {"url": url, "safe": safe, "reason": reason}
 
 
 def _tool_sanitize_filename(args: Dict[str, Any]) -> Dict[str, Any]:
