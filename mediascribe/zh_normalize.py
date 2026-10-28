@@ -1,35 +1,46 @@
 """
-中文繁简归一化 —— 让不同引擎的转写稿字形一致。
+Chinese script normalization (traditional → simplified) — keeps transcript
+glyphs consistent across engines.
 
-问题
-----
-Whisper 的多语言训练语料里中文**简繁混杂**，不同推理后端的默认输出不同。
-2026-10-23 的同源对比实测（同一段音频、同一模型档）：
+Problem
+-------
+Whisper's multilingual training corpus mixes simplified and traditional
+Chinese, and different inference backends default to different scripts.
+Same-source comparison measured on 2026-10-23 (same audio, same model tier):
 
 ===================  ==================  ====================
-引擎                 输出字形            字级 CER（未归一化 / 归一化）
+Engine               Output script       CER (raw / normalized)
 ===================  ==================  ====================
-faster-whisper       简体                3.21% / 3.21%
-openai-whisper       **繁体**            33.61% / **0.41%**
-whisper.cpp          **繁体**            81.56% / **1.19%**
+faster-whisper       simplified          3.21% / 3.21%
+openai-whisper       **traditional**     33.61% / **0.41%**
+whisper.cpp          **traditional**     81.56% / **1.19%**
 ===================  ==================  ====================
 
-差异**不是识别能力差异，是字形差异**。跨引擎比较必须先归一化，否则会得出
-「openai-whisper 差 10 倍」「whisper.cpp 中文几乎不可用」两个完全错误的结论。
+The gap is **a glyph difference, not a recognition-quality difference**.
+Cross-engine comparison must normalize first, otherwise you draw two
+entirely wrong conclusions ("openai-whisper is 10x worse", "whisper.cpp
+is unusable for Chinese").
 
-同理，对产品而言：**换引擎会直接改变用户看到的转写稿字形**。
+Likewise for the product: **switching engines changes the script users
+see in their transcripts.**
 
-双层防御
---------
-1. **源头（跨平台有效，主力）**：各引擎在中文场景注入简体 ``initial_prompt``，
-   让模型**直接生成简体** —— 比事后转换自然得多（不会出现转换带来的用词差异）。
-2. **兜底（仅 Windows 有效）**：输出层做繁→简转换，用 Windows 内置
-   ``LCMapStringW(LCMAP_SIMPLIFIED_CHINESE)``，**零第三方依赖**
-   （本项目要求不引入新依赖：离线产品 + PyPI 常不可达，装不了 opencc/zhconv）。
+Two-layer defense
+-----------------
+1. **At the source (cross-platform, the primary layer)**: engines inject a
+   simplified-Chinese ``initial_prompt`` for Chinese tasks so the model
+   **generates simplified directly** — far more natural than after-the-fact
+   conversion (no conversion-induced wording drift).
+2. **Fallback (Windows only)**: the output layer converts traditional →
+   simplified via the built-in ``LCMapStringW(LCMAP_SIMPLIFIED_CHINESE)``,
+   with **zero third-party dependencies** (this project forbids new
+   dependencies: offline product + PyPI often unreachable, so opencc /
+   zhconv are not installable).
 
-非 Windows 平台（macOS / Linux）没有可用的零依赖转换器，兜底层退化为
-**原样返回**；此时字形一致性完全依赖第 1 层。:func:`conversion_available`
-可查询当前平台是否具备兜底能力，``mediascribe doctor`` 会显示该状态。
+Non-Windows platforms (macOS / Linux) have no zero-dependency converter,
+so the fallback layer degrades to **returning text unchanged**; script
+consistency then rests entirely on layer 1. Use
+:func:`conversion_available` to query whether the fallback works on the
+current platform; ``mediascribe doctor`` reports this state.
 """
 
 from __future__ import annotations
@@ -40,10 +51,12 @@ from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 
-#: 注入给模型的简体引导语。Whisper 会把它当作「前文语境」，从而倾向输出简体。
+#: Simplified-Chinese prompt injected into the model. Whisper treats it as
+#: preceding context and tends to continue in simplified script.
 SIMPLIFIED_ZH_PROMPT = "以下是简体中文的句子。"
 
-#: 判断「这是中文转写」的粗粒度判定：语言码以 zh 开头，或文本含中文且无其他语言码。
+#: Coarse "this is a Chinese transcription" test: language code starts with
+#: one of these prefixes.
 _ZH_LANGUAGES = ("zh", "yue", "cmn")
 
 _converter: Optional[Callable[[str], str]] = None
@@ -52,7 +65,7 @@ _warned_unavailable = False
 
 
 def _windows_to_simplified(text: str) -> str:
-    """用 Windows 的 ``LCMapStringW`` 把繁体转成简体。"""
+    """Convert traditional to simplified via Windows ``LCMapStringW``."""
     import ctypes
 
     locale_zh_cn = 0x0804
@@ -67,35 +80,35 @@ def _windows_to_simplified(text: str) -> str:
     )
     if got <= 0:
         return text
-    # ctypes 的 unicode buffer 切片在类型上是 list[str] —— join 成 str
+    # ctypes unicode buffer slices are list[str] — join into str
     return "".join(buf[:got])
 
 
 def _resolve_converter() -> Optional[Callable[[str], str]]:
-    """探测当前平台是否具备零依赖的繁→简转换能力。"""
+    """Detect whether this platform has a zero-dependency traditional→simplified converter."""
     global _converter, _checked
     if _checked:
         return _converter
     _checked = True
     if os.name == "nt":
         try:
-            # 自检一次，确认这台机器的 LCMapStringW 行为正常
+            # Self-probe once to confirm LCMapStringW behaves on this machine
             probe = _windows_to_simplified("觀眾")
             if probe and probe != "觀眾":
                 _converter = _windows_to_simplified
-        except Exception as exc:  # pragma: no cover - 平台相关
-            logger.debug("Windows 繁简转换探测失败: %s", exc)
+        except Exception as exc:  # pragma: no cover - platform dependent
+            logger.debug("Windows script conversion probe failed: %s", exc)
             _converter = None
     return _converter
 
 
 def conversion_available() -> bool:
-    """当前平台是否支持零依赖的繁→简转换（兜底层是否生效）。"""
+    """Whether this platform supports the zero-dependency traditional→simplified fallback."""
     return _resolve_converter() is not None
 
 
 def to_simplified(text: str) -> str:
-    """繁体→简体。平台不支持时**原样返回**（不改变既有文本）。"""
+    """Traditional → simplified. Returns text **unchanged** on unsupported platforms."""
     if not text:
         return text
     converter = _resolve_converter()
@@ -110,12 +123,12 @@ def to_simplified(text: str) -> str:
         return text
     try:
         return converter(text)
-    except Exception:  # pragma: no cover - 转换失败不应破坏转写结果
+    except Exception:  # pragma: no cover - conversion failure must not corrupt transcripts
         return text
 
 
 def is_zh_language(language: Optional[str]) -> bool:
-    """判断语言码是否属于「需要简繁统一」的中文族。"""
+    """Whether the language code belongs to the Chinese family needing script normalization."""
     if not language:
         return False
     lang = language.strip().lower()
@@ -123,12 +136,13 @@ def is_zh_language(language: Optional[str]) -> bool:
 
 
 def is_yue_language(language: Optional[str]) -> bool:
-    """判断语言码是否为粤语（``yue``）。
+    """Whether the language code is Cantonese (``yue``).
 
-    粤语在 tiny/base/small/medium 档位上识别质量很差（官方对 yue 的
-    训练数据有限，小模型常按普通话音素解码），auto 模型推荐与弱模型
-    警告都以本判定为准。大小写不敏感，``yue-HK`` 这类带区域后缀的
-    写法同样命中。
+    Cantonese recognition quality is poor on tiny/base/small/medium (the
+    official yue training data is limited and small models often decode with
+    Mandarin phonemes); both the ``auto`` model recommendation and the weak
+    model warning key off this predicate. Case-insensitive; regional
+    suffixes like ``yue-HK`` match too.
     """
     if not language:
         return False
@@ -136,17 +150,18 @@ def is_yue_language(language: Optional[str]) -> bool:
 
 
 def simplified_initial_prompt(prompt: Optional[str], language: Optional[str]) -> Optional[str]:
-    """中文场景下补一个简体引导 prompt。
+    """Fill in a simplified-Chinese initial prompt for Chinese tasks.
 
-    调用方**显式传了** prompt 时不覆盖 —— 用户自定义的 prompt 往往包含
-    专有名词/术语表，优先级高于通用引导语。
+    Never overrides a caller-supplied prompt — user prompts usually carry
+    proper nouns / glossaries and outrank the generic hint.
 
     Parameters
     ----------
     prompt
-        调用方传入的 initial_prompt（可能为 ``None``）。
+        Caller-provided initial_prompt (may be ``None``).
     language
-        语言码（如 ``"zh"``）。非中文语言返回原值。
+        Language code (e.g. ``"zh"``). Non-Chinese languages return the
+        original value.
     """
     if prompt is not None:
         return prompt
@@ -156,16 +171,18 @@ def simplified_initial_prompt(prompt: Optional[str], language: Optional[str]) ->
 
 
 def normalize_text(text: str, language: Optional[str] = None, enabled: bool = True) -> str:
-    """输出层兜底归一化。
+    """Output-layer fallback normalization.
 
     Parameters
     ----------
     text
-        原始文本。
+        Raw text.
     language
-        语言码。``None`` 时按「含中文即处理」的宽松策略。
+        Language code. ``None`` applies the loose "contains Chinese →
+        process" policy.
     enabled
-        总开关（``Settings.zh_simplify``）。关闭时原样返回。
+        Master switch (``Settings.zh_simplify``). Returns text unchanged
+        when off.
     """
     if not enabled or not text:
         return text

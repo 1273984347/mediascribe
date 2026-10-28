@@ -1,29 +1,38 @@
 """
-whisper.cpp 转录器（C++/GGML 引擎）—— 资源受限场景的第三条腿。
+whisper.cpp transcriber (C++/GGML engine) — the third leg for
+resource-constrained machines.
 
-定位
-----
-2026-10-23 的本机实测（RTX 4060 Laptop / i7-13650HX / 16 GB）：
+Positioning
+-----------
+Local measurements, 2026-10-23 (RTX 4060 Laptop / i7-13650HX / 16 GB):
 
 =================  ============  ==============  ==============
-引擎                档位           RTF            峰值内存
+Engine             Tier          RTF             Peak RAM
 =================  ============  ==============  ==============
 faster-whisper     small (CUDA)   0.1336          1167 MiB
 faster-whisper     large-v3(CPU)  1.334           3613 MiB
-**whisper.cpp**     **tiny (CPU)**  **0.0504**     **291 MiB**
+**whisper.cpp**     **tiny (CPU)** **0.0504**     **291 MiB**
 =================  ============  ==============  ==============
 
-⇒ whisper.cpp 是三者里**最省内存、最快（CPU 档）**的方案，也是唯一能在
-「无 GPU + 4 GB 内存老机器」上跑起来的路线。但它需要**外部二进制**与
-**GGML 权重**预置（本产品要求完全离线 ⇒ 权重必须预置，不能到时再下）。
+⇒ whisper.cpp is the **most memory-frugal and fastest (CPU tier)** of the
+three, and the only route that runs on an "old machine with no GPU + 4 GB
+RAM". It does require an **external binary** and **GGML weights** to be
+pre-provisioned (this product must run fully offline ⇒ weights must be
+placed in advance, not downloaded on demand).
 
-与其它引擎的差异（已按 2026-10-23 实测处理）
-------------------------------------------
-* **中文默认输出繁体** ⇒ 已通过简体 ``initial_prompt`` 引导 + 输出层
-  归一化处理（见 :mod:`mediascribe.zh_normalize`）。
-* **默认不做 VAD** ⇒ 噪声音频上幻觉严重（实测重度噪声档错误率 84–86%）。
-  本实现**默认启用 VAD**（若 VAD 模型已预置），否则退回无 VAD 并告警。
-* 需要 16 kHz mono WAV ⇒ 其它格式用 ffmpeg 临时转码。
+Differences vs the other engines (handled per 2026-10-23/24 measurements)
+------------------------------------------------------------------------
+* **Chinese defaults to traditional script** ⇒ handled via the simplified
+  ``initial_prompt`` nudge + output-layer normalization (see
+  :mod:`mediascribe.zh_normalize`).
+* **No VAD by default** ⇒ severe hallucinations on noisy audio (measured
+  84–86% error rate on the heavy-noise tier). Engine-layer VAD is
+  therefore **opt-in** (``vad=True``): clean-audio accuracy measurably
+  *degrades* under tiny-model VAD (see the class docstring), and the
+  pipeline already runs its own VAD + chunking. When enabled but the VAD
+  model is absent, it falls back to no-VAD with a warning.
+* Requires 16 kHz mono WAV ⇒ other formats are transcoded via ffmpeg
+  into a temp file.
 """
 
 from __future__ import annotations
@@ -37,6 +46,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, List, Optional
 
+from ..i18n import t
 from ..zh_normalize import simplified_initial_prompt
 from .base import Transcriber
 
@@ -66,11 +76,12 @@ _SYSTEM_DIRS = ("C:/Windows/System32", "C:/Windows/SysWOW64")
 
 
 def _is_plausible_binary(path: Path) -> bool:
-    """排除「名字像、实际不是」的系统文件。
+    """Reject system files that merely look like the binary.
 
-    实测踩坑：``shutil.which("main.exe")`` 在 Windows 上会返回
-    ``C:\\Windows\\system32\\main.CPL``（控制面板）⇒ 曾把系统文件当成
-    whisper.cpp 的二进制，导致引擎被误判为「可用」。
+    Pitfall measured in practice: on Windows ``shutil.which("main.exe")``
+    returns ``C:\\Windows\\system32\\main.CPL`` (Control Panel) ⇒ the
+    system file was once mistaken for the whisper.cpp binary, making the
+    engine look "available".
     """
     try:
         if not path.is_file() or path.stat().st_size < _MIN_BIN_BYTES:
@@ -86,16 +97,17 @@ _VAD_MODEL_NAMES = ("ggml-silero-v6.2.0.bin", "ggml-silero-v5.1.2.bin")
 
 
 def models_dir() -> Path:
-    """GGML 权重目录。"""
+    """GGML weight directory."""
     env = os.environ.get("MEDIASCRIBE_WHISPER_CPP_MODELS", "").strip()
     return Path(env) if env else DEFAULT_MODELS_DIR
 
 
 def find_binary() -> Optional[Path]:
-    """定位 whisper.cpp 的可执行文件。
+    """Locate the whisper.cpp executable.
 
-    查找顺序：``MEDIASCRIBE_WHISPER_CPP_BIN`` 环境变量 → PATH → 常见安装目录。
-    找不到返回 ``None``（不抛异常 —— 让上层按「引擎不可用」处理）。
+    Search order: ``MEDIASCRIBE_WHISPER_CPP_BIN`` env var → PATH → common
+    install directories. Returns ``None`` when not found (no exception —
+    callers treat it as "engine unavailable").
     """
     env = os.environ.get("MEDIASCRIBE_WHISPER_CPP_BIN", "").strip()
     if env:
@@ -115,11 +127,13 @@ def find_binary() -> Optional[Path]:
 
 
 def missing_runtime_dlls(binary: Path) -> List[str]:
-    """列出 whisper.cpp 运行时缺失的 DLL（官方包是动态链接的）。
+    """List runtime DLLs missing next to the binary (the official package
+    is dynamically linked).
 
-    实测踩坑：只预置 ``whisper-cli.exe`` 而漏掉同目录的 ``whisper.dll`` /
-    ``ggml*.dll`` ⇒ 进程以 ``STATUS_DLL_NOT_FOUND``（0xC0000135）静默退出，
-    没有任何可读错误信息。
+    Pitfall measured in practice: provisioning only ``whisper-cli.exe``
+    without the sibling ``whisper.dll`` / ``ggml*.dll`` ⇒ the process
+    exits silently with ``STATUS_DLL_NOT_FOUND`` (0xC0000135) and no
+    readable error.
     """
     parent = binary.parent
     if not parent.exists():
@@ -132,7 +146,7 @@ def missing_runtime_dlls(binary: Path) -> List[str]:
 
 
 def find_model(model: str) -> Optional[Path]:
-    """定位 GGML 权重文件（``ggml-<model>.bin``）。"""
+    """Locate the GGML weight file (``ggml-<model>.bin``)."""
     d = models_dir()
     for name in (f"ggml-{model}.bin", f"ggml-{model}.q5_0.bin", f"ggml-{model}-q5_0.bin"):
         p = d / name
@@ -142,7 +156,7 @@ def find_model(model: str) -> Optional[Path]:
 
 
 def find_vad_model() -> Optional[Path]:
-    """定位 VAD 模型（可选 —— 没有它就只能做无 VAD 转写）。"""
+    """Locate the VAD model (optional — without it only no-VAD decoding is possible)."""
     d = models_dir()
     for name in _VAD_MODEL_NAMES:
         p = d / name
@@ -152,12 +166,12 @@ def find_vad_model() -> Optional[Path]:
 
 
 def is_available() -> bool:
-    """引擎是否可用（二进制存在即可 —— 不需要 Python 依赖）。"""
+    """Whether the engine is usable (binary present — no Python deps needed)."""
     return find_binary() is not None
 
 
 def _to_wav_16k(src: Path, dst: Path) -> bool:
-    """转成 16 kHz mono PCM16 WAV（whisper.cpp 的输入要求）。"""
+    """Convert to 16 kHz mono PCM16 WAV (whisper.cpp's input requirement)."""
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         return False
@@ -189,7 +203,7 @@ def _to_wav_16k(src: Path, dst: Path) -> bool:
 
 
 def _parse_offsets(value: Any) -> float:
-    """把 whisper.cpp 的 ``offsets.from/to``（毫秒）转成秒。"""
+    """Convert whisper.cpp's ``offsets.from/to`` (milliseconds) to seconds."""
     try:
         return float(value) / 1000.0
     except (TypeError, ValueError):
@@ -197,37 +211,40 @@ def _parse_offsets(value: Any) -> float:
 
 
 class WhisperCppTranscriber(Transcriber):
-    """whisper.cpp 转录器。
+    """whisper.cpp transcriber.
 
     Parameters
     ----------
     model : str
-        Whisper 档位名（``"tiny"`` / ``"base"`` / ``"small"`` / ...），
-        对应 ``ggml-<model>.bin``。
+        Whisper tier name (``"tiny"`` / ``"base"`` / ``"small"`` / ...),
+        mapping to ``ggml-<model>.bin``.
     device : str, optional
-        仅 ``"cpu"`` 有意义（本实现调预编译的 CPU 版二进制；CUDA 版需要
-        另行预置带 CUDA 的二进制包，届时用同样的接口）。
+        Only ``"cpu"`` is meaningful (this implementation calls a
+        prebuilt CPU binary; a CUDA build needs a separately provisioned
+        CUDA binary package, to be wired through the same interface).
     binary : Path, optional
-        whisper.cpp 可执行文件路径。``None`` 时自动探测。
+        whisper.cpp executable path. Auto-detected when ``None``.
     vad : bool
-        是否启用引擎层 VAD。默认 **False**。
+        Whether to enable engine-layer VAD. Default **False**.
 
-        实测依据（2026-10-24，tiny 模型、中文语料、同一台机器）：
+        Measured basis (2026-10-24, tiny model, Chinese corpus, same machine):
 
         ==========================  ==========  ==========
-        音频                          VAD 关      VAD 开
+        Audio                        VAD off     VAD on
         ==========================  ==========  ==========
-        干净中文                       **7.38%**   19.67%
-        重度环境噪声                   94.67%      **81.97%**
+        Clean Chinese                **7.38%**   19.67%
+        Heavy environmental noise    94.67%      **81.97%**
         ==========================  ==========  ==========
 
-        ⇒ VAD **只在噪声场景**明显改善（12.7 个百分点），在**干净音频上反而
-        恶化**（12.3 个百分点 —— tiny 模型的 VAD 阈值偏激进，会切掉有效语音）。
-        而 MediaScribe 管线**本身已有** VAD 与分块逻辑（``webrtcvad`` +
-        chunked transcriber）⇒ 引擎层再开一次属于重复处理。
-        故默认关闭，按需开启。
+        ⇒ VAD **only clearly helps in noise** (12.7 points) and actively
+        **hurts on clean audio** (12.3 points — the tiny model's VAD
+        threshold is aggressive and clips valid speech). The MediaScribe
+        pipeline **already has** its own VAD and chunking
+        (``webrtcvad`` + chunked transcriber) ⇒ enabling it again at the
+        engine layer is duplicate processing. Hence default off,
+        opt-in.
     threads : int
-        推理线程数。``None`` 时按 CPU 物理核的一半。
+        Inference thread count. ``None`` → half the physical cores.
     """
 
     name = "whisper-cpp"
@@ -253,21 +270,11 @@ class WhisperCppTranscriber(Transcriber):
             return Path(self._binary)
         found = find_binary()
         if found is None:
-            raise RuntimeError(
-                "未找到 whisper.cpp 可执行文件。\n"
-                "  预置方式：下载官方预编译包并解压，例如\n"
-                "    https://github.com/ggml-org/whisper.cpp/releases/download/b5130/whisper-bin-x64.zip\n"
-                "  然后设置环境变量 MEDIASCRIBE_WHISPER_CPP_BIN 指向其中的 whisper-cli.exe\n"
-                "  （或解压到 ~/.cache/mediascribe/whisper-cpp/bin/Release/ 下自动探测）\n"
-                "  ⚠️ 必须把 **整个目录**（含 whisper.dll / ggml*.dll）一起预置 —— "
-                "官方包是动态链接的，漏 DLL 会以 STATUS_DLL_NOT_FOUND 静默失败"
-            )
+            raise RuntimeError(t("CPP_BINARY_NOT_FOUND"))
         missing = missing_runtime_dlls(found)
         if missing:
             raise RuntimeError(
-                f"whisper.cpp 运行时 DLL 不完整：缺少 {', '.join(missing)} —— "
-                f"官方预编译包是动态链接的，必须把 whisper-cli.exe 与同目录的 "
-                f"whisper.dll / ggml*.dll 一起预置到 {found.parent}"
+                t("CPP_DLL_INCOMPLETE", missing=", ".join(missing), parent=found.parent)
             )
         self._binary = found
         return found
@@ -275,12 +282,7 @@ class WhisperCppTranscriber(Transcriber):
     def _resolve_model(self) -> Path:
         found = find_model(self.model_name)
         if found is None:
-            raise RuntimeError(
-                f"未找到 whisper.cpp 的 GGML 权重 ggml-{self.model_name}.bin。\n"
-                f"  应位于：{models_dir()}\n"
-                "  预置方式：把 ggml 权重文件放到该目录"
-                "（可用 MEDIASCRIBE_WHISPER_CPP_MODELS 环境变量改目录）"
-            )
+            raise RuntimeError(t("CPP_MODEL_NOT_FOUND", model=self.model_name, dir=models_dir()))
         return found
 
     def _resolve_threads(self) -> int:
@@ -317,7 +319,7 @@ class WhisperCppTranscriber(Transcriber):
             if audio_path.suffix.lower() == ".wav":
                 shutil.copy2(audio_path, wav_path)
             elif not _to_wav_16k(audio_path, wav_path):
-                raise RuntimeError(f"whisper.cpp: 音频转码失败（{audio_path}）")
+                raise RuntimeError(t("CPP_TRANSCODE_FAILED", path=audio_path))
 
             cmd: List[str] = [
                 str(binary),
@@ -357,12 +359,8 @@ class WhisperCppTranscriber(Transcriber):
                 # **动态链接**的，whisper-cli.exe 依赖同目录的 whisper.dll /
                 # ggml*.dll；只拷一个 exe 就会以这个退出码失败（实测踩到）。
                 if proc.returncode in (0xC0000135, -1073741515):
-                    raise RuntimeError(
-                        "whisper.cpp 缺少运行时 DLL（STATUS_DLL_NOT_FOUND）—— "
-                        "官方预编译包是动态链接的，必须把 whisper-cli.exe 与同目录的 "
-                        f"whisper.dll / ggml*.dll 一起预置到 {binary.parent}"
-                    )
-                raise RuntimeError(f"whisper.cpp 转写失败（exit={proc.returncode}）：{tail}")
+                    raise RuntimeError(t("CPP_DLL_RUNTIME", parent=binary.parent))
+                raise RuntimeError(t("CPP_RUN_FAILED", code=proc.returncode, tail=tail))
             data = json.loads(json_path.read_text(encoding="utf-8"))
             items = data.get("transcription") or []
             segments = [

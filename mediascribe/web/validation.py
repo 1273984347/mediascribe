@@ -12,6 +12,8 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import List
 from urllib.parse import urlsplit
 
+from ..i18n import t
+
 
 def _validate_public_url(url: str) -> str:
     """Validate a user-supplied http(s) URL against SSRF targets (P1-2).
@@ -38,14 +40,14 @@ def _validate_public_url(url: str) -> str:
     try:
         parts = urlsplit(url.strip())
     except ValueError as exc:
-        raise ValueError(f"URL 无法解析: {url[:80]}") from exc
+        raise ValueError(t("WEB_URL_UNPARSEABLE", url=url[:80])) from exc
     if parts.scheme.lower() not in ("http", "https"):
-        raise ValueError(f"仅支持 http/https URL: {url[:80]}")
+        raise ValueError(t("WEB_URL_SCHEME", url=url[:80]))
     if parts.username or parts.password:
-        raise ValueError(f"URL 不允许包含 userinfo (user@host): {url[:80]}")
+        raise ValueError(t("WEB_URL_USERINFO", url=url[:80]))
     hostname = (parts.hostname or "").lower()
     if not hostname:
-        raise ValueError(f"URL 缺少 hostname: {url[:80]}")
+        raise ValueError(t("WEB_URL_NO_HOST", url=url[:80]))
     allowed = {
         h.strip().lower()
         for h in os.environ.get("MEDIASCRIBE_ALLOWED_HOSTS", "").split(",")
@@ -58,7 +60,7 @@ def _validate_public_url(url: str) -> str:
         infos = socket.getaddrinfo(hostname, None)
     except (socket.gaierror, OSError, UnicodeError) as exc:
         # 解析失败一律拒绝(fail closed), 不给内网探测留口子。
-        raise ValueError(f"URL hostname 无法解析: {hostname}") from exc
+        raise ValueError(t("WEB_URL_HOST_FAIL", host=hostname)) from exc
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
         if (
@@ -69,7 +71,7 @@ def _validate_public_url(url: str) -> str:
             or ip.is_multicast
             or ip.is_unspecified
         ):
-            raise ValueError(f"URL 指向私有/环回/链路本地/保留地址, 已拒绝 (SSRF 防护): {hostname}")
+            raise ValueError(t("WEB_URL_PRIVATE", host=hostname))
     return url
 
 
@@ -109,8 +111,11 @@ def _validate_local_source(entry: str, workspace: Path) -> None:
         contained = False
     if not contained:
         raise ValueError(
-            "本地路径仅允许 workspace 目录内的文件, 远端请提交 http(s) URL"
-            f" (workspace: {ws_root}): {entry[:80]}"
+            t(
+                "WEB_LOCAL_PATH",
+                workspace=ws_root,
+                entry=entry[:80],
+            )
         )
 
 
@@ -122,7 +127,7 @@ def _validate_submitted_urls(urls: List[str], workspace: Path) -> None:
     for entry in urls:
         stripped = (entry or "").strip()
         if not stripped:
-            raise ValueError("提交项不能为空")
+            raise ValueError(t("WEB_EMPTY_ENTRY"))
         if stripped.lower().startswith(("http://", "https://")):
             _validate_public_url(stripped)
             _revalidate_short_link_target(stripped)

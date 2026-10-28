@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from ..i18n import t
+
 try:
     from pydantic import BaseModel, Field, field_validator
 
@@ -62,10 +64,7 @@ if _PYDANTIC_AVAILABLE:
             for url in v:
                 low = url.strip().lower()
                 if low.startswith(DANGEROUS):
-                    raise ValueError(
-                        f"URL 协议不被允许: {url[:60]}... (仅支持 http/https, "
-                        f"本地文件路径, 或平台短链接文本)"
-                    )
+                    raise ValueError(t("WEB_URL_SCHEME_BLOCKED", url=url[:60]))
             return v
 
     class TranscribeItem(BaseModel):

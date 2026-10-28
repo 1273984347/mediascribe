@@ -1,16 +1,20 @@
 """
-运行时资源守卫 —— 硬件自适应（自动降档）+ 过载保护（监测与安全中止）。
+Runtime resource guard — hardware self-adaptation (automatic degrade)
+plus overload protection (monitoring and safe abort).
 
-为什么需要
-----------
-MediaScribe 跑在**用户的机器**上，而这些机器的规格跨度极大：8 GB 内存的老笔记本
-（无独显）、16 GB + 8 GB 显存的游戏本、32 GB + 16 GB 显存的创作机、Mac。
-同一份配置在不同机器上的结果可能从「秒级完成」到「OOM 崩掉」。
+Why it exists
+-------------
+MediaScribe runs on **users' machines**, and those machines span a huge
+range: an 8 GB-RAM old laptop (no discrete GPU), a 16 GB + 8 GB-VRAM
+gaming laptop, a 32 GB + 16 GB-VRAM workstation, a Mac. The same
+configuration can range from "done in seconds" to "OOM crash" depending
+on the machine.
 
-2026-10-23 的本机实测给出了决策依据（CPU 档峰值内存 / CUDA 档峰值显存）：
+Local measurements from 2026-10-23 provide the decision basis
+(CPU-tier peak RAM / CUDA-tier peak VRAM):
 
 ======================  ==============  ==============  ==============
-引擎 / 档位              峰值显存        峰值内存        备注
+Engine / tier           Peak VRAM       Peak RAM        Note
 ======================  ==============  ==============  ==============
 faster-whisper small    614 MiB        1167 MiB        CUDA int8_float16
 faster-whisper large-v3 2816 MiB       3757 MiB        CUDA int8_float16
@@ -21,18 +25,23 @@ openai-whisper medium   4774 MiB       4074 MiB        CUDA fp16
 **whisper.cpp tiny**     —              **291 MiB**     CPU ggml
 ======================  ==============  ==============  ==============
 
-⇒ whisper.cpp 是**最省内存**的（291 MiB），在 4 GB 机器上它是唯一可行的选择。
+⇒ whisper.cpp is the **most memory-frugal** (291 MiB); on a 4 GB machine
+it is the only viable option.
 
-两层防线
---------
-1. **转录前（:func:`plan`）** —— 按当前资源**自动降档**（模型档位）或
-   **换引擎**（Apple Silicon / 内存紧张），并产出**给人看的通知**。
-2. **转录中（:class:`RuntimeMonitor`）** —— 后台线程持续采样内存/显存/温度；
-   越过紧急线时**通知 + 请求取消**（尽力而为），转录结束后若确实发生过
-   紧急过载 ⇒ 抛 :class:`ResourcePressureError`，**不交付可能不完整的结果**。
+Two defense layers
+------------------
+1. **Before transcription (:func:`plan`)** — automatically **degrade the
+   model tier** or **switch engines** (Apple Silicon / memory pressure)
+   based on current resources, and produce **human-readable notices**.
+2. **During transcription (:class:`RuntimeMonitor`)** — a background
+   thread keeps sampling memory / VRAM / temperature; past an abort line
+   it **notifies + requests cancellation** (best effort). If a real
+   overload occurred, transcription ends by raising
+   :class:`ResourcePressureError` — **a possibly incomplete result is
+   never delivered**.
 
-估算表是**单一来源**：:mod:`scripts.bench.asr.bench_asr` 导入本模块的同一份
-数据 ⇒ 基准与产品不会出现两套口径。
+The estimation tables are the **single source**: :mod:`scripts.bench.asr.bench_asr`
+imports this module's data ⇒ benchmark and product never diverge.
 """
 
 from __future__ import annotations
@@ -43,6 +52,8 @@ import platform
 import threading
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
+
+from .i18n import t
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +157,7 @@ GPU_TEMP_ABORT_C = 92.0
 
 @dataclass
 class HardwareSnapshot:
-    """某一时刻的硬件与资源水位。"""
+    """Hardware and resource levels at one moment."""
 
     cuda_available: bool = False
     gpu_name: str = ""
@@ -199,7 +210,8 @@ def _nvidia_smi(query: str) -> List[str]:
 
 
 def snapshot() -> HardwareSnapshot:
-    """采集当前硬件与资源水位（任何探测失败都只记录、不抛异常）。"""
+    """Collect current hardware and resource levels (probe failures are
+    recorded, never raised)."""
     snap = HardwareSnapshot(platform=platform.platform())
     snap.is_apple_silicon = platform.system() == "Darwin" and platform.machine() == "arm64"
 
@@ -243,7 +255,7 @@ def snapshot() -> HardwareSnapshot:
 
 @dataclass
 class DegradeDecision:
-    """降档决策结果。"""
+    """Result of a degrade decision."""
 
     engine: str
     model: str
@@ -276,10 +288,11 @@ def _estimate_ram(engine: str, model: str, device: str) -> int:
 
 
 def _lower_model(model: str) -> Optional[str]:
-    """返回下一个更轻的档位；已是最低档返回 ``None``。
+    """Return the next lighter tier; ``None`` when already the lightest.
 
-    按**族**定位（``large-v2`` 归为 ``large-v3`` 族）⇒ 同一族只会被降一次，
-    不会在阶梯上原地打转。
+    Position is resolved by **family** (``large-v2`` maps to the
+    ``large-v3`` family) ⇒ each family degrades at most once, never spins
+    in place on the ladder.
     """
     fam = _family(model)
     if fam not in MODEL_LADDER:
@@ -291,11 +304,12 @@ def _lower_model(model: str) -> Optional[str]:
 
 
 def _engine_uses_metal(engine: str) -> bool:
-    """该引擎在 Apple Silicon 上是否走 Metal（MPS）后端。
+    """Whether the engine uses the Metal (MPS) backend on Apple Silicon.
 
-    实测（2026-10-23）：``ctranslate2.get_supported_compute_types("metal")`` 直接抛
-    ``ValueError: unsupported device metal`` ⇒ **faster-whisper 在 Mac 上完全不可用**
-    （不是慢，是没有该后端）。
+    Measured (2026-10-23): ``ctranslate2.get_supported_compute_types("metal")``
+    raises ``ValueError: unsupported device metal`` outright ⇒
+    **faster-whisper is entirely unusable on Macs** (not slow — the
+    backend does not exist).
     """
     return engine not in ("faster-whisper",)
 
@@ -345,21 +359,18 @@ def plan(
         if cpp_ok:
             new_engine = "whisper-cpp"
             notices.append(
-                f"当前是 Apple Silicon，而 {engine} 没有 Metal 后端"
-                "（实测 ctranslate2 直接抛 unsupported device metal）"
-                f" ⇒ 已改用 {new_engine}（内存占用最低，实测 tiny 仅 291 MiB）"
+                t(
+                    "RUNTIME_APPLE_SWITCH",
+                    engine=engine,
+                    new_engine=new_engine,
+                )
             )
             reasons.append("apple-silicon-no-metal")
             decision.engine = new_engine
             decision.changed = True
             engine = new_engine
         else:
-            notices.append(
-                f"当前是 Apple Silicon，而 {engine} 没有 Metal 后端；"
-                "本应改用 whisper.cpp，但未检测到 whisper.cpp 可执行文件"
-                " ⇒ 保留原引擎（转录可能失败）。预置方式见 docs/engines.md"
-                "（MEDIASCRIBE_WHISPER_CPP_BIN）"
-            )
+            notices.append(t("RUNTIME_APPLE_NO_CPP", engine=engine))
             reasons.append("apple-silicon-no-metal-no-cpp-binary")
 
     # --- 规则 4：CPU + 机器内存偏小 ⇒ whisper.cpp ---
@@ -373,8 +384,11 @@ def plan(
     ):
         if cpp_ok:
             notices.append(
-                f"机器总内存仅 {snap.ram_total_mb} MiB（压力线 {MEMORY_PRESSURE_TOTAL_MB} MiB）"
-                f" ⇒ 已改用 whisper-cpp（实测峰值内存最低，tiny 仅 291 MiB）"
+                t(
+                    "RUNTIME_MEM_SWITCH",
+                    ram=snap.ram_total_mb,
+                    limit=MEMORY_PRESSURE_TOTAL_MB,
+                )
             )
             reasons.append("memory-pressure-engine-switch")
             decision.engine = "whisper-cpp"
@@ -384,10 +398,11 @@ def plan(
             # 不可用就保留原引擎，交给下方规则 2/3 按资源降档 ——
             # 不能把「能跑的配置」换成「必然失败的配置」（P0-2）。
             notices.append(
-                f"机器总内存仅 {snap.ram_total_mb} MiB（压力线 {MEMORY_PRESSURE_TOTAL_MB} MiB）；"
-                "本应改用 whisper.cpp，但未检测到 whisper.cpp 可执行文件"
-                " ⇒ 保留原引擎并按资源降档。预置方式见 docs/engines.md"
-                "（MEDIASCRIBE_WHISPER_CPP_BIN）"
+                t(
+                    "RUNTIME_MEM_NO_CPP",
+                    ram=snap.ram_total_mb,
+                    limit=MEMORY_PRESSURE_TOTAL_MB,
+                )
             )
             reasons.append("memory-pressure-no-cpp-binary")
 
@@ -399,7 +414,13 @@ def plan(
             budget = int(snap.vram_free_mb * VRAM_HEADROOM)
             if not snap.vram_total_mb or need <= budget:
                 break
-            reason = f"可用显存 {snap.vram_free_mb} MiB（安全预算 {budget} MiB）< {current_model} 估算需求 {need} MiB"
+            reason = t(
+                "RUNTIME_VRAM_SHORT",
+                free=snap.vram_free_mb,
+                budget=budget,
+                model=current_model,
+                need=need,
+            )
         else:
             need = _estimate_ram(engine, current_model, "cpu")
             budget = snap.ram_available_mb
@@ -407,13 +428,18 @@ def plan(
             # 避免可用内存轻微波动就来回降档。
             if not snap.ram_available_mb or need <= budget * DEGRADE_HYSTERESIS:
                 break
-            reason = f"可用内存 {snap.ram_available_mb} MiB < {current_model} 估算需求 {need} MiB"
+            reason = t(
+                "RUNTIME_RAM_SHORT",
+                free=snap.ram_available_mb,
+                model=current_model,
+                need=need,
+            )
         nxt = _lower_model(current_model)
         if nxt is None:
-            notices.append(f"{reason}；已是最小档位（{current_model}），仍可能吃紧")
+            notices.append(t("RUNTIME_LADDER_FLOOR", reason=reason, model=current_model))
             reasons.append("ladder-exhausted")
             break
-        notices.append(f"{reason} ⇒ 已降档 {current_model} → {nxt}")
+        notices.append(t("RUNTIME_DEGRADED", reason=reason, old=current_model, new=nxt))
         reasons.append("model-degraded")
         decision.model = nxt
         decision.changed = True
@@ -428,23 +454,25 @@ def plan(
 
 
 class ResourcePressureError(RuntimeError):
-    """转录期间资源越过紧急线 —— 结果可能不完整，**不交付**。"""
+    """Resources crossed an abort line during transcription — the result
+    may be incomplete and is **never delivered**."""
 
 
 class RuntimeMonitor:
-    """转录期间的后台采样线程。
+    """Background sampling thread active during transcription.
 
-    用法::
+    Usage::
 
         with RuntimeMonitor(cancel_event=ctx.cancel_event) as mon:
             transcription = transcriber.transcribe(...)
         if mon.pressured:
             raise ResourcePressureError(mon.pressure_reason)
 
-    说明：Python 无法安全地中断一个正在跑的 C 扩展调用，因此本监控能做的是
-    ① 及时**通知** ② 置 ``cancel_event`` 让后续阶段尽快退出
-    ③ 转录结束后**判定结果不可信**并抛错。真正的强制终止由外部（用户
-    Ctrl-C / 进程被杀）负责。
+    Note: Python cannot safely interrupt a running C-extension call, so
+    this monitor can only ① notify in time ② set ``cancel_event`` so
+    later stages exit soon ③ declare the result untrustworthy after
+    transcription ends and raise. Actual force-kill is left to the
+    outside (user Ctrl-C / process kill).
     """
 
     def __init__(
@@ -472,7 +500,7 @@ class RuntimeMonitor:
     # -- 通知 --------------------------------------------------------------
     def _notify(self, message: str) -> None:
         self.notices.append(message)
-        logger.warning("资源守卫: %s", message)
+        logger.warning(t("RUNTIME_LOG_PREFIX", message=message))
         if self.on_notice is not None:
             try:
                 self.on_notice(message)
@@ -488,7 +516,7 @@ class RuntimeMonitor:
         except Exception:
             avail = None
         if avail is not None and avail < self.ram_abort_mb:
-            return f"系统可用内存 {avail:.0f} MiB 跌破紧急线 {self.ram_abort_mb} MiB"
+            return t("RUNTIME_RAM_ABORT", avail=avail, mb=self.ram_abort_mb)
 
         rows = _nvidia_smi("memory.used,memory.total,temperature.gpu")
         if rows:
@@ -498,12 +526,15 @@ class RuntimeMonitor:
                 rows = []
             if rows:
                 if total and used / total * 100 >= self.vram_abort_pct:
-                    return (
-                        f"显存占用 {used}/{total} MiB（{used / total * 100:.0f}%）"
-                        f"越过紧急线 {self.vram_abort_pct:.0f}%"
+                    return t(
+                        "RUNTIME_VRAM_ABORT",
+                        used=used,
+                        total=total,
+                        pct=used / total * 100,
+                        limit=self.vram_abort_pct,
                     )
                 if temp and temp >= self.gpu_temp_abort_c:
-                    return f"GPU 温度 {temp}℃ 越过紧急线 {self.gpu_temp_abort_c}℃"
+                    return t("RUNTIME_TEMP_ABORT", temp=temp, limit=self.gpu_temp_abort_c)
         return None
 
     # -- 线程 --------------------------------------------------------------
@@ -515,7 +546,7 @@ class RuntimeMonitor:
             if not self.pressured:
                 self.pressured = True
                 self.pressure_reason = reason
-                self._notify(f"检测到资源过载：{reason} ⇒ 请求中止本次转录")
+                self._notify(t("RUNTIME_OVERLOAD", reason=reason))
                 if self.cancel_event is not None:
                     self.cancel_event.set()
             else:

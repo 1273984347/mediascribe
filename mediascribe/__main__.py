@@ -23,6 +23,7 @@ from pathlib import Path, PurePath
 from typing import List, Optional
 
 from .config import Settings
+from .i18n import t
 from .pipeline import Pipeline
 from .pipeline_async import AsyncPipeline, _FailedResult
 
@@ -174,7 +175,7 @@ def _run_cross_check(pipeline, result, model) -> None:
 
         run_cross_check(pipeline, result, model)
     except Exception as e:
-        print(f"⚠️ 交叉校对失败(不影响主稿): {type(e).__name__}: {e}")
+        print(t("CLI_CROSS_CHECK_FAILED", etype=type(e).__name__, e=e))
 
 
 def _print_next_steps(result) -> None:
@@ -182,19 +183,11 @@ def _print_next_steps(result) -> None:
     try:
         if not Path(result.transcript_path).exists():
             return
-        print("\n💡 下一步（可选）：")
-        print(
-            "   · 校对后回填术语库:  python -m mediascribe learn edit "
-            "--original <原稿> --corrected <校对稿>"
-        )
-        print(
-            "   · 存疑项第三方复核(审校场景, 删媒体前跑):  python -m mediascribe verify <转录稿.md>"
-        )
-        print(
-            "   · 开启 LLM 润色（标点/分段/专名）:  "
-            "MEDIASCRIBE_LLM_ENABLED=1 + MEDIASCRIBE_LLM_API_BASE <endpoint>"
-        )
-        print("   · 环境自检:  python -m mediascribe doctor")
+        print(t("CLI_NEXT_STEPS_TITLE"))
+        print(t("CLI_NEXT_LEARN"))
+        print(t("CLI_NEXT_VERIFY"))
+        print(t("CLI_NEXT_LLM"))
+        print(t("CLI_NEXT_DOCTOR"))
     except Exception:
         pass
 
@@ -363,13 +356,13 @@ def _load_json_config(cli_config) -> dict:
     try:
         file_cfg = _json.loads(cfg_path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        print(f"❌ 配置文件不存在: {cfg_path}")
+        print(t("CLI_CFG_MISSING", path=cfg_path))
         sys.exit(1)
     except ValueError as exc:
-        print(f"❌ 配置文件不是合法 JSON: {cfg_path} — {exc}")
+        print(t("CLI_CFG_BAD_JSON", path=cfg_path, exc=exc))
         sys.exit(1)
     if not isinstance(file_cfg, dict):
-        print(f"❌ 配置文件顶层必须是 JSON 对象: {cfg_path}")
+        print(t("CLI_CFG_NOT_DICT", path=cfg_path))
         sys.exit(1)
     return file_cfg
 
@@ -427,7 +420,7 @@ def _execute_transcribe(pipeline: Pipeline, args, settings: Settings) -> int:
 
         deleted = cleanup_intermediate_media(settings, result.audio_path, result.video_path)
         if deleted:
-            print(f"🧹 已清理中间媒体 {len(deleted)} 个文件(转录稿与元数据不受影响)")
+            print(t("CLI_CLEANUP_DONE", n=len(deleted)))
     _print_next_steps(result)
     return 0
 
@@ -443,9 +436,9 @@ def _execute_batch(pipeline: Pipeline, args) -> int:
         with open(args.file, "r", encoding="utf-8") as f:
             inputs.extend([line.strip() for line in f if line.strip()])
     if not inputs:
-        print("❌ 没有提供输入")
+        print(t("CLI_NO_INPUTS"))
         sys.exit(1)
-    print(f"🚀 批量处理 {len(inputs)} 个输入...")
+    print(t("CLI_BATCH_START", n=len(inputs)))
     ap = AsyncPipeline(pipeline)
     try:
         raw = asyncio.run(
@@ -456,21 +449,21 @@ def _execute_batch(pipeline: Pipeline, args) -> int:
             )
         )
     except KeyboardInterrupt:
-        print("\n\n⏹️ 用户中断")
+        print(t("CLI_INTERRUPTED"))
         sys.exit(130)
     results = []
     for i, (src, r) in enumerate(zip(inputs, raw, strict=False), 1):
-        print(f"\n--- [{i}/{len(inputs)}] ---")
+        print(t("CLI_BATCH_ITEM", i=i, n=len(inputs)))
         if isinstance(r, _FailedResult):
-            print(f"❌ 处理失败: {r.exc}")
+            print(t("CLI_ITEM_FAILED", exc=r.exc))
             results.append((src, False, str(r.exc)))
         else:
             results.append((src, True, r))
     # 总结
     print(f"\n{'=' * 50}")
-    print("📊 批量处理完成")
+    print(t("CLI_BATCH_DONE"))
     success = sum(1 for _, ok, _ in results if ok)
-    print(f"✅ 成功: {success}/{len(results)}")
+    print(t("CLI_BATCH_OK", ok=success, total=len(results)))
     for source, ok, _result in results:
         status = "✅" if ok else "❌"
         print(f"{status} {source}")
@@ -495,10 +488,10 @@ def _run_legacy(argv: Optional[List[str]]) -> int:
         elif args.command == "batch":
             return _execute_batch(pipeline, args)
     except KeyboardInterrupt:
-        print("\n\n⏹️ 用户中断")
+        print(t("CLI_INTERRUPTED"))
         sys.exit(130)
     except Exception as e:
-        print(f"\n❌ 错误: {e}")
+        print(t("CLI_ERROR", e=e))
         import traceback
 
         traceback.print_exc()
@@ -525,24 +518,7 @@ def _force_utf8_stdio() -> None:
 
 def _print_quickstart() -> None:
     """无参数调用时打印的快速开始引导（exit 0，不吓退新用户）。"""
-    print(
-        "🎬 MediaScribe — 离线视频转文字\n"
-        "\n"
-        "快速开始：\n"
-        "  python -m mediascribe transcribe <视频链接或本地文件>\n"
-        "  python -m mediascribe transcribe <URL> -e faster-whisper -m large-v3 -l zh\n"
-        "  python -m mediascribe doctor        # 环境自检（首次推荐先跑）\n"
-        "\n"
-        "常用命令：\n"
-        "  transcribe   转录单个视频/音频（URL 或本地文件）\n"
-        "  batch        批量处理多个输入\n"
-        "  archive      批量转录某创作者的主页视频\n"
-        "  learn        ASR 术语自动学习（越用越准）\n"
-        "  profile      渲染性能 profile 报告\n"
-        "  doctor       环境自检（ffmpeg / GPU / 引擎 / 模型缓存）\n"
-        "\n"
-        "详细帮助：python -m mediascribe --help\n"
-    )
+    print(t("CLI_QUICKSTART"))
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -586,12 +562,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(__doc__)
         return 0
     if argv[0] not in ("transcribe", "t", "batch") and not argv[0].startswith("-"):
-        print(f"mediascribe: unknown command {argv[0]!r}", file=sys.stderr)
-        print(
-            "可用命令: transcribe / batch / archive / learn / profile / doctor / verify\n"
-            "Try 'python -m mediascribe --help'",
-            file=sys.stderr,
-        )
+        print(t("CLI_UNKNOWN_CMD", cmd=argv[0]), file=sys.stderr)
+        print(t("CLI_AVAILABLE_CMDS"), file=sys.stderr)
         return 1
     return _run_legacy(argv)
 
@@ -652,7 +624,7 @@ def _run_verify(argv: List[str]) -> int:
         )
         return 0
     except Exception as e:
-        print(f"❌ 第三采样验证失败: {type(e).__name__}: {e}", file=sys.stderr)
+        print(t("CLI_VERIFY_FAILED", etype=type(e).__name__, e=e), file=sys.stderr)
         return 1
 
 
@@ -689,22 +661,12 @@ def _run_archive(argv: List[str]) -> int:
     pre_args, _ = parser.parse_known_args(argv)
     if pre_args.help:
         print(__doc__)
-        print(
-            "\narchive 用法（与 mediascribe-batch 参数一致）:\n"
-            "  python -m mediascribe archive --user <作者主页URL> -n 20\n"
-            "  python -m mediascribe archive --from-video <单条视频URL> -n 10\n"
-            "\n"
-            "完整参数: python -m mediascribe archive --help 或 mediascribe-batch --help\n"
-        )
+        print(t("CLI_ARCHIVE_USAGE"))
         return 0
     try:
         from mediascribe.batch_cli import main as batch_main
     except Exception as exc:  # pragma: no cover - 依赖缺失等
-        print(
-            f"❌ 无法加载 mediascribe.batch_cli ({exc})。\n"
-            "请直接运行: mediascribe-batch --user <URL>",
-            file=sys.stderr,
-        )
+        print(t("CLI_ARCHIVE_LOAD_FAIL", exc=exc), file=sys.stderr)
         return 1
     return batch_main(list(argv))
 
@@ -774,81 +736,101 @@ def _run_learn(argv: List[str]) -> int:
     if args.action == "compare":
         corrections = compare(args.reference, args.transcript)
         if not corrections:
-            print("未发现错误映射")
+            print(t("LEARN_NO_MAPPINGS"))
             return 0
-        print(f"发现 {len(corrections)} 条语音相似的错误映射:")
+        print(t("LEARN_FOUND_MAPPINGS", n=len(corrections)))
         for wrong, right, ctx in corrections:
-            print(f'  "{wrong}" → "{right}"  (上下文: {ctx})')
+            print(t("LEARN_MAPPING_LINE", wrong=wrong, right=right, ctx=ctx))
         db = learn(corrections)
         stats = db.stats()
-        print(f"\n已保存到术语库 (共 {stats['total']} 条, {stats['active']} 条生效)")
+        print(t("LEARN_SAVED_STATS", total=stats["total"], active=stats["active"]))
         return 0
 
     if args.action == "edit":
         db = learn_from_edit(args.original, args.corrected)
         stats = db.stats()
         if stats["total"] == 0:
-            print("未发现语音相似的错误映射")
+            print(t("LEARN_NO_MAPPINGS_SIMILAR"))
             return 0
         print(
-            f"已学习 {stats['total']} 条术语 ({stats['active']} 条生效, {stats['pending']} 条待确认)"
+            t(
+                "LEARN_EDIT_RESULT",
+                total=stats["total"],
+                active=stats["active"],
+                pending=stats["pending"],
+            )
         )
         return 0
 
     if args.action == "save":
         db = learn([(args.wrong, args.right)])
         stats = db.stats()
-        print(f'已保存: "{args.wrong}" → "{args.right}"')
-        print(f"术语库共 {stats['total']} 条 ({stats['active']} 条生效)")
+        print(t("LEARN_SAVED_PAIR", wrong=args.wrong, right=args.right))
+        print(t("LEARN_STATS", total=stats["total"], active=stats["active"]))
         return 0
 
     if args.action == "list":
         db = _load_db()
         stats = db.stats()
         if stats["total"] == 0:
-            print("术语库为空")
+            print(t("LEARN_EMPTY"))
             return 0
         print(
-            f"术语库: {stats['total']} 条 ({stats['confirmed']} 已确认, {stats['pending']} 待确认, {stats['active']} 生效)"
+            t(
+                "LEARN_LIST_HEADER",
+                total=stats["total"],
+                confirmed=stats["confirmed"],
+                pending=stats["pending"],
+                active=stats["active"],
+            )
         )
         print()
         for c in db.terms.values():
             status = "✓" if c.should_apply() else "…"
-            print(f'  {status} "{c.wrong}" → "{c.right}" (×{c.count}, {c.confidence:.0%})')
+            print(
+                t(
+                    "LEARN_TERM_LINE",
+                    status=status,
+                    wrong=c.wrong,
+                    right=c.right,
+                    count=c.count,
+                    pct=c.confidence,
+                )
+            )
             if c.contexts:
-                print(f"     上下文: {c.contexts[0]}")
+                print(t("LEARN_TERM_CONTEXT", ctx=c.contexts[0]))
         return 0
 
     if args.action == "confirm":
         if confirm_term(args.wrong, args.right):
-            print(f'已确认: "{args.wrong}" → "{args.right}"')
+            print(t("LEARN_CONFIRMED", wrong=args.wrong, right=args.right))
         else:
-            print(f'未找到: "{args.wrong}" → "{args.right}"')
+            print(t("LEARN_NOT_FOUND", wrong=args.wrong, right=args.right))
             return 1
         return 0
 
     if args.action == "remove":
         if remove_term(args.wrong, args.right):
-            print(f'已删除: "{args.wrong}" → "{args.right}"')
+            print(t("LEARN_REMOVED", wrong=args.wrong, right=args.right))
         else:
-            print(f'未找到: "{args.wrong}" → "{args.right}"')
+            print(t("LEARN_NOT_FOUND", wrong=args.wrong, right=args.right))
             return 1
         return 0
 
     if args.action == "export":
         export_terms(args.output)
-        print(f"已导出到 {args.output}")
+        print(t("LEARN_EXPORTED", path=args.output))
         return 0
 
     if args.action == "import":
         db = import_terms(args.input, merge=not args.no_merge)
         stats = db.stats()
-        print(f"已导入 ({stats['total']} 条, {stats['active']} 条生效)")
+        print(t("LEARN_IMPORTED", total=stats["total"], active=stats["active"]))
         return 0
 
     if args.action == "clear":
         clear_learned_terms()
-        print("已清空学习记录")
+        print(t("LEARN_CLEARED"))
         return 0
 
     return 1

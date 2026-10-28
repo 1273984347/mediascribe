@@ -103,7 +103,9 @@ class TestPlanDegrade(unittest.TestCase):
         d = plan("faster-whisper", "large-v3", "cuda", snap)
         self.assertTrue(d.changed)
         self.assertNotEqual(d.model, "large-v3")
-        self.assertTrue(any("显存" in n for n in d.notices), msg=d.notices)
+        # locale 无关断言：en/zh 文案都含 "MiB"，稳定信号看 reasons
+        self.assertTrue(any("MiB" in n for n in d.notices), msg=d.notices)
+        self.assertIn("model-degraded", d.reasons)
 
     def test_memory_shortfall_degrades_model(self):
         snap = _snap(cuda_available=False, ram_available_mb=700)
@@ -135,7 +137,7 @@ class TestPlanDegrade(unittest.TestCase):
         with mock.patch("mediascribe.runtime_guard._whisper_cpp_available", return_value=False):
             d = plan("faster-whisper", "small", "cpu", snap)
         self.assertEqual(d.engine, "faster-whisper")
-        self.assertTrue(any("whisper.cpp 可执行文件" in n for n in d.notices), msg=d.notices)
+        self.assertTrue(any("whisper.cpp" in n for n in d.notices), msg=d.notices)
         self.assertIn("memory-pressure-no-cpp-binary", d.reasons)
 
     def test_apple_silicon_without_cpp_keeps_engine_and_notifies(self):
@@ -146,7 +148,7 @@ class TestPlanDegrade(unittest.TestCase):
             d = plan("faster-whisper", "large-v3", "cpu", snap)
         self.assertEqual(d.engine, "faster-whisper")
         joined = " ".join(d.notices)
-        self.assertIn("whisper.cpp 可执行文件", joined)
+        self.assertIn("whisper.cpp", joined)
         self.assertIn("docs/engines.md", joined)
         self.assertIn("apple-silicon-no-metal-no-cpp-binary", d.reasons)
 
@@ -185,7 +187,7 @@ class TestRuntimeMonitor(unittest.TestCase):
         cancel = threading.Event()
         notices = []
         mon = RuntimeMonitor(cancel_event=cancel, on_notice=notices.append, interval_s=0.05)
-        with mock.patch.object(mon, "_sample", return_value="系统可用内存 100 MiB 跌破紧急线"):
+        with mock.patch.object(mon, "_sample", return_value="sampled abort reason"):
             mon.start()
             for _ in range(50):
                 if mon.pressured:
@@ -195,7 +197,7 @@ class TestRuntimeMonitor(unittest.TestCase):
         self.assertTrue(mon.pressured)
         self.assertTrue(cancel.is_set(), msg="紧急过载应请求取消")
         self.assertTrue(notices, msg="必须通知用户")
-        self.assertIn("内存", mon.pressure_reason)
+        self.assertIn("abort reason", mon.pressure_reason)
 
     def test_no_pressure_keeps_cancel_untouched(self):
         cancel = threading.Event()

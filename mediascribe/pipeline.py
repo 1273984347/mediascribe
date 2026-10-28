@@ -25,6 +25,7 @@ from typing import List, Optional, Type
 from .audio_utils import extract_audio
 from .config import Settings
 from .downloaders import Downloader
+from .i18n import t
 from .inputs import parse_source, safe_stem
 from .markdown_builder import build_markdown as _build_markdown_structured
 from .markdown_builder import split_into_paragraphs as _split_text_paragraphs
@@ -62,10 +63,7 @@ def _warn_weak_cantonese_model(language: Optional[str], model_name: Optional[str
         return
     name = str(model_name or "").strip().lower()
     if name in _YUE_WEAK_MODELS:
-        print(
-            f"⚠️ 粤语(-l yue)在 {name} 档位上识别质量很差(粤语训练数据有限, "
-            f"小模型基本不可用), 强烈建议 -m large-v3"
-        )
+        print(t("YUE_WEAK_MODEL_WARNING", name=name))
 
 
 def resolve_device(requested: Optional[str] = "auto") -> str:
@@ -252,9 +250,9 @@ def _probe_audio_duration(path: Path) -> float:
 
 def _print_transcript_done(transcript_path: Path, metadata_path: Path) -> None:
     """交付物落盘后的统一完成提示(文本型/视频型公众号两条路径共用)。"""
-    print("\n✅ 完成！")
-    print(f"📝 转录文件: {transcript_path}")
-    print(f"📋 元数据: {metadata_path}")
+    print(t("PIPE_DONE"))
+    print(t("PIPE_TRANSCRIPT", path=transcript_path))
+    print(t("PIPE_METADATA", path=metadata_path))
 
 
 def _build_wechat_text_markdown(base_name: str, text: str, meta: dict) -> str:
@@ -514,8 +512,8 @@ class Pipeline:
         # 全局打开，kwargs 显式传 True 优先。
         effective_timestamps = timestamps or bool(getattr(self.settings, "timestamps", False))
 
-        print(f"\n🎬 处理: {source.display_name}")
-        print(f"📋 类型: {source.kind}")
+        print(t("PIPE_PROCESSING", name=source.display_name))
+        print(t("PIPE_KIND", kind=source.kind))
 
         # 粤语 + 弱模型档位 → 提示(每次转写一条, 不阻断)
         _warn_weak_cantonese_model(
@@ -709,7 +707,7 @@ class Pipeline:
           ``WechatMpDownloader.download()``，仅对图片型文章生效。
         - ``bilingual``：视频消息输出双语字幕标签（中英对照）
         """
-        print("📥 下载公众号内容...")
+        print(t("PIPE_WECHAT_DOWNLOADING"))
         from .downloaders.wechat_mp import WechatMpDownloader
 
         downloader = self._get_downloader(source)
@@ -738,9 +736,9 @@ class Pipeline:
         # 文本型公众号文章：直接落盘
         text = (meta.get("text") or "").strip()
         if not text:
-            raise RuntimeError("公众号文章正文为空")
+            raise RuntimeError(t("PIPE_WECHAT_EMPTY_BODY"))
 
-        print("📝 公众号文本型文章：跳过 ASR，直接生成 markdown")
+        print(t("PIPE_WECHAT_TEXT_SKIP"))
         transcript_path = self._resolve_output_path(base_name, output)
         metadata_path = self._resolve_metadata_path(transcript_path)
         transcript_path.parent.mkdir(parents=True, exist_ok=True)
@@ -802,19 +800,19 @@ class Pipeline:
         编辑器能直接读出哪个平台、用什么引擎、识别语种。
         """
         video_path = downloaded.video_path
-        print("🔊 提取音频...")
+        print(t("PIPE_EXTRACTING_AUDIO"))
         audio_result = extract_audio(video_path, self.settings.audio_dir, safe_stem(base_name))
         if audio_result is None:
-            raise RuntimeError("音频提取失败")
+            raise RuntimeError(t("PIPE_EXTRACT_FAILED"))
         audio_path = audio_result
 
-        print("🎤 开始转录...")
+        print(t("PIPE_TRANSCRIBING"))
         transcription = self.transcriber.transcribe(
             audio_path, prompt=None, progress=True, language=self.settings.language
         )
         text = transcription.get("text", "").strip()
         if not text:
-            raise RuntimeError("转录结果为空")
+            raise RuntimeError(t("PIPE_TRANSCRIBE_EMPTY"))
 
         transcript_path = self._resolve_output_path(base_name, output)
         metadata_path = self._resolve_metadata_path(transcript_path)
@@ -842,7 +840,7 @@ class Pipeline:
             print_cleanup_review_hint()
             deleted = cleanup_intermediate_media(self.settings, audio_path, video_path)
             if deleted:
-                print(f"🧹 已清理中间媒体 {len(deleted)} 个文件(转录稿与元数据不受影响)")
+                print(t("CLI_CLEANUP_DONE", n=len(deleted)))
         return TranscriptResult(
             source=source,
             engine=self.transcriber.name,
