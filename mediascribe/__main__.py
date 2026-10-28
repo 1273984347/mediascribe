@@ -57,9 +57,10 @@ _common_transcribe_opts.add_argument(
     ],
     help=(
         "Whisper 模型（默认: small）。\n"
-        "  auto: 按音频时长自动推荐（短→medium, 中→small, 长→tiny）\n"
+        "  auto: 按音频时长自动推荐（短→medium, 中→small, 长→tiny;\n"
+        "        粤语 -l yue 恒选 large-v3, 小模型粤语基本不可用）\n"
         "  快速预览: tiny / base / small\n"
-        "  准确率优先: large-v3（推荐, 中文最佳）\n"
+        "  准确率优先: large-v3（推荐, 中文/粤语最佳）\n"
         "  速度+准确率平衡: distil-large-v3"
     ),
 )

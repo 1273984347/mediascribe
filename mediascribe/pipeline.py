@@ -46,8 +46,26 @@ from .transcribers import (
     WhisperTranscriber,
     WhisperXTranscriber,
 )
+from .zh_normalize import is_yue_language
 
 logger = logging.getLogger(__name__)
+
+# 粤语(-l yue)在这些模型档位上基本不可用 — Whisper 官方对 yue 的训练
+# 数据有限, 小模型常按普通话音素解码, 输出多为乱码级错字。只提示不
+# 阻断; auto 档位对粤语已恒选 large-v3, 无需警告。
+_YUE_WEAK_MODELS = frozenset({"tiny", "base", "small", "medium"})
+
+
+def _warn_weak_cantonese_model(language: Optional[str], model_name: Optional[str]) -> None:
+    """粤语转写落到弱模型档位时打印提示(只提示, 不改变行为)。"""
+    if not is_yue_language(language):
+        return
+    name = str(model_name or "").strip().lower()
+    if name in _YUE_WEAK_MODELS:
+        print(
+            f"⚠️ 粤语(-l yue)在 {name} 档位上识别质量很差(粤语训练数据有限, "
+            f"小模型基本不可用), 强烈建议 -m large-v3"
+        )
 
 
 def resolve_device(requested: Optional[str] = "auto") -> str:
@@ -183,8 +201,13 @@ class _AutoModelTranscriber:
             from .post_process import auto_select_model
 
             duration = self._duration_seconds
+            language = getattr(self._pipeline.settings, "language", None)
             if duration and duration > 0:
-                model = auto_select_model(int(duration))
+                # language 透传: 粤语(yue)恒推荐 large-v3, 其余按时长分档
+                model = auto_select_model(int(duration), language=language)
+            elif is_yue_language(language):
+                # 时长探测失败也不能把粤语落到小模型
+                model = "large-v3"
             else:
                 model = "small"
             settings = _copy.copy(self._pipeline.settings)
@@ -493,6 +516,12 @@ class Pipeline:
 
         print(f"\n🎬 处理: {source.display_name}")
         print(f"📋 类型: {source.kind}")
+
+        # 粤语 + 弱模型档位 → 提示(每次转写一条, 不阻断)
+        _warn_weak_cantonese_model(
+            language or getattr(self.settings, "language", None),
+            getattr(self.transcriber, "model_name", None) or getattr(self.settings, "model", None),
+        )
 
         # 微信公众号文本型文章：跳过 ASR，直接落盘 markdown
         if source.kind == "wechat_mp":

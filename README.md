@@ -67,7 +67,7 @@ python -m mediascribe transcribe "video.mp4" --language zh
 # 指定模型 / 设备（默认模型 small；中文推荐 large-v3）
 python -m mediascribe transcribe "video.mp4" --model large-v3 --device cuda
 
-# 模型按音频时长自动推荐
+# 模型按音频时长自动推荐（粤语 -l yue 恒选 large-v3）
 python -m mediascribe transcribe "video.mp4" --model auto
 
 # 分段 + 每段 [mm:ss] 时间戳
@@ -420,7 +420,7 @@ python -m mediascribe transcribe "video.mp4" --language zh
 # 指定模型 / 设备（默认 small；中文推荐 large-v3）
 python -m mediascribe transcribe "video.mp4" --model large-v3 --device cuda
 
-# 模型按音频时长自动推荐
+# 模型按音频时长自动推荐（粤语 -l yue 恒选 large-v3）
 python -m mediascribe transcribe "video.mp4" --model auto
 
 # 分段 + 每段 [mm:ss] 时间戳

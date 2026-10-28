@@ -122,6 +122,19 @@ def is_zh_language(language: Optional[str]) -> bool:
     return any(lang.startswith(prefix) for prefix in _ZH_LANGUAGES)
 
 
+def is_yue_language(language: Optional[str]) -> bool:
+    """判断语言码是否为粤语（``yue``）。
+
+    粤语在 tiny/base/small/medium 档位上识别质量很差（官方对 yue 的
+    训练数据有限，小模型常按普通话音素解码），auto 模型推荐与弱模型
+    警告都以本判定为准。大小写不敏感，``yue-HK`` 这类带区域后缀的
+    写法同样命中。
+    """
+    if not language:
+        return False
+    return language.strip().lower().startswith("yue")
+
+
 def simplified_initial_prompt(prompt: Optional[str], language: Optional[str]) -> Optional[str]:
     """中文场景下补一个简体引导 prompt。
 
