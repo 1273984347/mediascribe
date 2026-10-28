@@ -8,4 +8,4 @@ package (whose ``__init__`` pulls in the ASR stack: torch, faster-whisper…).
 public API is unchanged and this file holds the only literal.
 """
 
-__version__ = "3.3.0"
+__version__ = "3.4.0a1"

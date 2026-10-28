@@ -28,7 +28,11 @@ def test_package_version_is_the_single_source() -> None:
     from mediascribe._version import __version__ as canonical
 
     assert public == canonical
-    assert re.fullmatch(r"\d+\.\d+\.\d+", canonical), f"版本号应形如 3.3.0, 实际为 {canonical!r}"
+    # PEP 440: 允许 a/b/rc 预发布段(v3.4.0a1 这类 tag 的发布链验证需要);
+    # dev/N 本地段仍不允许。
+    assert re.fullmatch(r"\d+\.\d+\.\d+((a|b|rc)\d+)?", canonical), (
+        f"版本号应形如 3.3.0 或 3.4.0a1, 实际为 {canonical!r}"
+    )
 
 
 def test_pyproject_version_matches_package() -> None:
