@@ -228,7 +228,7 @@ class TestMcpWechatMpSchema(unittest.TestCase):
         self.assertIn("ocr_engine", props)
         self.assertEqual(
             set(props["ocr_engine"].get("enum", [])),
-            {"auto", "paddleocr", "pytesseract", "easyocr"},
+            {"auto", "paddleocr", "pytesseract", "easyocr", "none"},
         )
         self.assertEqual(props["ocr_engine"]["default"], "auto")
 

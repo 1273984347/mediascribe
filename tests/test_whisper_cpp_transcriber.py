@@ -134,8 +134,38 @@ class TestTranscribeFlow(unittest.TestCase):
             with mock.patch.object(cpp.subprocess, "run", side_effect=fake_run):
                 with mock.patch.object(cpp, "find_vad_model", return_value=None):
                     with mock.patch.object(cpp, "find_model", return_value=Path("ggml-tiny.bin")):
-                        res = t.transcribe(audio, language=language)
+                        with mock.patch.object(cpp, "_to_wav_16k", return_value=True):
+                            res = t.transcribe(audio, language=language)
         return captured["cmd"], res
+
+    def test_wav_input_still_goes_through_16k_transcode(self):
+        """P2 修正:.wav 也不许绕过 16k mono 转码(44.1k 立体声直录会劣化)。"""
+        t = cpp.WhisperCppTranscriber(model="tiny", device="cpu", binary=Path("fake.exe"))
+        called = {}
+        with tempfile.TemporaryDirectory() as tmp:
+            audio = Path(tmp) / "input.wav"
+            audio.write_bytes(b"RIFF0000WAVEfmt ")
+
+            def fake_transcode(src, dst):
+                called["src"] = src
+                return True
+
+            def fake_run(cmd, **kwargs):
+                # ffmpeg 转码与 whisper-cli 都走 subprocess.run:
+                # 只给 whisper-cli(-of)写 JSON, ffmpeg 调用直接成功返回
+                if "-of" in [str(x) for x in cmd]:
+                    out_prefix = Path(cmd[cmd.index("-of") + 1])
+                    Path(str(out_prefix) + ".json").write_text(
+                        json.dumps({"transcription": []}), encoding="utf-8"
+                    )
+                return mock.MagicMock(returncode=0, stdout="", stderr="")
+
+            with mock.patch.object(cpp.subprocess, "run", side_effect=fake_run):
+                with mock.patch.object(cpp, "find_vad_model", return_value=None):
+                    with mock.patch.object(cpp, "find_model", return_value=Path("ggml-tiny.bin")):
+                        with mock.patch.object(cpp, "_to_wav_16k", side_effect=fake_transcode):
+                            t.transcribe(audio, language="zh")
+        self.assertEqual(called["src"], audio)
 
     def test_command_contains_model_and_language(self):
         cmd, res = self._run(language="zh")

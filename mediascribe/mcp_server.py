@@ -256,12 +256,13 @@ TOOL_LIST = [
                 },
                 "ocr_engine": {
                     "type": "string",
-                    "enum": ["auto", "paddleocr", "pytesseract", "easyocr"],
+                    "enum": ["auto", "paddleocr", "pytesseract", "easyocr", "none"],
                     "default": "auto",
                     "description": (
                         "OCR engine for embedded images. ``auto`` (default) "
                         "tries paddleocr → pytesseract → easyocr in order. "
-                        "Any unavailable engine is silently skipped."
+                        "Any unavailable engine is silently skipped. "
+                        "``none`` disables OCR entirely."
                     ),
                 },
                 "ocr_lang": {

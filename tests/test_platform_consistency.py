@@ -208,3 +208,28 @@ class TestWechatCredentialGating(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestBatchPlatformChoicesConsistency(unittest.TestCase):
+    """batch CLI 的 --platform choices 必须与指纹表一致（此前是手抄副本）。"""
+
+    def test_choices_match_fingerprints(self):
+        from mediascribe.batch_cli import build_parser
+        from mediascribe.url_utils import _PLATFORM_FINGERPRINTS
+
+        parser = build_parser(lambda key, **kw: key)
+        platform_action = next(a for a in parser._actions if a.dest == "platform")
+        choices = set(platform_action.choices or ())
+        fingerprints = {name for name, _ in _PLATFORM_FINGERPRINTS}
+        self.assertEqual(choices, fingerprints)
+
+    def test_every_choice_routes_via_match_platform(self):
+        from mediascribe.batch_cli import build_parser
+
+        parser = build_parser(lambda key, **kw: key)
+        platform_action = next(a for a in parser._actions if a.dest == "platform")
+        for name in platform_action.choices or ():
+            url = f"https://www.{name}.com/x"
+            if name == "wechat_mp":
+                url = "https://mp.weixin.qq.com/s?x"
+            self.assertEqual(match_platform(url), name)

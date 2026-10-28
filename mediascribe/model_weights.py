@@ -155,12 +155,28 @@ def weight_spec(engine: str, model: str) -> Optional[WeightSpec]:
 
 
 def known_weight_pairs() -> List[Tuple[str, str]]:
-    """List every (engine, model) pair this module knows about."""
+    """List every (engine, model) pair this module knows about.
+
+    The model roster mirrors ``config._VALID_MODELS``; the inclusion
+    invariant is pinned by ``tests/test_model_consistency.py``.
+    """
     pairs: List[Tuple[str, str]] = []
+    tiers = (
+        "tiny",
+        "base",
+        "small",
+        "medium",
+        "large",
+        "large-v1",
+        "large-v2",
+        "large-v3",
+        "distil-large-v2",
+        "distil-large-v3",
+    )
     for engine in (ENGINE_FASTER, ENGINE_WHISPERX):
-        for model in ("tiny", "base", "small", "medium", "large-v3"):
+        for model in tiers:
             pairs.append((engine, model))
-    for model in ("tiny", "base", "small", "medium", "large-v3"):
+    for model in tiers:
         pairs.append((ENGINE_WHISPER, model))
         pairs.append((ENGINE_WHISPER_CPP, model))
     return pairs

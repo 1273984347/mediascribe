@@ -258,3 +258,32 @@ class TestPipelineIntegration(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestNvidiaSmiPathCache(unittest.TestCase):
+    """``shutil.which("nvidia-smi")`` 必须进程内只解析一次(审查 P2)。"""
+
+    def test_path_resolved_once(self):
+        import mediascribe.runtime_guard as rg
+
+        with mock.patch("shutil.which", return_value="C:/fake/nvidia-smi.exe") as w:
+            rg._NVIDIA_SMI_PATH = None
+            try:
+                first = rg._nvidia_smi_path()
+                second = rg._nvidia_smi_path()
+            finally:
+                rg._NVIDIA_SMI_PATH = None
+        self.assertEqual(first, "C:/fake/nvidia-smi.exe")
+        self.assertEqual(second, first)
+        self.assertEqual(w.call_count, 1)
+
+    def test_missing_binary_short_circuits(self):
+        import mediascribe.runtime_guard as rg
+
+        with mock.patch("shutil.which", return_value=None):
+            rg._NVIDIA_SMI_PATH = None
+            try:
+                self.assertIsNone(rg._nvidia_smi_path())
+                self.assertEqual(rg._nvidia_smi("memory.used"), [])
+            finally:
+                rg._NVIDIA_SMI_PATH = None
