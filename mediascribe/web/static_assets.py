@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, MutableMapping
 
 #: 静态资源目录(与 app.py 同级)。
 STATIC_DIR = Path(__file__).parent / "static"
@@ -28,7 +28,12 @@ class _StaticCacheControl:
     def __init__(self, app: Any) -> None:
         self.app = app
 
-    async def __call__(self, scope: Dict[str, Any], receive: Any, send: Any) -> None:
+    async def __call__(
+        self,
+        scope: MutableMapping[str, Any],
+        receive: Any,
+        send: Any,
+    ) -> None:
         if scope.get("type") != "http" or not scope.get("path", "").startswith("/static/"):
             await self.app(scope, receive, send)
             return

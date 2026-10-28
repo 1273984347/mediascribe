@@ -435,7 +435,12 @@ def post_process_transcript(
 # ---------------------------------------------------------------------------
 # 智能模型推荐
 # ---------------------------------------------------------------------------
-def auto_select_model(duration_seconds: int, *, prefer_quality: bool = False) -> str:
+def auto_select_model(
+    duration_seconds: int,
+    *,
+    prefer_quality: bool = False,
+    language: Optional[str] = None,
+) -> str:
     """按视频时长自动推荐模型。
 
     Parameters
@@ -444,11 +449,20 @@ def auto_select_model(duration_seconds: int, *, prefer_quality: bool = False) ->
         视频总秒数。
     prefer_quality
         如果为 True,优先精度(大模型)而非速度。
+    language
+        语言码(可选)。粤语(``yue``)例外: 官方对 yue 的训练数据有限,
+        tiny/base/small/medium 档常按普通话音素解码, 基本不可用 —
+        恒推荐 ``large-v3``。理由: "速度优先"转出不能用的稿等于零
+        收益, 时长分档只对其他语言生效。
 
     Returns
     -------
     模型名 (``"small"`` / ``"medium"`` / ``"large-v3"``)。
     """
+    from .zh_normalize import is_yue_language
+
+    if is_yue_language(language):
+        return "large-v3"
     if prefer_quality:
         if duration_seconds < 600:
             return "large-v3"
