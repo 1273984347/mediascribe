@@ -22,19 +22,24 @@ from .base import Transcriber
 # ---------------------------------------------------------------------------
 # 模型缓存 — 主模型与对齐模型分别缓存，避免每次转录都重新加载
 # ---------------------------------------------------------------------------
-_MODEL_CACHE: Dict[Tuple[str, str, str], Any] = {}
+_MODEL_CACHE: Dict[Tuple[str, str, str, Optional[str]], Any] = {}
 _ALIGN_MODEL_CACHE: Dict[Tuple[str, str], Any] = {}
 _DIARIZE_CACHE: Dict[Tuple[str, str], Any] = {}
 _MODEL_CACHE_LOCK = threading.Lock()
 
 
 def _get_cached_model(whisperx: Any, model_name: str, device: str, language: Optional[str]) -> Any:
-    """取或加载 WhisperX 主模型（按 ``(model_name, device, compute_type)`` 缓存）。
+    """取或加载 WhisperX 主模型（按 ``(model_name, device, compute_type, language)`` 缓存）。
 
     线程安全：双检锁，并发加载同一模型时只有一个会真正加载。
+
+    ``language`` 必须参与缓存键：它会被固定进 WhisperX 管线实例
+    （``load_model(language=...)`` 后 transcribe 不再自动检测），键里漏掉
+    会让后提交的语言静默复用先提交语言的模型（2026-10-29 审查 P1-3，
+    Web 混语言场景产出垃圾转写稿）。
     """
     compute_type = "int8" if device == "cpu" else "float16"
-    key = (model_name, device, compute_type)
+    key = (model_name, device, compute_type, language)
     cached = _MODEL_CACHE.get(key)
     if cached is not None:
         return cached
