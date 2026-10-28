@@ -300,6 +300,20 @@ def _engine_uses_metal(engine: str) -> bool:
     return engine not in ("faster-whisper",)
 
 
+def _whisper_cpp_available() -> bool:
+    """whisper.cpp 二进制是否就绪（惰性导入，探测失败按不可用处理）。
+
+    plan() 在把引擎切换成 whisper-cpp **之前**必须调用本函数 —— 切到
+    一个没有二进制的引擎会让原本能跑的配置在转录期硬失败
+    （2026-10-29 审查 P0-2：5018e97 回归）。测试可 patch 本函数。
+    """
+    try:
+        from mediascribe.transcribers.whisper_cpp import is_available
+    except Exception:  # pragma: no cover - 导入失败视同不可用
+        return False
+    return is_available()
+
+
 def plan(
     engine: str,
     model: str,
@@ -310,6 +324,8 @@ def plan(
 
     规则（每条都对应一个实测依据）：
 
+    0. **换引擎前先验可用性** —— whisper.cpp 二进制不可用时保留原引擎，
+       只按资源降档并给出可操作通知（预置指引见 docs/engines.md）。
     1. **Apple Silicon + faster-whisper** ⇒ 换引擎（faster-whisper 无 Metal 后端）
     2. **CUDA 显存不足** ⇒ 按阶梯降模型档
     3. **系统内存不足** ⇒ 按阶梯降模型档
@@ -322,19 +338,29 @@ def plan(
     decision = DegradeDecision(engine=engine, model=model, device=device)
     notices = decision.notices
     reasons = decision.reasons
+    cpp_ok = _whisper_cpp_available()
 
     # --- 规则 1：Apple Silicon ---
     if snap.is_apple_silicon and not _engine_uses_metal(engine):
-        new_engine = "whisper-cpp"
-        notices.append(
-            f"当前是 Apple Silicon，而 {engine} 没有 Metal 后端"
-            "（实测 ctranslate2 直接抛 unsupported device metal）"
-            f" ⇒ 已改用 {new_engine}（内存占用最低，实测 tiny 仅 291 MiB）"
-        )
-        reasons.append("apple-silicon-no-metal")
-        decision.engine = new_engine
-        decision.changed = True
-        engine = new_engine
+        if cpp_ok:
+            new_engine = "whisper-cpp"
+            notices.append(
+                f"当前是 Apple Silicon，而 {engine} 没有 Metal 后端"
+                "（实测 ctranslate2 直接抛 unsupported device metal）"
+                f" ⇒ 已改用 {new_engine}（内存占用最低，实测 tiny 仅 291 MiB）"
+            )
+            reasons.append("apple-silicon-no-metal")
+            decision.engine = new_engine
+            decision.changed = True
+            engine = new_engine
+        else:
+            notices.append(
+                f"当前是 Apple Silicon，而 {engine} 没有 Metal 后端；"
+                "本应改用 whisper.cpp，但未检测到 whisper.cpp 可执行文件"
+                " ⇒ 保留原引擎（转录可能失败）。预置方式见 docs/engines.md"
+                "（MEDIASCRIBE_WHISPER_CPP_BIN）"
+            )
+            reasons.append("apple-silicon-no-metal-no-cpp-binary")
 
     # --- 规则 4：CPU + 机器内存偏小 ⇒ whisper.cpp ---
     # 用**总内存**（硬件能力，稳定可复现），不用瞬时可用内存。
@@ -345,14 +371,25 @@ def plan(
         and snap.ram_total_mb
         and snap.ram_total_mb < MEMORY_PRESSURE_TOTAL_MB
     ):
-        notices.append(
-            f"机器总内存仅 {snap.ram_total_mb} MiB（压力线 {MEMORY_PRESSURE_TOTAL_MB} MiB）"
-            f" ⇒ 已改用 whisper-cpp（实测峰值内存最低，tiny 仅 291 MiB）"
-        )
-        reasons.append("memory-pressure-engine-switch")
-        decision.engine = "whisper-cpp"
-        decision.changed = True
-        engine = "whisper-cpp"
+        if cpp_ok:
+            notices.append(
+                f"机器总内存仅 {snap.ram_total_mb} MiB（压力线 {MEMORY_PRESSURE_TOTAL_MB} MiB）"
+                f" ⇒ 已改用 whisper-cpp（实测峰值内存最低，tiny 仅 291 MiB）"
+            )
+            reasons.append("memory-pressure-engine-switch")
+            decision.engine = "whisper-cpp"
+            decision.changed = True
+            engine = "whisper-cpp"
+        else:
+            # 不可用就保留原引擎，交给下方规则 2/3 按资源降档 ——
+            # 不能把「能跑的配置」换成「必然失败的配置」（P0-2）。
+            notices.append(
+                f"机器总内存仅 {snap.ram_total_mb} MiB（压力线 {MEMORY_PRESSURE_TOTAL_MB} MiB）；"
+                "本应改用 whisper.cpp，但未检测到 whisper.cpp 可执行文件"
+                " ⇒ 保留原引擎并按资源降档。预置方式见 docs/engines.md"
+                "（MEDIASCRIBE_WHISPER_CPP_BIN）"
+            )
+            reasons.append("memory-pressure-no-cpp-binary")
 
     # --- 规则 2/3：按资源降模型档 ---
     current_model = decision.model
