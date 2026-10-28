@@ -121,12 +121,30 @@ class TestParallelMap(unittest.TestCase):
     def test_thread_pool_used(self):
         from mediascribe.performance import parallel_map
 
-        # Multiple workers should make 4 sleeps of 0.05s finish
-        # faster than the serial 0.20s would.
+        # Multiple workers should make 4 sleeps of 0.05s finish faster
+        # than the serial 0.20s would.
+        #
+        # v3.4.0a1 发布验证实测:macOS matrix runner 上 executor 首建 +
+        # 调度抖动让绝对阈值 0.18s 误报(实测 0.1997s)。改为
+        # ① 先空跑一次吸收建池成本 ② 同环境内相对比较 —— 真串行实现
+        # ≈ 串行基线必挂, 并发实现在任何 runner 速度下都有大裕量。
+        parallel_map(lambda x: None, range(4), max_workers=4)  # warm-up
+
         t0 = time.perf_counter()
         parallel_map(lambda x: time.sleep(0.05), range(4), max_workers=4)
-        dur = time.perf_counter() - t0
-        self.assertLess(dur, 0.18, f"parallel map should be faster than serial: {dur}")
+        parallel_dur = time.perf_counter() - t0
+
+        t0 = time.perf_counter()
+        for _ in range(4):
+            time.sleep(0.05)
+        serial_dur = time.perf_counter() - t0
+
+        self.assertLess(
+            parallel_dur,
+            serial_dur * 0.8,
+            f"parallel map should beat serial: parallel={parallel_dur:.3f}s "
+            f"serial={serial_dur:.3f}s",
+        )
 
 
 class TestRunScopedTimings(unittest.TestCase):
