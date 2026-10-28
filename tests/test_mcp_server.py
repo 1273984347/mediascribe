@@ -91,6 +91,19 @@ class TestMCPServer(unittest.TestCase):
         body = _json.loads(r["result"]["content"][0]["text"])
         self.assertFalse(body["safe"])
 
+    def test_tool_validate_url_evil_domain_not_safe(self):
+        """P1-2：纯格式检查会把 evil.com 判 safe:true 误导下游 Agent；
+        现实现走域名白名单（check_url_safety）。"""
+        r = self._request(
+            "tools/call", {"name": "validate_url", "arguments": {"url": "https://evil.com/x"}}
+        )
+        self.assertFalse(r["result"]["isError"])
+        import json as _json
+
+        body = _json.loads(r["result"]["content"][0]["text"])
+        self.assertFalse(body["safe"])
+        self.assertIn("Untrusted domain", body["reason"])
+
     def test_tool_sanitize_filename(self):
         r = self._request(
             "tools/call",
