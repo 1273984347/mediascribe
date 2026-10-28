@@ -70,7 +70,10 @@ def _windows_to_simplified(text: str) -> str:
 
     locale_zh_cn = 0x0804
     lcmap_simplified_chinese = 0x02000000
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    # ctypes.WinDLL only exists in Windows stubs; on Linux mypy
+    # (the CI lint job) reports attr-defined. Callers guard this function
+    # behind os.name == "nt", so the attribute is always real at runtime.
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
     need = kernel32.LCMapStringW(locale_zh_cn, lcmap_simplified_chinese, text, len(text), None, 0)
     if need <= 0:
         return text
