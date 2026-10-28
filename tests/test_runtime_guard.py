@@ -114,7 +114,8 @@ class TestPlanDegrade(unittest.TestCase):
     def test_apple_silicon_switches_engine(self):
         """faster-whisper 无 Metal 后端（实测 ctranslate2 抛错）⇒ 必须换引擎。"""
         snap = _snap(cuda_available=False, is_apple_silicon=True, ram_available_mb=9000)
-        d = plan("faster-whisper", "large-v3", "cpu", snap)
+        with mock.patch("mediascribe.runtime_guard._whisper_cpp_available", return_value=True):
+            d = plan("faster-whisper", "large-v3", "cpu", snap)
         self.assertTrue(d.changed)
         self.assertNotEqual(d.engine, "faster-whisper")
         self.assertTrue(any("Apple Silicon" in n for n in d.notices), msg=d.notices)
@@ -123,8 +124,31 @@ class TestPlanDegrade(unittest.TestCase):
         """CPU + 内存紧张 ⇒ 换 whisper.cpp（实测最省内存）。"""
         # 用**总内存**判定（硬件能力），不是瞬时可用内存
         snap = _snap(cuda_available=False, ram_total_mb=MEMORY_PRESSURE_TOTAL_MB - 1024)
-        d = plan("faster-whisper", "small", "cpu", snap)
+        with mock.patch("mediascribe.runtime_guard._whisper_cpp_available", return_value=True):
+            d = plan("faster-whisper", "small", "cpu", snap)
         self.assertEqual(d.engine, "whisper-cpp")
+
+    def test_engine_switch_requires_whisper_cpp_binary(self):
+        """P0-2：whisper.cpp 二进制不可用时**不得**切引擎 —— 换到没有
+        二进制的引擎会把原本能跑的配置变成转录期硬失败。"""
+        snap = _snap(cuda_available=False, ram_total_mb=MEMORY_PRESSURE_TOTAL_MB - 1024)
+        with mock.patch("mediascribe.runtime_guard._whisper_cpp_available", return_value=False):
+            d = plan("faster-whisper", "small", "cpu", snap)
+        self.assertEqual(d.engine, "faster-whisper")
+        self.assertTrue(any("whisper.cpp 可执行文件" in n for n in d.notices), msg=d.notices)
+        self.assertIn("memory-pressure-no-cpp-binary", d.reasons)
+
+    def test_apple_silicon_without_cpp_keeps_engine_and_notifies(self):
+        """Apple Silicon + faster-whisper + 无 whisper.cpp ⇒ 保留原引擎，
+        但通知必须说清后果与预置方式。"""
+        snap = _snap(cuda_available=False, is_apple_silicon=True, ram_available_mb=9000)
+        with mock.patch("mediascribe.runtime_guard._whisper_cpp_available", return_value=False):
+            d = plan("faster-whisper", "large-v3", "cpu", snap)
+        self.assertEqual(d.engine, "faster-whisper")
+        joined = " ".join(d.notices)
+        self.assertIn("whisper.cpp 可执行文件", joined)
+        self.assertIn("docs/engines.md", joined)
+        self.assertIn("apple-silicon-no-metal-no-cpp-binary", d.reasons)
 
     def test_notices_are_actionable(self):
         """降档通知必须说清「降了什么、为什么」—— 用户要能据此行动。"""
