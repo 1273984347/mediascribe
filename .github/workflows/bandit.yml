@@ -43,7 +43,7 @@ permissions:
 jobs:
   bandit:
     name: bandit (ubuntu, py3.12)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
 
     steps:

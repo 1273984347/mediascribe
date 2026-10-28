@@ -28,7 +28,7 @@ on:
       tag:
         description: 'Tag to release (must exist on origin/main)'
         required: true
-        default: 'v3.2.0a'
+        default: 'v3.3.0'
 
 permissions:
   contents: write
@@ -40,7 +40,7 @@ jobs:
   # ------------------------------------------------------------------
   lint:
     name: lint (ruff + bandit)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -115,7 +115,7 @@ jobs:
   build:
     name: build (sdist + wheel)
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -142,7 +142,7 @@ jobs:
   publish-pypi:
     name: publish · PyPI
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: pypi
     if: vars.ENABLE_PYPI_PUBLISH == 'true'
@@ -172,7 +172,7 @@ jobs:
     # ENABLE_DOCKER_PUBLISH=true (Settings → Secrets and variables →
     # Actions → Variables) and configure the secrets.
     if: vars.ENABLE_DOCKER_PUBLISH == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -209,7 +209,7 @@ jobs:
     name: github · release
     needs: [build, publish-pypi, publish-docker]
     if: always() && needs.build.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -235,7 +235,11 @@ jobs:
           fi
       - name: Pick release notes file
         id: notes
+        # TAG 此前在本步骤未定义 → VER 恒为空, 永远回退 GITHUB_RELEASE.md
+        # (2026-10-29 审查修复: 与 version 步骤同源取 tag)
         run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          [ "$TAG" = "$GITHUB_REF" ] && TAG=${{ github.event.inputs.tag }}
           VER=${TAG#v}  # strip leading v
           FILE="GITHUB_RELEASE_${VER}.md"
           if [ ! -f "$FILE" ]; then
@@ -261,7 +265,7 @@ jobs:
   release-summary:
     name: release · summary
     needs: [publish-pypi, publish-docker, github-release]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     if: always() && needs.github-release.result == 'success'
     steps:
