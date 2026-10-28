@@ -120,7 +120,8 @@ class BatchConfig:
                     env_value = legacy_value
             if env_value is not None:
                 if type_ is bool:
-                    setattr(config, attr, env_value.lower() in ("true", "1", "yes"))
+                    # 布尔 env 统一词表(2026-10-29 拍板): 1/true/yes/on
+                    setattr(config, attr, env_value.lower() in ("1", "true", "yes", "on"))
                 else:
                     setattr(config, attr, type_(env_value))
 

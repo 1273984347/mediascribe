@@ -709,3 +709,51 @@ class TestReportAsciiFilenames:
         jsons = list(tmp_path.glob("results_*.json"))
         assert len(jsons) == 1
         assert jsons[0].name.isascii()
+
+
+class TestStreamDownloadSizeLimit:
+    """max_bytes 上限(2026-10-29 审查 P2):恶意/损坏源不得灌满磁盘。"""
+
+    def test_oversize_aborts_and_cleans_part(self, tmp_path):
+        import pytest
+
+        from mediascribe.downloaders._http_download import stream_download
+
+        dest = tmp_path / "out.mp4"
+        dest.write_bytes(b"OLD-GOOD")
+        big = _FakeSession([b"x" * 100, b"y" * 100, b"z" * 100])
+        # locale 无关: en/zh 文案都含 "<limit> MiB"
+        with pytest.raises(RuntimeError, match=r"1 MiB"):
+            stream_download("https://x/v.mp4", dest, session=big, max_bytes=150)
+        # .part 清理干净 + 旧文件未被破坏
+        assert list(tmp_path.glob("*part*")) == []
+        assert dest.read_bytes() == b"OLD-GOOD"
+
+    def test_within_limit_passes(self, tmp_path):
+        from mediascribe.downloaders._http_download import stream_download
+
+        dest = tmp_path / "out.mp4"
+        out = stream_download(
+            "https://x/v.mp4",
+            dest,
+            session=_FakeSession([b"a" * 10, b"b" * 5]),
+            max_bytes=1024,
+        )
+        assert out == dest
+        assert dest.stat().st_size == 15
+
+    def test_env_override_read(self, tmp_path, monkeypatch):
+        from mediascribe.downloaders import _http_download as hd
+        from mediascribe.downloaders._http_download import stream_download
+
+        monkeypatch.setenv("MEDIASCRIBE_MAX_DOWNLOAD_MB", "1")
+        dest = tmp_path / "out.mp4"
+        import pytest
+
+        with pytest.raises(RuntimeError, match=r"1 MiB"):
+            stream_download(
+                "https://x/v.mp4",
+                dest,
+                # > 1 MiB 才越限(env 以 MiB 为单位, 最小 1)
+                session=_FakeSession([b"x" * (1024 * 1024), b"y"]),
+            )

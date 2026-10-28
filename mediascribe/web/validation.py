@@ -25,9 +25,18 @@ def _validate_public_url(url: str) -> str:
     2. URLs carrying userinfo (``https://user@host/…``);
     3. hostnames that resolve to private / loopback / link-local /
        reserved / multicast addresses — checked against *every* address
-       ``socket.getaddrinfo`` returns, so DNS rebinding to an internal
-       IP is caught too;
+       ``socket.getaddrinfo`` returns, so DNS rebinding to an internal IP
+       is caught for the *first* resolution;
     4. hostnames that fail to resolve (fail closed).
+
+    Known accepted boundary (documented 2026-10-29 adversarial audit):
+    **two-phase DNS rebinding is NOT covered** — the actual download
+    re-resolves the hostname later via requests / urllib / Playwright, so
+    a DNS answer that flips from a public IP (passes this check) to an
+    internal IP (serves the request) can slip through. Full mitigation
+    requires pinning the validated IP onto the request transport; judged
+    not worth the complexity for a single-user local tool where platform
+    hosts are additionally asserted by each downloader.
 
     Opt-out for local development: set ``MEDIASCRIBE_ALLOWED_HOSTS`` to a
     comma-separated list of hostnames that skip the private-address

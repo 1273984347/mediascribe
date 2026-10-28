@@ -49,9 +49,12 @@ def _build_pipeline(req: "TranscribeRequest", workspace: Path):
                 cookies[k.strip()] = v.strip()
 
     device = resolve_device(os.environ.get("MEDIASCRIBE_DEVICE", "auto"))
-    # 缓存 key 不含 cookies（不影响 transcriber），不含 workspace（每次请求不同）
+    # 缓存 key 不含 cookies（不影响 transcriber），不含 workspace（每次请求不同）。
+    # 引擎名**原样**进 key 与 settings —— 曾在此把 "whisper" 静默改写成
+    # "faster-whisper"，UI 标着 whisper 实际永远跑别的引擎（2026-10-29 拍板
+    # 删除：选什么跑什么，引导用 UI 文案）。
     cache_key = (
-        req.engine if req.engine != "whisper" else "faster-whisper",
+        req.engine,
         req.model,
         device,
         req.language or "",
@@ -77,7 +80,7 @@ def _build_pipeline(req: "TranscribeRequest", workspace: Path):
     settings = Settings(
         workspace_root=workspace,
         model=req.model,
-        engine=req.engine if req.engine != "whisper" else "faster-whisper",
+        engine=req.engine,
         language=req.language,
         wechat_cookies=cookies,
     )
