@@ -32,6 +32,7 @@ import requests
 
 from ..config import Settings
 from ..models import DownloadResult, SourceRef
+from ..url_utils import host_matches
 from ._http_download import CHROME_UA, stream_download
 from .base import Downloader
 
@@ -63,8 +64,7 @@ class XiaohongshuDownloader(Downloader):
     def supports(self, source: SourceRef) -> bool:
         if source.kind == "xiaohongshu":
             return True
-        url = (source.url or "").lower()
-        return any(host in url for host in self.XHS_HOST_PATTERNS)
+        return host_matches(source.url or "", self.XHS_HOST_PATTERNS)
 
     def download(
         self,
@@ -77,10 +77,17 @@ class XiaohongshuDownloader(Downloader):
         if not url:
             raise ValueError("需要提供小红书视频 URL")
 
+        # 入口断言：主机名必须属于小红书系域名，防止子串伪装 URL 把
+        # headless 浏览器/重定向跟随引向任意主机（2026-10-29 审查 SEC-003）
+        if not host_matches(url, self.XHS_HOST_PATTERNS):
+            raise ValueError(
+                f"URL 主机不是小红书系域名（{' / '.join(self.XHS_HOST_PATTERNS)}），已拒绝处理"
+            )
+
         logger.info("目标链接: %s", url)
 
         # 1) 如果是 xhslink 短链接，先展开
-        if "xhslink.com" in url:
+        if host_matches(url, ("xhslink.com",)):
             expanded = self._resolve_short_url(url)
             if expanded:
                 logger.info("短链接展开: %s", expanded)
@@ -181,6 +188,11 @@ class XiaohongshuDownloader(Downloader):
         media_url: Optional[str] = None
         title: Optional[str] = None
         note_type: Optional[str] = None
+
+        # 短链展开后的最终地址仍须落在小红书系域名上才允许导航
+        if not host_matches(url, self.XHS_HOST_PATTERNS):
+            logger.warning("展开后的地址不在小红书系域名，拒绝导航: %s", url)
+            return None, None, None
 
         with sync_playwright() as pw:
             browser = pw.chromium.launch(headless=True)

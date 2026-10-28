@@ -14,16 +14,55 @@ from urllib.parse import urlparse
 # 避免两份重复实现。
 from .platform_compat import safe_filename
 
-# Trusted domains
+# Trusted domains — download/routing allowlist shared by
+# ``check_url_safety`` (batch pre-download gate) and security tooling.
+# Must be a superset of ``url_utils._PLATFORM_FINGERPRINTS`` and the
+# short-link domain tables; ``tests/test_platform_consistency.py`` pins
+# that invariant so the two tables cannot drift apart again.
 TRUSTED_DOMAINS = {
     "bilibili.com",
     "b23.tv",
     "douyin.com",
     "v.douyin.com",
+    "iesdouyin.com",
     "douyinvod.com",
     "youtu.be",
     "youtube.com",
+    "youtube-nocookie.com",
+    "tiktok.com",
+    "xiaohongshu.com",
+    "xhslink.com",
+    "xhscdn.com",
+    "mp.weixin.qq.com",
+    "qpic.cn",
 }
+
+# Tencent-controlled registrable domains that legitimately host WeChat
+# article assets (articles HTML, CDN images ``mmbiz.qpic.cn``, video
+# ``mpvideo.qpic.cn``, avatars ``wx.qlogo.cn``). WeChat session cookies
+# are attached ONLY to requests toward these domains — article-extracted
+# URLs pointing elsewhere must never receive credentials
+# (2026-10-29 audit P0-1/P0-2: credential exfiltration via
+# article-embedded URLs).
+TENCENT_CDN_DOMAINS = (
+    "weixin.qq.com",
+    "qq.com",
+    "qpic.cn",
+    "qlogo.cn",
+    "wpimg.cn",
+)
+
+
+def is_tencent_cdn_url(url: str) -> bool:
+    """True when the URL points at a Tencent-controlled domain.
+
+    Used to gate credential-bearing requests: WeChat cookies go out only
+    to hosts under these registrable domains.
+    """
+    from .url_utils import host_matches
+
+    return host_matches(url, TENCENT_CDN_DOMAINS)
+
 
 # Suspicious patterns
 SUSPICIOUS_PATTERNS = [
