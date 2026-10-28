@@ -13,7 +13,8 @@ on:
         type: boolean
         default: false
   schedule:
-    # Nightly integration run (UTC 02:00 = 10:00 CST)
+    # Nightly integration run (UTC 02:00 = 10:00 CST)。
+    # 实测 GitHub 免费档排队会把启动推迟到 ~07:00 UTC, 属正常延迟。
     - cron: "0 2 * * *"
 
 # Cancel in-progress runs of the same branch; do NOT cancel for tags
@@ -39,7 +40,7 @@ jobs:
   # -------------------------------------------------------------------------
   lint:
     name: Lint (ruff)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
@@ -187,35 +188,6 @@ jobs:
           -m "not network or integration"
           -v --tb=short --maxfail=3
 
-      - name: Notify maintainer on cron failure
-        # cron-fail-notify 范式(用户技能库): schedule 失败主动建/评 issue, 杜绝静默 fail。
-        if: failure() && github.event_name == 'schedule'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const label = 'cron-failure';
-            const titlePrefix = 'MediaScribe nightly tests cron failed';
-            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const body = `Cron run failed at ${new Date().toISOString()}. Run URL: ${runUrl}. Use gh run view ${context.runId} --log-failed to see what broke. Auto-created; close after triage.`;
-            const issues = await github.rest.issues.listForRepo({
-              owner: context.repo.owner, repo: context.repo.repo,
-              state: 'open', labels: label, per_page: 10,
-            });
-            const existing = issues.data.find(i => i.title.startsWith(titlePrefix));
-            if (existing) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner, repo: context.repo.repo,
-                issue_number: existing.number,
-                body: `Another failure at ${new Date().toISOString()}: ${runUrl}`,
-              });
-            } else {
-              await github.rest.issues.create({
-                owner: context.repo.owner, repo: context.repo.repo,
-                title: titlePrefix + " (" + context.runId + ")",
-                labels: [label],
-                body: body,
-              });
-            }
         # NOTE: `network`-marked tests are intentionally excluded here
         # because the integration runner does not have outbound network
         # access in all CI environments. They can be opted in by
@@ -290,7 +262,7 @@ jobs:
   # -------------------------------------------------------------------------
   coverage:
     name: Coverage (py3.11, ubuntu)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -333,6 +305,55 @@ jobs:
           fail_ci_if_error: false
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+
+  # -------------------------------------------------------------------------
+  # 6. notify — cron 失败必须出声(2026-10-29 修复)
+  #    此前通知步埋在 integration job 里, `failure()` 只看本 job 前置步骤:
+  #    lint/unit 失败时 integration 照常绿 → 三次 nightly 红灯零通知
+  #    (issue #cron-failure 只有 10-14 一条)。独立 job + needs.*.result
+  #    聚合后, 任何一个 job 失败都会出声。
+  # -------------------------------------------------------------------------
+  notify:
+    name: Notify maintainer (cron failure)
+    needs: [lint, unit, integration, coverage]
+    if: >-
+      always() &&
+      contains(needs.*.result, 'failure') &&
+      github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Notify maintainer on cron failure
+        # cron-fail-notify 范式(用户技能库): schedule 失败主动建/评 issue, 杜绝静默 fail。
+        # 触发条件在 job 级 if(needs.*.result 聚合); 步骤级 failure() 在
+        # 无前置步骤的 job 里恒为 false, 不能再用。
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const label = 'cron-failure';
+            const titlePrefix = 'MediaScribe nightly tests cron failed';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = `Cron run failed at ${new Date().toISOString()}. Run URL: ${runUrl}. Use gh run view ${context.runId} --log-failed to see what broke. Auto-created; close after triage.`;
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: label, per_page: 10,
+            });
+            const existing = issues.data.find(i => i.title.startsWith(titlePrefix));
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `Another failure at ${new Date().toISOString()}: ${runUrl}`,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title: titlePrefix + " (" + context.runId + ")",
+                labels: [label],
+                body: body,
+              });
+            }
 
   # NOTE: docs build/deploy lives in docs.yml (authoritative, `mkdocs build
   # --strict`).  A duplicate non-strict build here previously drifted from
