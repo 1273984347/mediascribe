@@ -14,12 +14,7 @@ from .chunked import (
     probe_duration,
     split_audio,
 )
-from .factory import (
-    DEFAULT_FALLBACK_CHAIN,
-    get_transcriber,
-    get_transcriber_with_fallback,
-    list_available_engines,
-)
+from .factory import get_transcriber
 from .faster_whisper import FasterWhisperTranscriber
 from .whisper import WhisperTranscriber
 from .whisper_cpp import WhisperCppTranscriber
@@ -40,8 +35,5 @@ __all__ = [
     "merge_texts",
     "probe_duration",
     "split_audio",
-    "DEFAULT_FALLBACK_CHAIN",
     "get_transcriber",
-    "get_transcriber_with_fallback",
-    "list_available_engines",
 ]

@@ -21,6 +21,8 @@ from typing import Callable, Optional
 import requests
 from requests.adapters import HTTPAdapter
 
+from ..i18n import t
+
 logger = logging.getLogger(__name__)
 
 # 重试配置
@@ -75,6 +77,7 @@ def stream_download(
     progress_cb: Optional[Callable[[int, int], None]] = None,
     headers: Optional[dict] = None,
     timeout=60,
+    max_bytes: Optional[int] = None,
 ) -> Path:
     """流式下载 ``url`` 到 ``dest_path``。
 
@@ -85,9 +88,22 @@ def stream_download(
     - ``total`` 取响应 ``content-length``，缺失时回退 ``expected_size``
     - 进度按 5% 分桶写日志，避免高带宽下逐 chunk 刷屏；若提供
       ``progress_cb``，每收到一个 chunk 都回调 ``progress_cb(downloaded, total)``
+    - ``max_bytes``：响应大小上限，超限中止并清理（防恶意/损坏源灌满磁盘，
+      2026-10-29 审查 P2）。``None`` 时读环境变量 ``MEDIASCRIBE_MAX_DOWNLOAD_MB``
+      （默认 4096 MiB）。
     """
     dest_path = Path(dest_path)
     dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if max_bytes is None:
+        import os
+
+        try:
+            max_bytes = int(os.environ.get("MEDIASCRIBE_MAX_DOWNLOAD_MB", "4096")) * 1024 * 1024
+        except ValueError:
+            max_bytes = 4096 * 1024 * 1024
+    if max_bytes <= 0:
+        max_bytes = None  # 显式关闭上限（不推荐）
 
     # uuid 短后缀防止同秒/多线程临时文件名碰撞
     tmp_path = dest_path.with_name(f"{dest_path.name}.{uuid.uuid4().hex[:8]}.part")
@@ -109,6 +125,12 @@ def stream_download(
                     continue
                 f.write(chunk)
                 downloaded += len(chunk)
+                if max_bytes is not None and downloaded > max_bytes:
+                    # 慢速滴漏/无限流防线：超限即中止, finally 清 .part
+                    limit_mb = (max_bytes + 1024 * 1024 - 1) // (1024 * 1024)
+                    raise RuntimeError(
+                        t("DL_SIZE_LIMIT_EXCEEDED", limit_mb=limit_mb, url=url[:120])
+                    )
                 if progress_cb is not None:
                     try:
                         progress_cb(downloaded, total_size)

@@ -113,9 +113,10 @@ class Settings:
             self.zh_simplify = True
 
         # v3.4.2: 只拉音轨(转录场景够用, 省 ~70% 带宽; B 站直走 API 音轨)
+        # 布尔 env 统一词表(2026-10-29 拍板): 1/true/yes/on, 大小写不敏感
         self.audio_only = bool(audio_only) or os.environ.get(
             "MEDIASCRIBE_AUDIO_ONLY", ""
-        ).lower() in ("1", "true")
+        ).lower() in ("1", "true", "yes", "on")
 
         # v3.4.3: 转录成功后自动清理中间媒体(downloads/ 视频与 audio/ 音频)。
         # 只删托管目录内本任务产生的文件, 用户自备的本地视频/音频永不删除;

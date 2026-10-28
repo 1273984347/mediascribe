@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (2026-10-29 拍板五项:#1-#5 批次 + #8 边界文档化)
+
+- **布尔 env 词表统一**(宽词表 `1/true/yes/on`,大小写不敏感):`MEDIASCRIBE_AUDIO_ONLY`
+  原先只认 `1/true`(设 `=yes` 被静默当 false),batch 的 `DOUYIN_BATCH_*` 缺 `on`。
+- **删除 whisper→faster-whisper 静默改写**(`web/pipeline_bridge.py`):UI 选 whisper
+  实际永远跑 faster-whisper,metadata 记录与事实不符。现选什么跑什么;引擎下拉把
+  faster-whisper 标为「推荐」做引导。**行为变化**:Web 提交 `engine=whisper` 现在
+  真跑 openai-whisper(更慢)。
+- **流式下载大小上限**:`stream_download` 新增 `max_bytes`(默认 4096 MiB,环境变量
+  `MEDIASCRIBE_MAX_DOWNLOAD_MB` 可调,≤0 关闭),超限中止并清理,防恶意/损坏源灌满磁盘。
+- **删除 factory 回退链死代码**(`DEFAULT_FALLBACK_CHAIN`/`get_transcriber_with_fallback`/
+  `list_available_engines`/内存压力换序):产品零调用,且「可用内存<4096」口径与
+  runtime_guard 的「总内存<8192」矛盾。引擎切换决策单点收敛到 runtime_guard。
+- **bench shell 脚手架标注 ARCHIVED** + 删除空的 `scripts/benchmark_corpus/`。
+- **DNS rebinding 两阶段切换记录为已知边界**(`web/validation.py` docstring):
+  完整缓解需 pinned-IP transport,单用户本地工具判定不值得;各下载器另有主机名断言。
+
+### Fixed (2026-10-29 审查 P2 第一批(Tier A)—— 确定性修复,零行为争议)
+
+- `runtime_guard`: `shutil.which("nvidia-smi")` 进程内缓存(原每 2s 采样重扫全 PATH);
+  torch 探测分支补 `vram_used`(`mem_get_info`),修显存预算恒偏乐观。
+- `whisper_cpp`: `.wav` 输入也强制 16k mono 转码(原样拷贝违背模块契约)。
+- whisperx / whisper 模块级模型缓存加 **LRU 上限 2**(对齐 faster_whisper),
+  长驻 Web 进程换档不再只增不减显存。
+- `model_weights.known_weight_pairs` 补齐全 10 个合法档位(doctor 离线预置清单口径)。
+- MCP `transcribe_wechat_mp` 的 `ocr_engine` enum 补 `none`(与 Web 层对齐)。
+- `open_file_location` 补 `timeout=10`(全仓最后一处无 timeout 的 subprocess)。
+- 新增 `tests/test_model_consistency.py`(模型名单五处跨入口一致性 + MCP/Web OCR 枚举对账)、
+  `tests/test_env_flags.py`(布尔 env 词表)、`tests/test_model_cache_lru.py`(LRU 行为)、
+  `tests/test_platform_consistency.py` 补 `--platform` choices 对账。
+
+
 ### Fixed (2026-10-29 对抗性审查修复:P0×2 + P1×4)
 
 **P0-1 凭据外泄** —— 平台识别原为「小写 URL 子串匹配」，`https://evil.com/mp.weixin.qq.com/s`

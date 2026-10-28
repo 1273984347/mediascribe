@@ -32,15 +32,14 @@ class TestFactoryAndChunked:
             get_transcriber(name="definitely-not-an-engine", model="tiny")
 
     def test_factory_fallback_chain(self):
-        from mediascribe.transcribers.factory import (
-            DEFAULT_FALLBACK_CHAIN,
-            get_transcriber_with_fallback,
-        )
+        # 2026-10-29: factory 的回退链已删(产品零调用,引擎决策单点收敛到
+        # runtime_guard)—— 只保留构造契约:未知引擎必须明确报错。
+        import pytest
 
-        assert isinstance(DEFAULT_FALLBACK_CHAIN, tuple)
-        # Asking for an unsupported engine falls back through the chain.
-        t = get_transcriber_with_fallback(preferred="whisper", model="tiny")
-        assert t is not None
+        from mediascribe.transcribers.factory import get_transcriber
+
+        with pytest.raises(ValueError):
+            get_transcriber("nope")
 
     def test_chunked_probe_duration_unsupported_path_raises(self, tmp_path):
         from mediascribe.transcribers.chunked import probe_duration

@@ -9,7 +9,7 @@
 2. ``mediascribe/__main__.py`` 的 ``--engine`` choices
 3. ``mediascribe/web/models.py`` 的 ``TranscribeRequest.engine`` 正则
    （2026-10-25 职责拆分前在 ``mediascribe/web/app.py``）
-4. ``mediascribe/transcribers/factory.py`` 的 ``DEFAULT_FALLBACK_CHAIN``
+4. ~~factory 的回退链~~（2026-10-29 已删：产品零调用，引擎决策单点收敛到 runtime_guard）
 
 只改了 1、2、4 ⇒ **Web UI 选 whisper-cpp 会被 422 拒绝**（第 3 处漏改）。
 这类「改了核心枚举忘了其它入口」的缺口，靠人记是记不住的 —— 本文件把它变成
@@ -28,7 +28,6 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 from mediascribe.config import _VALID_ENGINES  # noqa: E402
-from mediascribe.transcribers.factory import DEFAULT_FALLBACK_CHAIN  # noqa: E402
 
 
 def _cli_engine_choices() -> set:
@@ -61,20 +60,11 @@ class TestEngineNameConsistency(unittest.TestCase):
     def test_web_pattern_matches_config(self):
         self.assertEqual(_web_engine_pattern(), set(_VALID_ENGINES))
 
-    def test_fallback_chain_is_subset_of_valid_engines(self):
-        for engine in DEFAULT_FALLBACK_CHAIN:
-            self.assertIn(
-                engine,
-                _VALID_ENGINES,
-                msg=f"回退链里的 {engine!r} 不在合法引擎名单中",
-            )
-
     def test_whisper_cpp_registered_everywhere(self):
         """新增引擎时最容易漏的就是 Web UI —— 单独锁一条。"""
         self.assertIn("whisper-cpp", _VALID_ENGINES)
         self.assertIn("whisper-cpp", _cli_engine_choices())
         self.assertIn("whisper-cpp", _web_engine_pattern())
-        self.assertIn("whisper-cpp", DEFAULT_FALLBACK_CHAIN)
 
     def test_every_valid_engine_is_reachable(self):
         """每个合法引擎都必须能被 factory 构造。"""

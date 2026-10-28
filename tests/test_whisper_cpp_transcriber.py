@@ -22,11 +22,7 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 from mediascribe.transcribers import whisper_cpp as cpp  # noqa: E402
-from mediascribe.transcribers.factory import (  # noqa: E402
-    _chain_for_device,
-    get_transcriber,
-    list_available_engines,
-)
+from mediascribe.transcribers.factory import get_transcriber  # noqa: E402
 from mediascribe.zh_normalize import SIMPLIFIED_ZH_PROMPT  # noqa: E402
 
 
@@ -202,37 +198,9 @@ class TestFactoryIntegration(unittest.TestCase):
             get_transcriber("nope")
         self.assertIn("whisper-cpp", str(cm.exception))
 
-    def test_chain_contains_whisper_cpp_last(self):
-        chain = _chain_for_device("cuda")
-        self.assertEqual(chain[-1], "whisper-cpp")
-
-    def test_memory_pressure_promotes_whisper_cpp(self):
-        """内存紧张时 whisper.cpp 应排到 faster-whisper 之前（它最省内存）。"""
-        with mock.patch("mediascribe.transcribers.factory._memory_pressure", return_value=True):
-            chain = _chain_for_device("cpu")
-        self.assertLess(
-            chain.index("whisper-cpp"),
-            chain.index("faster-whisper"),
-            msg=f"内存压力下 whisper.cpp 应优先，实际链: {chain}",
-        )
-
-    def test_no_memory_pressure_keeps_default_order(self):
-        with mock.patch("mediascribe.transcribers.factory._memory_pressure", return_value=False):
-            chain = _chain_for_device("cpu")
-        self.assertLess(
-            chain.index("faster-whisper"),
-            chain.index("whisper-cpp"),
-        )
-
-    def test_available_engines_includes_cpp_when_binary_present(self):
-        with mock.patch(
-            "mediascribe.transcribers.factory._whisper_cpp_available", return_value=True
-        ):
-            self.assertIn("whisper-cpp", list_available_engines())
-        with mock.patch(
-            "mediascribe.transcribers.factory._whisper_cpp_available", return_value=False
-        ):
-            self.assertNotIn("whisper-cpp", list_available_engines())
+    # 2026-10-29: factory 的内存压力回退链已删（产品零调用，且与
+    # runtime_guard 的总内存口径矛盾）—— 引擎切换决策单点在 runtime_guard,
+    # 行为由 tests/test_runtime_guard.py 钉死。
 
 
 class TestVadDefaultAndDllDetection(unittest.TestCase):

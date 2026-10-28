@@ -1412,6 +1412,15 @@ Environment variables:
     }
 
     # ==================== Downloaders (wechat_mp / xiaohongshu) ====================
+    DL_SIZE_LIMIT_EXCEEDED = {
+        "en": (
+            "download exceeded the {limit_mb} MiB limit and was aborted "
+            "(tune with MEDIASCRIBE_MAX_DOWNLOAD_MB): {url}"
+        ),
+        "zh": (
+            "下载超过 {limit_mb} MiB 上限，已中止（可用 MEDIASCRIBE_MAX_DOWNLOAD_MB 调整）: {url}"
+        ),
+    }
     WP_NO_URL = {
         "en": "a WeChat MP article URL is required",
         "zh": "需要提供微信公众号文章 URL",
