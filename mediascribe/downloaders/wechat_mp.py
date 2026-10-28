@@ -45,6 +45,8 @@ import requests
 
 from ..config import Settings
 from ..models import DownloadResult, SourceRef
+from ..security import is_tencent_cdn_url
+from ..url_utils import host_matches
 from ._http_download import CHROME_UA, build_http_session, stream_download
 from .base import Downloader
 
@@ -92,8 +94,7 @@ class WechatMpDownloader(Downloader):
     def supports(self, source: SourceRef) -> bool:
         if source.kind == "wechat_mp":
             return True
-        url = (source.url or "").lower()
-        return self.MP_HOST in url and "/s?" in url
+        return host_matches(source.url or "", (self.MP_HOST,))
 
     def download(
         self,
@@ -108,6 +109,14 @@ class WechatMpDownloader(Downloader):
         url = source.url
         if not url:
             raise ValueError("需要提供微信公众号文章 URL")
+
+        # 凭据防线（2026-10-29 审查 P0-1）：平台路由曾用子串匹配，
+        # ``https://evil.com/mp.weixin.qq.com/s?x`` 会被路由到本下载器并把
+        # 微信登录 cookies 发往攻击者主机。入口必须按主机名断言目标域名。
+        if not host_matches(url, (self.MP_HOST,)):
+            raise ValueError(
+                f"URL 主机不是微信公众号域名（{self.MP_HOST}），已拒绝携带微信 cookies 请求该地址"
+            )
 
         logger.info("目标链接: %s", url)
 
@@ -204,7 +213,25 @@ class WechatMpDownloader(Downloader):
     # ------------------------------------------------------------------
     # HTML fetch + parse
     # ------------------------------------------------------------------
+    def _cookies_for(self, url: str) -> Optional[dict]:
+        """Cookies to attach for a request toward ``url``.
+
+        Credentials go out ONLY to Tencent-controlled domains
+        (:func:`mediascribe.security.is_tencent_cdn_url`). Article-embedded
+        URLs pointing anywhere else are fetched anonymously — never with
+        the user's WeChat session cookies (2026-10-29 audit P0-1/P0-2).
+        """
+        if self._active_cookies and is_tencent_cdn_url(url):
+            return self._active_cookies
+        if self._active_cookies:
+            logger.warning("目标域名非腾讯系，已剥离微信 cookies: %s", url)
+        return None
+
     def _fetch_html(self, url: str) -> Optional[str]:
+        # 纵深防御：入口已断言，这里再挡一次（防止内部路径绕过入口）
+        if not host_matches(url, (self.MP_HOST,)):
+            logger.warning("拒绝抓取非公众号域名页面: %s", url)
+            return None
         headers = {
             "User-Agent": CHROME_UA,
             "Referer": "https://mp.weixin.qq.com/",
@@ -215,7 +242,7 @@ class WechatMpDownloader(Downloader):
             resp = requests.get(
                 url,
                 headers=headers,
-                cookies=self._active_cookies or None,
+                cookies=self._cookies_for(url),
                 timeout=20,
             )
             resp.raise_for_status()
@@ -354,6 +381,12 @@ class WechatMpDownloader(Downloader):
                 if url.startswith("//"):
                     url = "https:" + url
                 if url.startswith("http"):
+                    # 文章内容由远端作者控制 —— 提取出的视频地址只信腾讯系
+                    # CDN 域名；其余域名不下载也不携带 cookies
+                    # （2026-10-29 审查 P0-2：内容驱动的凭据外发/内网探测）。
+                    if not is_tencent_cdn_url(url):
+                        logger.warning("视频地址不在腾讯系 CDN，已忽略: %s", url)
+                        continue
                     return url
         return None
 
@@ -402,6 +435,11 @@ class WechatMpDownloader(Downloader):
         任意一个失败（依赖未安装 / 网络 / 识别为空）都返回 None。
         不抛异常，永远安全降级。
         """
+        # 图片地址由远端作者控制：仅下载腾讯系 CDN 资源，且不带 cookies
+        # 出腾讯域名（2026-10-29 审查 P0-2）。
+        if not is_tencent_cdn_url(image_url):
+            logger.warning("图片地址不在腾讯系 CDN，跳过下载/OCR: %s", image_url)
+            return None
         try:
             resp = requests.get(
                 image_url,
@@ -409,7 +447,7 @@ class WechatMpDownloader(Downloader):
                     "User-Agent": CHROME_UA,
                     "Referer": "https://mp.weixin.qq.com/",
                 },
-                cookies=self._active_cookies or None,
+                cookies=self._cookies_for(image_url),
                 timeout=20,
             )
             resp.raise_for_status()
@@ -548,8 +586,9 @@ class WechatMpDownloader(Downloader):
         # uuid 短后缀防止同秒文件名碰撞（P2-3）
         file_path = save_dir / f"wechat_mp_{uuid.uuid4().hex[:8]}.mp4"
         session = build_http_session()
-        if self._active_cookies:
-            session.cookies.update(self._active_cookies)
+        cookies = self._cookies_for(video_url)
+        if cookies:
+            session.cookies.update(cookies)
         try:
             return stream_download(
                 video_url,

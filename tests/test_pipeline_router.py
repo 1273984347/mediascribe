@@ -168,9 +168,16 @@ class TestWechatMpDownloader(unittest.TestCase):
         self.assertIn(".mp4", url)
 
     def test_extract_video_url_source_tag(self):
-        html = '<video><source src="https://example.com/movie.mp4"></video>'
+        # 2026-10-29 安全修复：只接受腾讯系 CDN 的视频地址 —— 文章内容由
+        # 远端作者控制，任意域名的地址不再下载、不再携带微信 cookies。
+        html = '<video><source src="https://mpvideo.qpic.cn/movie.mp4"></video>'
         url = self.d._extract_video_url(html)
-        self.assertEqual(url, "https://example.com/movie.mp4")
+        self.assertEqual(url, "https://mpvideo.qpic.cn/movie.mp4")
+
+    def test_extract_video_url_rejects_non_tencent(self):
+        """非腾讯 CDN 的视频地址必须被忽略（凭据外发防线）。"""
+        html = '<video><source src="https://example.com/movie.mp4"></video>'
+        self.assertIsNone(self.d._extract_video_url(html))
 
     def test_extract_video_url_protocol_relative(self):
         html = '<script>var video_url = "//v.qq.com/abc.mp4";</script>'

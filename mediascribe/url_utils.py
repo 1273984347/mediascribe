@@ -24,15 +24,18 @@ _RESOLVABLE_SHORT_DOMAINS = ("b23.tv", "v.douyin.com")
 # 常见短链域名（is_short_url 判断用）
 _SHORT_DOMAINS = ("b23.tv", "v.douyin.com", "t.cn", "youtu.be")
 
-# 平台 URL 指纹（单一事实来源）：平台名 → URL 子串特征。
+# 平台 URL 指纹（单一事实来源）：平台名 → 平台域名列表。
 #
 # batch_cli._detect_platform / mcp_server._tool_detect_platform /
 # inputs.parse_source 三处平台识别共用这张表，避免各自维护一份
-# 域名清单后渐渐漂移。检测是「小写 URL 子串匹配」，与历史行为
-# 一致；按主机名的精确校验由各下载器层负责。表中顺序即匹配优先级。
+# 域名清单后渐渐漂移。检测走 :func:`host_matches` 的主机名精确/子域
+# 匹配 —— 历史上的「小写 URL 子串匹配」可被
+# ``https://evil.com/mp.weixin.qq.com/s`` 这类路径伪装绕过，把带微信
+# cookies 的请求引向任意主机（2026-10-29 对抗性审查 P0-1），已废弃。
+# 「是不是真的该平台资源」仍由下载器入口二次校验。表中顺序即匹配优先级。
 _PLATFORM_FINGERPRINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("bilibili", ("bilibili.com", "b23.tv")),
-    ("douyin", ("douyin.com", "iesdouyin.com")),
+    ("douyin", ("douyin.com", "iesdouyin.com", "douyinvod.com")),
     ("youtube", ("youtube.com", "youtu.be", "youtube-nocookie.com")),
     ("xiaohongshu", ("xiaohongshu.com", "xhslink.com")),
     ("wechat_mp", ("mp.weixin.qq.com",)),
@@ -41,17 +44,17 @@ _PLATFORM_FINGERPRINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
 
 
 def match_platform(url: str) -> Optional[str]:
-    """按 :data:`_PLATFORM_FINGERPRINTS` 检测 URL 所属平台。
+    """Detect the platform of a URL via :data:`_PLATFORM_FINGERPRINTS`.
 
-    返回平台标识符（``bilibili`` / ``douyin`` / …）；无指纹命中或
-    ``url`` 为空时返回 ``None``。仅做子串识别，不解析 URL、不发
-    网络请求；「是不是真的该平台资源」由下载器校验。
+    Matching is hostname-based (exact or subdomain, see :func:`host_matches`).
+    Returns the platform id (``bilibili`` / ``douyin`` / …) or ``None`` when
+    nothing matches or ``url`` is empty. No network I/O; whether the URL is
+    genuinely a resource of that platform is re-verified by the downloader.
     """
     if not url:
         return None
-    lowered = url.lower()
-    for platform, needles in _PLATFORM_FINGERPRINTS:
-        if any(needle in lowered for needle in needles):
+    for platform, domains in _PLATFORM_FINGERPRINTS:
+        if host_matches(url, domains):
             return platform
     return None
 
@@ -67,6 +70,19 @@ def _hostname(url: str) -> str:
         return (urlparse(url).hostname or "").lower()
     except Exception:  # pragma: no cover - urlparse 极少抛异常
         return ""
+
+
+def host_matches(url: str, domains: tuple) -> bool:
+    """True when the URL's hostname exactly matches (or is a subdomain of)
+    one of the given registrable domains.
+
+    Public matching primitive shared by platform routing
+    (:func:`match_platform`), short-link detection and the downloader-level
+    host assertions. Hostname — not substring — so ``http://b23.tv@127.0.0.1/``
+    (real host ``127.0.0.1``) and ``https://www.bilibili.com/b23.tv`` (fake
+    domain in the path) both fail.
+    """
+    return _host_matches(url, domains)
 
 
 def _host_matches(url: str, domains: tuple) -> bool:

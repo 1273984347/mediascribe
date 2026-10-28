@@ -24,6 +24,7 @@ from typing import Any, Optional
 
 from ..config import Settings
 from ..models import DownloadResult, SourceRef
+from ..url_utils import host_matches
 from ._http_download import CHROME_UA, stream_download
 from ._http_download import build_http_session as _build_http_session
 from .base import Downloader
@@ -32,6 +33,11 @@ logger = logging.getLogger(__name__)
 
 _PLAYWRIGHT_MAX_ATTEMPTS = 3
 _PLAYWRIGHT_WAIT_MS = 5000
+
+# 抖音系域名：页面主机 + 媒体直链 CDN。入口断言与浏览器响应过滤共用，
+# 防止子串伪装 URL（如 ``https://evil.com/?douyin.com``）把 headless
+# 浏览器引向任意主机（2026-10-29 审查 P0-1/SEC-003）。
+_DOUYIN_DOMAINS = ("douyin.com", "iesdouyin.com", "douyinvod.com")
 
 # 兼容别名：旧代码/测试通过 ``douyin._build_session`` 构造带重试的 session
 _build_session = _build_http_session
@@ -56,11 +62,15 @@ class DouyinDownloader(Downloader):
         if not url:
             raise ValueError("需要提供抖音视频 URL")
 
+        # 入口断言：主机名必须属于抖音系域名（主机名匹配，非子串）
+        if not host_matches(url, _DOUYIN_DOMAINS):
+            raise ValueError(f"URL 主机不是抖音系域名（{' / '.join(_DOUYIN_DOMAINS)}），已拒绝处理")
+
         logger.info("目标链接: %s", url)
 
         # 首先检查是否是直接的 douyinvod 媒体链接
         audio_url: Optional[str] = None
-        if "douyinvod.com" in url:
+        if host_matches(url, ("douyinvod.com",)):
             logger.info("检测到直接媒体链接")
             media_url: Optional[str] = url
         else:
@@ -185,7 +195,11 @@ class DouyinDownloader(Downloader):
 
         def handle_response(response):
             rurl = response.url
-            if "douyinvod.com" in rurl and (".mp4" in rurl or ".m3u8" in rurl or "video" in rurl):
+            # 按主机名过滤（非子串）：页面内容不可信时，子串匹配可能
+            # 被响应 URL 里的路径伪装绕过
+            if host_matches(rurl, ("douyinvod.com",)) and (
+                ".mp4" in rurl or ".m3u8" in rurl or "video" in rurl
+            ):
                 media_urls.append(rurl)
 
         with sync_playwright() as p:

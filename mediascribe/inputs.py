@@ -32,8 +32,8 @@ def parse_source(raw_input: str) -> SourceRef:
         else:
             raw_url = raw_input
 
-        # 平台识别共用 url_utils 指纹表；douyin 的媒体直链
-        # (douyinvod.com) 与公众号文章路径(/s) 是本路由独有补充。
+        # 平台识别共用 url_utils 指纹表（主机名精确/子域匹配）；
+        # 抖音媒体直链（douyinvod.com）已并入指纹表，无需本路由特判。
         platform = match_platform(raw_url)
 
         if platform == "bilibili":
@@ -42,7 +42,7 @@ def parse_source(raw_input: str) -> SourceRef:
                 return SourceRef(raw_input=raw_input, kind="bilibili", bv=bvid, url=standard_url)
             return SourceRef(raw_input=raw_input, kind="bilibili", url=standard_url or raw_url)
 
-        if platform == "douyin" or "douyinvod.com" in raw_url:
+        if platform == "douyin":
             return SourceRef(raw_input=raw_input, kind="douyin", url=raw_url)
 
         if platform == "youtube":
