@@ -31,8 +31,8 @@ Differences vs the other engines (handled per 2026-10-23/24 measurements)
   *degrades* under tiny-model VAD (see the class docstring), and the
   pipeline already runs its own VAD + chunking. When enabled but the VAD
   model is absent, it falls back to no-VAD with a warning.
-* Requires 16 kHz mono WAV ⇒ other formats are transcoded via ffmpeg
-  into a temp file.
+* Requires 16 kHz mono WAV ⇒ every input (``.wav`` included) is transcoded
+  via ffmpeg into a temp file.
 """
 
 from __future__ import annotations
@@ -316,9 +316,10 @@ class WhisperCppTranscriber(Transcriber):
         wav_path = tmp_dir / "input.wav"
         out_prefix = tmp_dir / "out"
         try:
-            if audio_path.suffix.lower() == ".wav":
-                shutil.copy2(audio_path, wav_path)
-            elif not _to_wav_16k(audio_path, wav_path):
+            # 16 kHz mono 是 whisper.cpp 的硬输入要求 —— 即便是 .wav 输入
+            # 也必须重采样/缩声道(曾经 .wav 直接拷贝,44.1k 立体声直录会
+            # 报错或劣化,违背模块契约,2026-10-29 审查 P2 修正)。
+            if not _to_wav_16k(audio_path, wav_path):
                 raise RuntimeError(t("CPP_TRANSCODE_FAILED", path=audio_path))
 
             cmd: List[str] = [

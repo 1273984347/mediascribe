@@ -20,8 +20,9 @@ from __future__ import annotations
 
 import contextlib
 import threading
+from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Dict, Iterator, Optional, Tuple
+from typing import Any, Iterator, Optional, Tuple
 
 import torch
 
@@ -81,26 +82,25 @@ def _whisper_load_patch() -> Iterator[None]:
 
 
 # ---------------------------------------------------------------------------
-# 模块级模型缓存 — 双检锁, 与 whisperx 的 _MODEL_CACHE 同款
+# 模块级模型缓存 — LRU(容量 2, 与 faster_whisper/whisperx 同值), 双检锁
 # ---------------------------------------------------------------------------
-_MODEL_CACHE: Dict[Tuple[str, str], Any] = {}
+_MODEL_CACHE: "OrderedDict[Tuple[str, str], Any]" = OrderedDict()
 _MODEL_CACHE_LOCK = threading.Lock()
+_MODEL_CACHE_MAX = 2
 
 
 def _get_cached_model(whisper_module: Any, model_name: str, device: str) -> Any:
-    """按 ``(model_name, device)`` 取或加载 whisper 模型（双检锁）。
+    """按 ``(model_name, device)`` 取或加载 whisper 模型（LRU，容量 2，双检锁）。
 
     torch 2.6+ 兼容补丁只在真正走磁盘加载的窗口内生效, 命中缓存
     不进入补丁窗口。
     """
     key = (model_name, device)
-    cached = _MODEL_CACHE.get(key)
-    if cached is not None:
-        return cached
     with _MODEL_CACHE_LOCK:
-        cached2 = _MODEL_CACHE.get(key)
-        if cached2 is not None:
-            return cached2
+        cached = _MODEL_CACHE.get(key)
+        if cached is not None:
+            _MODEL_CACHE.move_to_end(key)
+            return cached
         with _whisper_load_patch():
             try:
                 model = whisper_module.load_model(model_name, device=device)
@@ -113,6 +113,9 @@ def _get_cached_model(whisper_module: Any, model_name: str, device: str) -> Any:
                     f"{missing_hint('whisper', model_name)}"
                 ) from exc
         _MODEL_CACHE[key] = model
+        while len(_MODEL_CACHE) > _MODEL_CACHE_MAX:
+            _evicted_key, evicted_model = _MODEL_CACHE.popitem(last=False)
+            del evicted_model
         return model
 
 

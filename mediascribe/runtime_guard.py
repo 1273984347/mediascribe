@@ -189,15 +189,32 @@ class HardwareSnapshot:
         }
 
 
+_NVIDIA_SMI_PATH: Optional[str] = None
+
+
+def _nvidia_smi_path() -> Optional[str]:
+    """Resolve ``nvidia-smi`` once per process.
+
+    之前每次采样都重新扫全 PATH(RT-1 小时转录 = 1800 次 PATH 扫描,
+    2026-10-29 审查 P2);which 结果进程内不变,缓存一次即可。
+    """
+    global _NVIDIA_SMI_PATH
+    if _NVIDIA_SMI_PATH is None:
+        import shutil
+
+        _NVIDIA_SMI_PATH = shutil.which("nvidia-smi") or ""
+    return _NVIDIA_SMI_PATH or None
+
+
 def _nvidia_smi(query: str) -> List[str]:
-    import shutil
     import subprocess
 
-    if not shutil.which("nvidia-smi"):
+    smi = _nvidia_smi_path()
+    if not smi:
         return []
     try:
         proc = subprocess.run(
-            ["nvidia-smi", f"--query-gpu={query}", "--format=csv,noheader,nounits"],
+            [smi, f"--query-gpu={query}", "--format=csv,noheader,nounits"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -233,6 +250,13 @@ def snapshot() -> HardwareSnapshot:
             props = torch.cuda.get_device_properties(0)
             snap.gpu_name = props.name
             snap.vram_total_mb = int(props.total_memory / 1024 / 1024)
+            # 顺带填 used —— 旧实现只填 total,vram_free_mb 恒等于总量,
+            # torch 探测路径上规则 2 的显存预算永远偏乐观。
+            try:
+                free_b, total_b = torch.cuda.mem_get_info(0)
+                snap.vram_used_mb = int((total_b - free_b) / 1024 / 1024)
+            except Exception:
+                pass  # 极老 torch 无 mem_get_info: 保持 0, 与旧行为一致
     except Exception as exc:
         snap.notes.append(f"torch 探测失败: {exc}")
 

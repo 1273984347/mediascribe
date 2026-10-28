@@ -179,12 +179,14 @@ def open_file_location(path: Path) -> bool:
     Open the file manager at the given path (cross-platform).
     """
     try:
+        # timeout: 全仓 subprocess 的统一纪律 —— 桌面环境损坏时 explorer/open
+        # 可能挂住, 不给"永久挂起"留口子(2026-10-29 审查 P2)。
         if is_windows():
-            subprocess.run(["explorer", "/select,", str(path)], check=False)
+            subprocess.run(["explorer", "/select,", str(path)], check=False, timeout=10)
         elif is_macos():
-            subprocess.run(["open", "-R", str(path)], check=False)
+            subprocess.run(["open", "-R", str(path)], check=False, timeout=10)
         else:  # Linux
-            subprocess.run(["xdg-open", str(path.parent)], check=False)
+            subprocess.run(["xdg-open", str(path.parent)], check=False, timeout=10)
         return True
     except Exception:
         return False

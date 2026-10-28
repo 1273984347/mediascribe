@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import gc
 import threading
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -23,14 +24,18 @@ from .base import Transcriber
 # ---------------------------------------------------------------------------
 # 模型缓存 — 主模型与对齐模型分别缓存，避免每次转录都重新加载
 # ---------------------------------------------------------------------------
-_MODEL_CACHE: Dict[Tuple[str, str, str, Optional[str]], Any] = {}
+_MODEL_CACHE: "OrderedDict[Tuple[str, str, str, Optional[str]], Any]" = OrderedDict()
 _ALIGN_MODEL_CACHE: Dict[Tuple[str, str], Any] = {}
 _DIARIZE_CACHE: Dict[Tuple[str, str], Any] = {}
 _MODEL_CACHE_LOCK = threading.Lock()
+# 与 faster_whisper 的 _MODEL_CACHE_MAX 同值: 多档位轮换时自动淘汰最久
+# 未用的实例交还 GC, 否则长驻 Web 进程换一档就涨一档显存(8GB 卡第三档
+# 即 OOM 风险, 2026-10-29 审查 P2)。
+_MODEL_CACHE_MAX = 2
 
 
 def _get_cached_model(whisperx: Any, model_name: str, device: str, language: Optional[str]) -> Any:
-    """取或加载 WhisperX 主模型（按 ``(model_name, device, compute_type, language)`` 缓存）。
+    """取或加载 WhisperX 主模型（LRU，容量 2，键含 language）。
 
     线程安全：双检锁，并发加载同一模型时只有一个会真正加载。
 
@@ -41,13 +46,10 @@ def _get_cached_model(whisperx: Any, model_name: str, device: str, language: Opt
     """
     compute_type = "int8" if device == "cpu" else "float16"
     key = (model_name, device, compute_type, language)
-    cached = _MODEL_CACHE.get(key)
-    if cached is not None:
-        return cached
     with _MODEL_CACHE_LOCK:
-        # 双检锁 - 避免两个线程同时通过了上面的 None 检查
         cached = _MODEL_CACHE.get(key)
         if cached is not None:
+            _MODEL_CACHE.move_to_end(key)
             return cached
         model = whisperx.load_model(
             model_name,
@@ -56,6 +58,9 @@ def _get_cached_model(whisperx: Any, model_name: str, device: str, language: Opt
             language=language,
         )
         _MODEL_CACHE[key] = model
+        while len(_MODEL_CACHE) > _MODEL_CACHE_MAX:
+            _evicted_key, evicted_model = _MODEL_CACHE.popitem(last=False)
+            del evicted_model
         return model
 
 
