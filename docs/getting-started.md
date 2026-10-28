@@ -29,9 +29,13 @@ System dependencies:
 ## 2. Transcribe a single video
 
 ```bash
-python -m mediascribe --url "https://www.youtube.com/watch?v=..." \
-  --model small --lang en
+python -m mediascribe transcribe "https://www.youtube.com/watch?v=..." \
+  --model small --language en
 ```
+
+Useful flags (see `python -m mediascribe transcribe --help` for
+the full list): `--engine faster-whisper`, `--timestamps`,
+`--audio-only`, `--cross-check small`, `--output`.
 
 What you get:
 
@@ -48,20 +52,19 @@ with a leading timestamp.
 ## 3. Transcribe a WeChat MP article
 
 ```bash
-python -m mediascribe --url "https://mp.weixin.qq.com/s/abc?__biz=..." \
-  --wechat-cookies "wxuin=abc123; pass_ticket=xyz" \
-  --ocr-engine easyocr --save-images
+python -m mediascribe transcribe "https://mp.weixin.qq.com/s/abc?__biz=..." \
+  --wechat-cookies "wxuin=abc123; pass_ticket=xyz"
 ```
 
-Images land in `output/downloads/wechat_mp_<id>/`; the markdown
-gets an `![alt](file://...)` reference for each.  See
-[WeChat MP](wechat-mp.md) for the full guide.
+OCR of embedded images is configured per request in the **Web UI**
+or the **MCP server** (`ocr_engine`, `save_images`) — the CLI has no
+OCR flags.  See [WeChat MP](wechat-mp.md) for the full guide.
 
 ## 4. Batch from a creator's user page
 
 ```bash
 python -m mediascribe archive --user "https://www.bilibili.com/..." \
-  --max 10 --platform bilibili --lang zh --json
+  -n 10 --platform bilibili --lang zh --json
 ```
 
 ## 5. Web UI
@@ -84,8 +87,9 @@ the stdio transport.  See [MCP server](mcp.md) for the tool list.
 ## 7. Verify the install
 
 ```bash
-python -c "import mediascribe; print(mediascribe.__version__)"
-python -m pytest tests/ -q
+python -m mediascribe doctor
+python scripts/run_tests.py
 ```
 
-You should see `3.0.0` and `240 passed` (or thereabouts).
+`doctor` checks ffmpeg / GPU / engines / model caches in one pass;
+`scripts/run_tests.py` forwards to pytest with the CI-matched flags.
