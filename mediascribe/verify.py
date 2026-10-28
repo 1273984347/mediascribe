@@ -1,25 +1,33 @@
-"""第三采样验证 — 对已交付转录稿的存疑项做第三方重采样裁决。
+"""Third-sample verification — adjudicate doubtful spots in delivered
+transcripts with an independent third decoding.
 
-背景（2026-10-08 复盘，见 retro-2026-10-08）: ``--cleanup-media`` 在
-交叉校对完成后即删中间媒体，而残余存疑恰是"两模型同误"处，删除后失去
-回听/复核路径。本模块为审校工作流补上"证实之后再删"的一环::
+Background (2026-10-08 retro, see retro-2026-10-08): ``--cleanup-media``
+deletes intermediate media once cross-checking completes, yet residual
+doubts are exactly the "both models misheard" spots — after deletion the
+re-listen / re-check path is gone. This module supplies the
+"verify before delete" step of the review workflow::
 
     python -m mediascribe verify output/transcripts/douyin_xxx.md
     python -m mediascribe verify output/transcripts/douyin_xxx.md --model small
 
-流程:
-1. 定位同名 metadata（音频路径 + 来源 URL）；
-2. 音频在盘则复用，否则按来源 URL 重新下载并抽音频（managed 目录）；
-3. **无术语注入 + 多档温度**独立重采样（默认 large-v3，``--model`` 可换）
-   —— 无 initial_prompt 消除术语注入偏置，多档温度让低置信段触发回退
-   采样，与主稿（贪心）形成解码级独立样本；
-4. 写时间戳采样稿 ``third-sample-<stem>-<model>.md``；
-5. 若存在 ``<stem>.crosscheck.json``，逐条实词分歧给出第三采样近似证据
-   （difflib 锚点对齐，标注"同主稿/同对照/第三读/未定位"），写
-   ``<stem>.verify.md`` 供人工裁决。
+Flow:
+1. Locate the same-stem metadata (audio path + source URL);
+2. Reuse the audio if still on disk, otherwise re-download from the source
+   URL and extract audio (managed dirs);
+3. Independent re-sampling with **no term injection + multi-temperature**
+   (default large-v3, ``--model`` to change) — no initial_prompt removes
+   term-injection bias, multiple temperatures let low-confidence spans
+   trigger fallback sampling, forming a decode-level independent sample
+   versus the main transcript (greedy);
+4. Write the timestamped sample transcript ``third-sample-<stem>-<model>.md``;
+5. If ``<stem>.crosscheck.json`` exists, produce third-sample approximate
+   evidence per content-word divergence (difflib anchor alignment, labeled
+   "matches main / matches cross / third reading / not located") into
+   ``<stem>.verify.md`` for human adjudication.
 
-对齐为近似定位：采样稿与主稿分词/断句不同，证据窗口供人工复核，
-不自动改稿。
+Alignment is approximate by design: the sample and main transcripts
+tokenize/segment differently, evidence windows support human review, and
+the transcript is never auto-edited.
 """
 
 from __future__ import annotations
@@ -32,6 +40,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .audio_utils import extract_audio
+from .i18n import t
 from .inputs import parse_source, safe_stem
 from .pipeline_stages import _smart_pick_downloader
 
@@ -42,7 +51,7 @@ from .pipeline_stages import _smart_pick_downloader
 
 @dataclass
 class VerifyArtifacts:
-    """一次验证涉及的工件路径与元数据。"""
+    """Artifact paths and metadata involved in one verification run."""
 
     transcript_path: Path
     metadata_path: Path
@@ -53,7 +62,7 @@ class VerifyArtifacts:
 
 @dataclass
 class DivergenceEvidence:
-    """单条分歧在第三采样中的近似证据。"""
+    """Approximate third-sample evidence for one divergence entry."""
 
     index: int
     main: str
@@ -70,11 +79,13 @@ class DivergenceEvidence:
 
 
 def locate_artifacts(transcript_path: Path, workspace_root: Path) -> VerifyArtifacts:
-    """由转录稿路径定位同名 metadata JSON, 取音频路径与来源 URL。
+    """Locate the same-stem metadata JSON from a transcript path; extract
+    the audio path and source URL.
 
-    两侧均 resolve: CLI 常传相对路径(如 ``output/transcripts/x.md``),
-    不 resolve 时 ``is_relative_to`` 对绝对 workspace_root 恒为 False,
-    会错走同目录分支(2026-10-08 首次实测抓到)。
+    Both sides are resolved: the CLI is often handed relative paths (e.g.
+    ``output/transcripts/x.md``); without resolving, ``is_relative_to``
+    against an absolute workspace_root is always False and wrongly takes
+    the side-by-side branch (first caught in practice 2026-10-08).
     """
     transcript_path = Path(transcript_path).resolve()
     root = Path(workspace_root).resolve()
@@ -83,7 +94,7 @@ def locate_artifacts(transcript_path: Path, workspace_root: Path) -> VerifyArtif
     else:
         metadata_path = transcript_path.with_suffix(".json")
     if not metadata_path.exists():
-        raise FileNotFoundError(f"未找到元数据文件: {metadata_path}")
+        raise FileNotFoundError(t("VERIFY_NO_METADATA", path=metadata_path))
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
 
     audio_path: Optional[Path] = None
@@ -103,7 +114,8 @@ def locate_artifacts(transcript_path: Path, workspace_root: Path) -> VerifyArtif
 
 
 def extract_transcript_body(text: str) -> str:
-    """取转录稿正文(剥离 HTML 注释/标题/基本信息, 保留「转录内容」节)。"""
+    """Extract the transcript body (strip HTML comments/headers/basic-info,
+    keep the 「转录内容」 section)."""
     if "## 转录内容" in text:
         text = text.split("## 转录内容", 1)[1]
     # 截掉正文之后的审校说明等附节(raw 稿通常没有; 审校稿容错)
@@ -125,23 +137,24 @@ def extract_transcript_body(text: str) -> str:
 
 
 def ensure_audio(artifacts: VerifyArtifacts, settings: Any) -> Tuple[Path, bool]:
-    """音频在盘则复用; 否则按来源 URL 重新下载并抽音频。
+    """Reuse the on-disk audio; otherwise re-download from the source URL
+    and extract audio.
 
     Returns
     -------
-    ``(audio_path, reused)`` — ``reused=False`` 表示本轮重新下载。
+    ``(audio_path, reused)`` — ``reused=False`` means freshly downloaded.
     """
     if artifacts.audio_path is not None and artifacts.audio_path.is_file():
         return artifacts.audio_path, True
     if not artifacts.source_url:
-        raise RuntimeError("音频不存在且 metadata 无来源 URL, 无法重新下载; 请手动提供音频")
+        raise RuntimeError(t("VERIFY_NO_AUDIO_NO_URL"))
     source = parse_source(artifacts.source_url)
     downloader = _smart_pick_downloader(source)
     downloaded = downloader.download(source, settings)
     stem = safe_stem(artifacts.transcript_path.stem)
     audio = extract_audio(Path(downloaded.video_path), settings.audio_dir, stem)
     if audio is None:
-        raise RuntimeError("音频提取失败")
+        raise RuntimeError(t("VERIFY_EXTRACT_FAILED"))
     return audio, False
 
 
@@ -156,7 +169,8 @@ def transcribe_third_sample(
     *,
     language: Optional[str] = "zh",
 ) -> Dict[str, Any]:
-    """无术语注入 + 多档温度重采样。``transcriber`` 可注入 fake 供测试。"""
+    """Re-sample with no term injection + multi-temperature. A fake
+    ``transcriber`` may be injected for tests."""
     result: Dict[str, Any] = transcriber.transcribe(
         Path(audio_path),
         prompt=None,  # 关键: 不注入术语 prompt, 保持对主稿的独立性
@@ -181,13 +195,19 @@ def write_sample_md(
     reused: bool,
     audio_source: str,
 ) -> None:
-    """写时间戳采样稿(与人工验证轮产物同格式)。"""
+    """Write the timestamped sample transcript (same format as the manual
+    verification round's artifact)."""
     segs = transcription.get("segments") or []
-    provenance = "复用磁盘上残留的音频" if reused else "验证轮重新下载(时长未另核)"
+    provenance = t("VERIFY_PROV_REUSE") if reused else t("VERIFY_PROV_FRESH")
     lines = [
-        f"<!-- 第三采样(mediascribe verify): {model}, 无 initial_prompt(术语库不注入), "
-        f"多档温度。音频: {audio_path.name}({provenance}; 来源: {audio_source}) -->",
-        "<!-- 用途: 存疑项第三方裁决, 配合同名 .verify.md 阅读 -->",
+        t(
+            "VERIFY_SAMPLE_HEADER",
+            model=model,
+            audio=audio_path.name,
+            provenance=provenance,
+            source=audio_source,
+        ),
+        t("VERIFY_SAMPLE_PURPOSE"),
         "",
     ]
     for seg in segs:
@@ -210,7 +230,7 @@ def _norm(s: str) -> str:
 
 
 class _ThirdTextIndex:
-    """第三采样全文 + 字符位置 → 时间戳映射。"""
+    """Third-sample full text + char position → timestamp mapping."""
 
     def __init__(self, segments: Sequence[Dict[str, Any]]):
         parts: List[str] = []
@@ -241,11 +261,14 @@ def evidence_for(
     *,
     radius: int = 30,
 ) -> Tuple[str, Optional[str], Optional[str]]:
-    """在第三采样全文中近似定位一条分歧, 返回 ``(判定, 证据窗口, 时间戳)``。
+    """Approximately locate one divergence within the third-sample text;
+    return ``(verdict, evidence window, timestamp)``.
 
-    对齐策略: 对 context(主稿上下文 ~60 字) 与第三全文做一次
-    ``SequenceMatcher.get_matching_blocks``, 用覆盖分歧词的锚点块把分歧词
-    位置映射到第三全文, 取 ±radius 字符窗口。近似定位, 供人工裁决。
+    Alignment strategy: run ``SequenceMatcher.get_matching_blocks`` once
+    between the context (main-transcript, ~60 chars) and the third-sample
+    full text; map the divergence word's position through the anchor block
+    covering it and take a ±radius char window. Approximate positioning,
+    for human adjudication.
     """
     ctx = context or ""
     if not ctx or not third.text:
@@ -289,7 +312,7 @@ def collect_evidence(
     divergences: Sequence[Dict[str, Any]],
     segments: Sequence[Dict[str, Any]],
 ) -> List[DivergenceEvidence]:
-    """对 crosscheck 实词分歧逐条产出第三采样证据。"""
+    """Produce third-sample evidence for each crosscheck content-word divergence."""
     third = _ThirdTextIndex(segments)
     out: List[DivergenceEvidence] = []
     for i, d in enumerate(divergences, start=1):
@@ -318,10 +341,11 @@ def collect_evidence(
 
 
 def _verdict_counts(evidences: Sequence[DivergenceEvidence]) -> dict:
-    """四类裁决(同主稿/同对照/第三读/未定位)的计数。
+    """Counts across the four verdicts (同主稿/同对照/第三读/未定位).
 
-    build_verify_report 与 run_verify 共用; 未知 verdict 不崩,
-    计入自身键(与报告渲染的 counts.get 语义一致)。
+    Shared by build_verify_report and run_verify; unknown verdicts do not
+    crash — they are counted under their own key (matching the report
+    renderer's ``counts.get`` semantics).
     """
     counts = {"同主稿": 0, "同对照": 0, "第三读": 0, "未定位": 0}
     for e in evidences:
@@ -340,40 +364,45 @@ def build_verify_report(
     main_model: str,
     cross_model: Optional[str],
 ) -> str:
-    """渲染 .verify.md — 逐条分歧 + 第三采样近似证据。"""
+    """Render the .verify.md — per-divergence entries + third-sample
+    approximate evidence."""
     counts = _verdict_counts(evidences)
     total = len(evidences)
-    audio_note = "复用磁盘音频" if audio_reused else "验证轮重新下载"
+    audio_note = t("VERIFY_PROV_REUSE_SHORT") if audio_reused else t("VERIFY_PROV_FRESH_SHORT")
     lines = [
-        "# 第三采样验证报告",
+        t("VERIFY_REPORT_TITLE"),
         "",
-        f"- **主稿**: `{transcript_path.name}`（{main_model}）",
-        f"- **对照**: {'`' + cross_model + '`' if cross_model else '无 crosscheck 清单'}",
-        f"- **第三采样**: `{model}`（无术语注入 + 多档温度, 解码级独立样本）",
-        f"- **音频**: `{audio_path.name}`（{audio_note}）",
-        f"- **采样稿**: `{sample_path.name}`",
-        f"- **分歧**: {total} 处 = 同主稿 {counts['同主稿']} / 同对照 {counts['同对照']}"
-        f" / 第三读 {counts['第三读']} / 未定位 {counts['未定位']}",
+        t("VERIFY_REPORT_MAIN", name=transcript_path.name, model=main_model),
+        t("VERIFY_REPORT_CROSS", model=cross_model) if cross_model else t("VERIFY_REPORT_NO_CROSS"),
+        t("VERIFY_REPORT_SAMPLE", model=model),
+        t("VERIFY_REPORT_AUDIO", name=audio_path.name, note=audio_note),
+        t("VERIFY_REPORT_SAMPLE_FILE", name=sample_path.name),
+        t(
+            "VERIFY_REPORT_DIVERGENCE",
+            total=total,
+            a=counts["同主稿"],
+            b=counts["同对照"],
+            c=counts["第三读"],
+            d=counts["未定位"],
+        ),
         "",
-        "（对齐为近似定位, 证据窗口供人工裁决; 判定按窗口内是否出现主稿词/"
-        "对照词（去标点归一）, 第三读≠主稿错。复核后请把结论回写审校说明,"
-        "再清理中间媒体。）",
+        t("VERIFY_REPORT_NOTE"),
         "",
     ]
     if not evidences:
-        lines.append("无实词分歧清单(无 .crosscheck.json 或分歧为空), 仅产出采样稿。")
+        lines.append(t("VERIFY_REPORT_NONE"))
     for e in evidences:
-        cross_txt = e.cross if e.cross is not None else "（漏）"
-        head = f"### {e.index}. 主「{e.main}」↔ 照「{cross_txt}」"
+        cross_txt = e.cross if e.cross is not None else t("VERIFY_CROSS_MISSING")
+        head = t("VERIFY_ENTRY", index=e.index, main=e.main, cross=cross_txt)
         if e.timestamp:
             head += f"  [{e.timestamp}]"
         lines.append(head)
         lines.append(f"> …{e.context}…")
         if e.window is not None:
-            lines.append(f"判定: **{e.verdict}**")
-            lines.append(f"第三采样: 「{e.window}」")
+            lines.append(t("VERIFY_VERDICT_LINE", verdict=e.verdict))
+            lines.append(t("VERIFY_WINDOW_LINE", window=e.window))
         else:
-            lines.append(f"判定: **{e.verdict}**（第三采样中未找到近似锚点）")
+            lines.append(t("VERIFY_VERDICT_NO_ANCHOR", verdict=e.verdict))
         lines.append("")
     return "\n".join(lines)
 
@@ -392,28 +421,34 @@ def run_verify(
     language: Optional[str] = "zh",
     transcriber: Any = None,
 ) -> Path:
-    """执行第三采样验证, 返回 .verify.md 报告路径。
+    """Run the third-sample verification; return the .verify.md report path.
 
-    ``transcriber`` 可注入假转录器（测试用）; 默认按 ``model``/``device``
-    构建 :class:`FasterWhisperTranscriber`。
+    A fake ``transcriber`` may be injected (tests); by default builds a
+    :class:`FasterWhisperTranscriber` from ``model``/``device``.
     """
     from .transcribers.faster_whisper import FasterWhisperTranscriber
 
     transcript_path = Path(transcript_path)
     if not transcript_path.exists():
-        raise FileNotFoundError(f"转录稿不存在: {transcript_path}")
+        raise FileNotFoundError(t("VERIFY_NO_TRANSCRIPT", path=transcript_path))
 
     artifacts = locate_artifacts(transcript_path, settings.workspace_root)
     audio_path, reused = ensure_audio(artifacts, settings)
-    print(f"🎵 音频: {audio_path}({'复用' if reused else '重新下载'})")
+    print(
+        t(
+            "VERIFY_PRINT_AUDIO",
+            path=audio_path,
+            status=t("VERIFY_AUDIO_REUSE") if reused else t("VERIFY_AUDIO_FRESH"),
+        )
+    )
 
     if transcriber is None:
         transcriber = FasterWhisperTranscriber(model, device=device)
-    print(f"🔎 第三采样: {transcriber.name}/{model}, 无术语注入 + 多档温度...")
+    print(t("VERIFY_PRINT_SAMPLING", name=transcriber.name, model=model))
     transcription = transcribe_third_sample(audio_path, transcriber, language=language)
     segs = transcription.get("segments") or []
     if not segs:
-        raise RuntimeError("第三采样结果为空")
+        raise RuntimeError(t("VERIFY_EMPTY"))
 
     model_tag = re.sub(r"[^0-9A-Za-z]+", "", model) or "model"
     sample_path = transcript_path.with_name(f"third-sample-{transcript_path.stem}-{model_tag}.md")
@@ -426,7 +461,7 @@ def run_verify(
         reused=reused,
         audio_source=source_desc,
     )
-    print(f"📝 采样稿: {sample_path}")
+    print(t("VERIFY_PRINT_SAMPLE", path=sample_path))
 
     crosscheck_json = transcript_path.with_suffix(".crosscheck.json")
     divergences: List[Dict[str, Any]] = []
@@ -439,7 +474,7 @@ def run_verify(
             divergences = list(payload.get("divergences") or [])
     if divergences:
         # crosscheck.json 不记录对照模型名, 报告里只标注"对照稿存在"
-        cross_model = str(artifacts.metadata.get("cross_check_model") or "crosscheck 对照稿")
+        cross_model = str(artifacts.metadata.get("cross_check_model") or t("VERIFY_CROSS_FALLBACK"))
 
     evidences = collect_evidence(divergences, segs)
     main_model = str(artifacts.metadata.get("model") or "unknown")
@@ -458,9 +493,14 @@ def run_verify(
 
     counts = _verdict_counts(evidences)
     print(
-        f"✅ 验证完成: {len(evidences)} 处分歧 = "
-        f"同主稿 {counts['同主稿']} / 同对照 {counts['同对照']} / "
-        f"第三读 {counts['第三读']} / 未定位 {counts['未定位']}"
+        t(
+            "VERIFY_PRINT_DONE",
+            total=len(evidences),
+            a=counts["同主稿"],
+            b=counts["同对照"],
+            c=counts["第三读"],
+            d=counts["未定位"],
+        )
     )
-    print(f"📋 验证报告: {report_path}")
+    print(t("VERIFY_PRINT_REPORT", path=report_path))
     return report_path

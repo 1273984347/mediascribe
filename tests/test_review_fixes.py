@@ -299,23 +299,28 @@ class TestXiaohongshuImageNote:
     def test_image_note_raises_actionable_error(self, tmp_path):
         from mediascribe.config import Settings
         from mediascribe.downloaders.xiaohongshu import XiaohongshuDownloader
+        from mediascribe.i18n import set_language
         from mediascribe.models import SourceRef
 
+        set_language("zh")  # 断言中文文案, 先钉住 locale
         d = XiaohongshuDownloader()
-        with patch.object(
-            d,
-            "_extract_media_and_meta",
-            return_value=("https://sns-img-bd.xhscdn.com/cover.jpg", "标题", "image"),
-        ):
-            with pytest.raises(RuntimeError, match="图文笔记"):
-                d.download(
-                    SourceRef(
-                        raw_input="x",
-                        kind="xiaohongshu",
-                        url="https://www.xiaohongshu.com/explore/1",
-                    ),
-                    Settings(workspace_root=tmp_path),
-                )
+        try:
+            with patch.object(
+                d,
+                "_extract_media_and_meta",
+                return_value=("https://sns-img-bd.xhscdn.com/cover.jpg", "标题", "image"),
+            ):
+                with pytest.raises(RuntimeError, match="图文笔记"):
+                    d.download(
+                        SourceRef(
+                            raw_input="x",
+                            kind="xiaohongshu",
+                            url="https://www.xiaohongshu.com/explore/1",
+                        ),
+                        Settings(workspace_root=tmp_path),
+                    )
+        finally:
+            set_language("en")
 
 
 # ---------------------------------------------------------------------------

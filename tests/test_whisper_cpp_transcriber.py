@@ -30,6 +30,18 @@ from mediascribe.transcribers.factory import (  # noqa: E402
 from mediascribe.zh_normalize import SIMPLIFIED_ZH_PROMPT  # noqa: E402
 
 
+def setUpModule():
+    from mediascribe.i18n import set_language
+
+    set_language("zh")
+
+
+def tearDownModule():
+    from mediascribe.i18n import set_language
+
+    set_language("en")
+
+
 class TestBinaryDetection(unittest.TestCase):
     def test_system_main_cpl_is_rejected(self):
         """Windows 的 main.CPL 不是 whisper.cpp —— 必须被挡住。"""

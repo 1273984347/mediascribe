@@ -1,34 +1,40 @@
 """
-模型权重清单 —— 离线产品必须预置的权重。
+Model weight manifest — the weights an offline product must pre-provision.
 
-为什么要有这个模块
-------------------
-MediaScribe 是**完全离线**产品：所有推理权重都必须**预先放置**在机器上。
-但「模型名 → 权重文件在哪」这件事此前是隐式的，缺了只能在跑到一半时炸：
+Why this module exists
+----------------------
+MediaScribe is a **fully offline** product: every inference weight must be
+**placed on the machine in advance**. But "model name → where the weight
+file lives" used to be implicit, and a missing weight only exploded
+mid-run:
 
-* 2026-10-23 实测：``faster-whisper medium`` 在本机直接抛
+* Measured 2026-10-23: ``faster-whisper medium`` on this machine raised
   ``LocalEntryNotFoundError: Cannot find an appropriate cached snapshot
-  folder`` —— 因为本机只缓存了 ``small`` 与 ``large-v3``，而 HuggingFace
-  不可达 ⇒ 该档位**完全无法运行**（不是引擎缺陷，是权重没预置）。
-* 同理 ``openai-whisper`` 的权重在 ``~/.cache/whisper/*.pt``，与
-  faster-whisper 的 HuggingFace 缓存**是两套完全不同的目录约定**。
+  folder`` — only ``small`` and ``large-v3`` were cached locally and
+  HuggingFace was unreachable ⇒ that tier was **entirely unrunnable**
+  (not an engine defect; the weight was simply not provisioned).
+* Likewise ``openai-whisper`` weights live in ``~/.cache/whisper/*.pt`` —
+  a **completely different directory convention** from faster-whisper's
+  HuggingFace cache.
 
-本模块把「某个 (engine, model) 需要什么权重、在哪、怎么预置」变成**可查询
-的数据**，供三处使用：
+This module turns "what weights does an (engine, model) need, where, and
+how to provision them" into **queryable data**, consumed by three places:
 
-1. :mod:`mediascribe.doctor` —— 诊断时直接报「缺哪个、怎么补」
-2. 转录器加载失败时 —— 把 HuggingFace 的原始异常换成带指引的中文错误
-3. 分发打包时 —— 可据此生成权重清单
+1. :mod:`mediascribe.doctor` — diagnostics report what's missing and how
+   to fix it
+2. Transcriber load failures — replaces the raw HuggingFace exception with
+   a guided, user-facing error
+3. Distribution packaging — the manifest can generate a weight checklist
 
-目录约定
---------
+Directory conventions
+---------------------
 ======================  ==========================================
-引擎                     权重位置
+Engine                  Weight location
 ======================  ==========================================
-faster-whisper           ``$HF_HUB_CACHE/models--Systran--faster-whisper-<model>/``
-whisper (openai)         ``~/.cache/whisper/<model>.pt``
-whisperx                 同 faster-whisper（其后端）+ 对齐模型
-whisper-cpp              ``<models_dir>/ggml-<model>.bin``
+faster-whisper          ``$HF_HUB_CACHE/models--Systran--faster-whisper-<model>/``
+whisper (openai)        ``~/.cache/whisper/<model>.pt``
+whisperx                same as faster-whisper (its backend) + align model
+whisper-cpp             ``<models_dir>/ggml-<model>.bin``
 ======================  ==========================================
 """
 
@@ -39,7 +45,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-#: 引擎的规范名（与 CLI ``--engine`` 取值一致）
+from .i18n import t
+
+#: Canonical engine names (match the CLI ``--engine`` choices)
 ENGINE_WHISPER = "whisper"
 ENGINE_FASTER = "faster-whisper"
 ENGINE_WHISPERX = "whisperx"
@@ -48,17 +56,18 @@ ENGINE_WHISPER_CPP = "whisper-cpp"
 
 @dataclass(frozen=True)
 class WeightSpec:
-    """某个 (engine, model) 组合的权重规格。"""
+    """Weight specification for one (engine, model) pair."""
 
     engine: str
     model: str
-    #: 权重存放方式：``hf-cache`` / ``openai-ckpt`` / ``ggml-file`` / ``builtin``
+    #: How the weight is stored: ``hf-cache`` / ``openai-ckpt`` / ``ggml-file`` / ``builtin``
     kind: str
-    #: 人类可读的位置描述
+    #: Human-readable location description
     location: str
-    #: 缺权重时给用户的预置指引
+    #: Provisioning hint shown to the user when the weight is missing
     hint: str
-    #: 该组合是否支持本地离线预置（False 表示必须联网获取，如门控模型）
+    #: Whether this pair supports offline provisioning (False = must be
+    # fetched online, e.g. gated models)
     offline_capable: bool = True
 
     def describe(self) -> str:
@@ -66,12 +75,12 @@ class WeightSpec:
 
 
 # ---------------------------------------------------------------------------
-# 目录约定
+# Directory conventions
 # ---------------------------------------------------------------------------
 
 
 def hf_hub_cache_dir() -> Path:
-    """HuggingFace 缓存根目录（与 ``huggingface_hub`` 的解析一致）。"""
+    """HuggingFace cache root (resolved like ``huggingface_hub`` does)."""
     env = os.environ.get("HF_HUB_CACHE", "").strip()
     if env:
         return Path(env)
@@ -82,7 +91,7 @@ def hf_hub_cache_dir() -> Path:
 
 
 def openai_whisper_cache_dir() -> Path:
-    """openai-whisper 权重目录（``~/.cache/whisper``）。"""
+    """openai-whisper weight directory (``~/.cache/whisper``)."""
     env = os.environ.get("WHISPER_CACHE_DIR", "").strip()
     if env:
         return Path(env)
@@ -90,7 +99,7 @@ def openai_whisper_cache_dir() -> Path:
 
 
 def whisper_cpp_models_dir() -> Path:
-    """whisper.cpp 的 GGML 权重目录（可用 ``MEDIASCRIBE_WHISPER_CPP_MODELS`` 覆盖）。"""
+    """whisper.cpp GGML weight directory (override with ``MEDIASCRIBE_WHISPER_CPP_MODELS``)."""
     env = os.environ.get("MEDIASCRIBE_WHISPER_CPP_MODELS", "").strip()
     if env:
         return Path(env)
@@ -98,7 +107,7 @@ def whisper_cpp_models_dir() -> Path:
 
 
 # ---------------------------------------------------------------------------
-# 清单
+# Manifest
 # ---------------------------------------------------------------------------
 
 
@@ -108,13 +117,7 @@ def _hf_spec(engine: str, model: str) -> WeightSpec:
         model=model,
         kind="hf-cache",
         location=f"{hf_hub_cache_dir() / ('models--Systran--faster-whisper-' + model)}",
-        hint=(
-            "预置方式（任选其一）：\n"
-            "  1) 有网时先跑一次：python -m mediascribe transcribe --engine faster-whisper "
-            f"--model {model} --url <任意音频>（会下载到 HuggingFace 缓存）\n"
-            "  2) 离线机：把 Systran/faster-whisper-{model} 的快照目录整个拷到"
-            f" {hf_hub_cache_dir()}"
-        ),
+        hint=t("WEIGHTS_HINT_HF", model=model, cache_dir=hf_hub_cache_dir()),
     )
 
 
@@ -124,11 +127,7 @@ def _openai_spec(model: str) -> WeightSpec:
         model=model,
         kind="openai-ckpt",
         location=f"{openai_whisper_cache_dir() / (model + '.pt')}",
-        hint=(
-            "预置方式：把 openai/whisper 的 "
-            f"{model}.pt 放到 {openai_whisper_cache_dir()}/\n"
-            "  （可用 WHISPER_CACHE_DIR 环境变量改目录）"
-        ),
+        hint=t("WEIGHTS_HINT_OPENAI", model=model, dir=openai_whisper_cache_dir()),
     )
 
 
@@ -138,16 +137,12 @@ def _cpp_spec(model: str) -> WeightSpec:
         model=model,
         kind="ggml-file",
         location=f"{whisper_cpp_models_dir() / ('ggml-' + model + '.bin')}",
-        hint=(
-            "预置方式：把 GGML 权重 "
-            f"ggml-{model}.bin 放到 {whisper_cpp_models_dir()}/\n"
-            "  （可用 MEDIASCRIBE_WHISPER_CPP_MODELS 环境变量改目录）"
-        ),
+        hint=t("WEIGHTS_HINT_CPP", model=model, dir=whisper_cpp_models_dir()),
     )
 
 
 def weight_spec(engine: str, model: str) -> Optional[WeightSpec]:
-    """返回 (engine, model) 的权重规格；未知组合返回 ``None``。"""
+    """Return the weight spec for (engine, model); ``None`` for unknown pairs."""
     engine = (engine or "").strip()
     model = (model or "").strip()
     if engine in (ENGINE_FASTER, ENGINE_WHISPERX):
@@ -160,7 +155,7 @@ def weight_spec(engine: str, model: str) -> Optional[WeightSpec]:
 
 
 def known_weight_pairs() -> List[Tuple[str, str]]:
-    """列出本模块认识的 (engine, model) 组合。"""
+    """List every (engine, model) pair this module knows about."""
     pairs: List[Tuple[str, str]] = []
     for engine in (ENGINE_FASTER, ENGINE_WHISPERX):
         for model in ("tiny", "base", "small", "medium", "large-v3"):
@@ -172,13 +167,13 @@ def known_weight_pairs() -> List[Tuple[str, str]]:
 
 
 # ---------------------------------------------------------------------------
-# 探测
+# Probing
 # ---------------------------------------------------------------------------
 
 
 @dataclass
 class WeightStatus:
-    """权重就绪状态。"""
+    """Weight readiness status."""
 
     engine: str
     model: str
@@ -189,43 +184,50 @@ class WeightStatus:
 
     def message(self) -> str:
         if self.ok:
-            return f"权重就绪：{self.location}"
-        return f"缺少权重 {self.engine}/{self.model}（应位于 {self.location}）\n{self.hint}"
+            return t("WEIGHTS_STATUS_OK", location=self.location)
+        return t(
+            "WEIGHTS_STATUS_MISSING",
+            engine=self.engine,
+            model=self.model,
+            location=self.location,
+            hint=self.hint,
+        )
 
 
 def _hf_present(spec: WeightSpec) -> Tuple[bool, str]:
     root = Path(spec.location)
     if not root.exists():
-        return False, "缓存目录不存在"
-    # HuggingFace 快照目录里真正决定「可离线」的是 snapshots/<rev>/ 下有实体文件
+        return False, t("WEIGHTS_HF_NO_DIR")
+    # What actually makes a HuggingFace snapshot dir "offline-capable" is
+    # real files under snapshots/<rev>/
     snapshots = root / "snapshots"
     if snapshots.exists():
         for rev in snapshots.iterdir():
             if rev.is_dir() and any(rev.iterdir()):
-                return True, f"已缓存（{rev.name}）"
+                return True, t("WEIGHTS_HF_CACHED", rev=rev.name)
     blobs = root / "blobs"
     if blobs.exists() and any(blobs.iterdir()):
-        return True, "已缓存（blob 存在）"
-    return False, "快照目录为空"
+        return True, t("WEIGHTS_BLOB_PRESENT")
+    return False, t("WEIGHTS_SNAPSHOT_EMPTY")
 
 
 def _file_present(spec: WeightSpec) -> Tuple[bool, str]:
     p = Path(spec.location)
     if p.exists() and p.stat().st_size > 0:
-        return True, f"{p.stat().st_size / 1024 / 1024:.0f} MiB"
-    return False, "文件不存在"
+        return True, t("WEIGHTS_FILE_PRESENT", mib=p.stat().st_size / 1024 / 1024)
+    return False, t("WEIGHTS_FILE_MISSING")
 
 
 def check_weights(engine: str, model: str) -> WeightStatus:
-    """检查 (engine, model) 的权重是否已预置。"""
+    """Check whether the weights for (engine, model) are provisioned."""
     spec = weight_spec(engine, model)
     if spec is None:
         return WeightStatus(
             engine=engine,
             model=model,
             ok=False,
-            location="(未知引擎)",
-            hint="未知引擎，无法给出权重预置指引",
+            location=t("WEIGHTS_UNKNOWN_ENGINE"),
+            hint=t("WEIGHTS_UNKNOWN_GUIDANCE"),
             detail="unknown-engine",
         )
     if spec.kind == "hf-cache":
@@ -243,13 +245,13 @@ def check_weights(engine: str, model: str) -> WeightStatus:
 
 
 def preflight_all() -> Dict[Tuple[str, str], WeightStatus]:
-    """扫描所有已知组合的权重就绪状态（供 doctor / 打包清单用）。"""
+    """Scan weight readiness for every known pair (used by doctor / packaging)."""
     return {pair: check_weights(*pair) for pair in known_weight_pairs()}
 
 
 def missing_hint(engine: str, model: str) -> str:
-    """缺权重时给用户的一句话指引（供异常消息拼接）。"""
+    """One-line provisioning hint for a missing weight (for exception messages)."""
     spec = weight_spec(engine, model)
     if spec is None:
-        return f"未知引擎 {engine!r}，无法给出权重预置指引。"
+        return t("WEIGHTS_UNKNOWN_ENGINE_HINT", engine=engine)
     return spec.hint

@@ -31,6 +31,18 @@ from mediascribe.model_weights import (  # noqa: E402
 )
 
 
+def setUpModule():
+    from mediascribe.i18n import set_language
+
+    set_language("zh")
+
+
+def tearDownModule():
+    from mediascribe.i18n import set_language
+
+    set_language("en")
+
+
 class TestDirectoryResolution(unittest.TestCase):
     def test_hf_cache_env_override(self):
         with mock.patch.dict(os.environ, {"HF_HUB_CACHE": "/tmp/hfcache"}):

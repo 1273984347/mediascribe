@@ -16,6 +16,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import torch
 
+from ..i18n import t
 from ..zh_normalize import simplified_initial_prompt
 from .base import Transcriber
 
@@ -142,12 +143,12 @@ class WhisperXTranscriber(Transcriber):
         try:
             import whisperx
         except ImportError as e:
-            raise RuntimeError("WhisperX 未安装，请运行: pip install whisperx") from e
+            raise RuntimeError(t("WX_NOT_INSTALLED")) from e
 
         language = kwargs.get("language")
 
         if progress:
-            print("加载 WhisperX 模型（优先取缓存）...")
+            print(t("WX_LOADING_MODEL"))
 
         # 第 1 步：转录 + VAD（模型走模块级缓存，连转 N 个音频只加载一次）
         model = _get_cached_model(whisperx, self.model_name, self.device, language)
@@ -164,7 +165,7 @@ class WhisperXTranscriber(Transcriber):
         # 第 2 步：Word-level 对齐（对齐模型同样走缓存）
         if result["segments"]:
             if progress:
-                print("执行 Word-level 对齐...")
+                print(t("WX_ALIGNING"))
 
             align_model, meta = _get_cached_align_model(
                 whisperx,
@@ -184,7 +185,7 @@ class WhisperXTranscriber(Transcriber):
         speaker_diarization = False
         if self.diarization and self.hf_token:
             if progress:
-                print("执行说话人分离...")
+                print(t("WX_DIARIZING"))
 
             try:
                 diarize_model = _get_cached_diarize_pipeline(whisperx, self.hf_token, self.device)
@@ -192,7 +193,7 @@ class WhisperXTranscriber(Transcriber):
                 result = whisperx.assign_word_speakers(diarize_segments, result)
                 speaker_diarization = True
             except Exception as e:
-                print(f"说话人分离失败: {e}")
+                print(t("WX_DIARIZE_FAILED", e=e))
 
         return {
             "text": " ".join([seg.get("text", "") for seg in result.get("segments", [])]).strip(),

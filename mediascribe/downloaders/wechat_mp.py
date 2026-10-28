@@ -44,6 +44,7 @@ from typing import Any, Optional
 import requests
 
 from ..config import Settings
+from ..i18n import t
 from ..models import DownloadResult, SourceRef
 from ..security import is_tencent_cdn_url
 from ..url_utils import host_matches
@@ -108,15 +109,13 @@ class WechatMpDownloader(Downloader):
     ) -> DownloadResult:
         url = source.url
         if not url:
-            raise ValueError("需要提供微信公众号文章 URL")
+            raise ValueError(t("WP_NO_URL"))
 
         # 凭据防线（2026-10-29 审查 P0-1）：平台路由曾用子串匹配，
         # ``https://evil.com/mp.weixin.qq.com/s?x`` 会被路由到本下载器并把
         # 微信登录 cookies 发往攻击者主机。入口必须按主机名断言目标域名。
         if not host_matches(url, (self.MP_HOST,)):
-            raise ValueError(
-                f"URL 主机不是微信公众号域名（{self.MP_HOST}），已拒绝携带微信 cookies 请求该地址"
-            )
+            raise ValueError(t("WP_FOREIGN_HOST", host=self.MP_HOST))
 
         logger.info("目标链接: %s", url)
 
@@ -133,7 +132,7 @@ class WechatMpDownloader(Downloader):
 
         html = self._fetch_html(url)
         if not html:
-            raise RuntimeError("无法拉取微信公众号文章 HTML")
+            raise RuntimeError(t("WP_FETCH_FAILED"))
 
         meta = self._extract_meta(html)
         text = self._extract_text(html)
@@ -141,7 +140,7 @@ class WechatMpDownloader(Downloader):
         video_url = self._extract_video_url(html)
 
         if not text and not video_url and not image_urls:
-            raise RuntimeError("无法从文章中提取正文或视频。可能文章已删除、被封禁或需登录。")
+            raise RuntimeError(t("WP_NO_CONTENT"))
 
         # 公众号图片文章：尝试 OCR（依赖可选；缺 OCR 引擎时降级为 partial）
         ocr_texts: list = []
@@ -156,7 +155,7 @@ class WechatMpDownloader(Downloader):
             logger.info("检测到视频消息，开始下载视频...")
             video_path = self._download_video(video_url, settings.downloads_dir)
             if not video_path or not video_path.exists():
-                raise RuntimeError(f"下载失败: 找不到文件 {video_path}")
+                raise RuntimeError(t("WP_DOWNLOAD_MISSING", path=video_path))
             logger.info("视频下载成功: %s", video_path.name)
             return DownloadResult(
                 source=source,

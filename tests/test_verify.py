@@ -54,6 +54,18 @@ def _make_workspace(tmp: Path, stem: str = "douyin_test") -> Path:
     return transcript
 
 
+def setUpModule():
+    from mediascribe.i18n import set_language
+
+    set_language("zh")
+
+
+def tearDownModule():
+    from mediascribe.i18n import set_language
+
+    set_language("en")
+
+
 class TestExtractTranscriptBody(unittest.TestCase):
     def test_standard_raw_layout(self):
         text = (

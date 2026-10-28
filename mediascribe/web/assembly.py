@@ -1,24 +1,28 @@
-"""Web 应用装配 —— 从 ``mediascribe/web/app.py`` 拆出(2026-10-25 二次拆分)。
+"""Web app assembly — extracted from ``mediascribe/web/app.py`` (second split, 2026-10-25).
 
-``app.py`` 保留**公共门面**：「薄壳」``create_app`` + 全部历史公共名字的
-re-export；真正的装配逻辑(状态、lifespan、CORS、路由注册)在这里。
+``app.py`` keeps the **public facade**: a thin ``create_app`` shell plus
+re-exports of every historical public name; the real assembly logic
+(state, lifespan, CORS, route registration) lives here.
 
-为什么再拆一层
---------------
-T03 把 app.py 从 2088 行降到 515 行后，剩下的构成是：docstring 58 + re-export
-import 72 + ``__all__`` 57 + ``create_app`` 156 + 其它 112。**唯一还大的一块
-就是 ``create_app``**（156 行，占 30%）—— 把它抽走，app.py 就只剩门面。
+Why another split
+-----------------
+After T03 took app.py from 2088 lines to 515, the remainder was:
+docstring 58 + re-export imports 72 + ``__all__`` 57 + ``create_app`` 156
++ other 112. The **only remaining big block was ``create_app``** (156
+lines, 30%) — extracting it leaves app.py as a pure facade.
 
-两条不能破的约束
-----------------
-1. **``_FASTAPI_AVAILABLE`` 的检查必须留在 app.py** —— 测试
-   ``test_create_app_raises_when_fastapi_missing`` 会把
-   ``app._FASTAPI_AVAILABLE`` 置 False 再调 ``create_app()`` 期望 RuntimeError；
-   检查若搬进本模块，读的就是**另一个模块**的标志 ⇒ patch 失效。
-   本模块的 import 也因此放在 ``create_app`` **函数体内**（无 fastapi 时
-   ``import mediascribe.web.assembly`` 本身就会 ImportError）。
-2. **``pipeline_factory`` 由 app.py 注入** —— 它要在**调用时**查 app 模块全局的
-   ``_build_pipeline``（那里有测试 patch 目标），本模块只负责转发。
+Two constraints that must not break
+-----------------------------------
+1. **The ``_FASTAPI_AVAILABLE`` check must stay in app.py** — the test
+   ``test_create_app_raises_when_fastapi_missing`` sets
+   ``app._FASTAPI_AVAILABLE = False`` then expects ``create_app()`` to
+   raise RuntimeError. If the check moved into this module it would read
+   **another module's** flag ⇒ the patch stops working. This module's
+   imports therefore sit **inside ``create_app``'s body** (without
+   fastapi, ``import mediascribe.web.assembly`` itself would ImportError).
+2. **``pipeline_factory`` is injected by app.py** — it must look up the
+   app module global ``_build_pipeline`` **at call time** (that global is
+   the tests' patch target); this module only forwards it.
 """
 
 from __future__ import annotations
@@ -57,18 +61,24 @@ def build_app(
     app_version: str,
     pipeline_factory: Any,
 ):
-    """装配并返回一个 FastAPI 应用。
+    """Assemble and return a FastAPI application.
 
-    这是原 ``create_app`` 的主体，逐字搬移。``app.py`` 的薄壳负责
-    fastapi 可用性检查、版本号解析与 pipeline 工厂注入, 然后调到这里。
+    This is the body of the original ``create_app``, moved verbatim.
+    app.py's thin shell handles the fastapi availability check, version
+    resolution and pipeline factory injection, then calls here.
 
     Args:
-        workspace: 转写稿与音频的落盘目录（None ⇒ 读环境变量/默认目录）。
-        api_token: 可选共享密钥（None ⇒ 读 ``MEDIASCRIBE_API_TOKEN``）。
-        cors_origins: 显式允许的来源（None ⇒ 用内置默认或环境变量）。
-        app_version: 应用版本号（由 app.py 从单一真源解析后传入）。
-        pipeline_factory: 构造 Pipeline 的工厂（app.py 注入，调用时才查
-            app 模块全局的 ``_build_pipeline`` ⇒ 测试 patch 生效）。
+        workspace: Directory where transcripts and audio land
+            (None ⇒ read env vars / default directory).
+        api_token: Optional shared secret (None ⇒ read
+            ``MEDIASCRIBE_API_TOKEN``).
+        cors_origins: Explicitly allowed origins (None ⇒ built-in
+            defaults or env vars).
+        app_version: App version (resolved by app.py from the single
+            source of truth).
+        pipeline_factory: Pipeline factory (injected by app.py; looks up
+            the app module global ``_build_pipeline`` at call time ⇒
+            test patches take effect).
     """
     # fastapi 是可选依赖 —— 顶层 import 会让本模块在无 fastapi 时
     # ImportError(而不是优雅降级)。它在下面只于**函数体内**用到, 故在此处导入。

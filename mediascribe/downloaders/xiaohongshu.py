@@ -31,6 +31,7 @@ from typing import Any, Optional
 import requests
 
 from ..config import Settings
+from ..i18n import t
 from ..models import DownloadResult, SourceRef
 from ..url_utils import host_matches
 from ._http_download import CHROME_UA, stream_download
@@ -75,13 +76,16 @@ class XiaohongshuDownloader(Downloader):
     ) -> DownloadResult:
         url = source.url
         if not url:
-            raise ValueError("需要提供小红书视频 URL")
+            raise ValueError(t("XHS_NO_URL"))
 
         # 入口断言：主机名必须属于小红书系域名，防止子串伪装 URL 把
         # headless 浏览器/重定向跟随引向任意主机（2026-10-29 审查 SEC-003）
         if not host_matches(url, self.XHS_HOST_PATTERNS):
             raise ValueError(
-                f"URL 主机不是小红书系域名（{' / '.join(self.XHS_HOST_PATTERNS)}），已拒绝处理"
+                t(
+                    "XHS_FOREIGN_HOST",
+                    hosts=" / ".join(self.XHS_HOST_PATTERNS),
+                )
             )
 
         logger.info("目标链接: %s", url)
@@ -102,24 +106,19 @@ class XiaohongshuDownloader(Downloader):
         media_url, title, note_type = self._extract_media_and_meta(url)
 
         if not media_url:
-            raise RuntimeError(
-                "无法获取小红书视频的真实媒体 URL。可能原因：需要登录、地区受限、或笔记是纯图文。"
-            )
+            raise RuntimeError(t("XHS_NO_MEDIA"))
 
         # 3) 图文笔记明确报错（P1-5）：封面图不是视频，继续下载只会把
         #    .jpg 塞给 ffmpeg 报晦涩错误；这里给出可操作的信息。
         if note_type == "image":
-            raise RuntimeError(
-                "小红书图文笔记暂不支持音频转写：该笔记不含视频元素，"
-                "请改用视频笔记链接（页面内含 <video> 播放器）。"
-            )
+            raise RuntimeError(t("XHS_IMAGE_NOTE"))
 
         # 4) 下载媒体
         logger.info("开始下载媒体文件...")
         video_path = self._download_media(media_url, settings.downloads_dir)
 
         if not video_path or not video_path.exists():
-            raise RuntimeError(f"下载失败: 找不到文件 {video_path}")
+            raise RuntimeError(t("XHS_DOWNLOAD_MISSING", path=video_path))
 
         logger.info("下载成功: %s", video_path.name)
 
