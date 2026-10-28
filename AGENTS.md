@@ -17,10 +17,13 @@ mediascribe/          # 唯一产品包（安装名 mediascribe）
 ├── transcribers/     # ASR 后端（whisper / whisperx / faster_whisper / whisper_cpp / chunked）
 ├── downloaders/      # 平台下载器（douyin / wechat_mp / xiaohongshu / youtube / ytdlp）
 ├── plugins/          # 插件注册表（entry_points 发现）
-├── web/              # FastAPI Web UI（app.py + static/ 前端原生 ES modules）
+├── web/              # FastAPI Web UI（app.py 是门面，实际逻辑在 assembly.py /
+│                     #   route_*.py / validation.py / models.py / job_runner.py + static/ ES modules）
 ├── config.py models.py url_utils.py inputs.py ...
 ├── i18n.py           # 双语消息表（en / zh）—— 所有面向用户的字符串走 t()
-├── security.py       # URL / 文件名安全（is_safe_url / sanitize_filename / safe_join_path）
+│                     #   （tests/test_i18n_guard.py 用 AST 门禁强制；存量基线只减不增）
+├── security.py       # URL / 文件名安全（is_safe_url / sanitize_filename / safe_join_path /
+│                     #   TRUSTED_DOMAINS / check_url_safety —— 平台域名一律进白名单表，勿散落硬编码）
 ├── platform_compat.py# 跨平台助手（ffmpeg 探测 / safe_filename / 路径规范化）
 ├── batch_*.py        # 批量归档编排（batch_cli / batch_config / batch_cache）
 ├── agent_output.py   # --json 输出 schema（mediascribe.agent-output/v1）
@@ -28,7 +31,7 @@ mediascribe/          # 唯一产品包（安装名 mediascribe）
 
 tests/               # 单测（pytest）
 docs/                # mkdocs 站点源（docs_dir: docs）+ reports/ 历史报告
-extension/           # 浏览器扩展（被 mediascribe/web/app.py 使用）
+extension/           # 浏览器扩展（被 mediascribe/web/route_extension.py + extension_builder.py 使用）
 examples/plugins/    # 第三方插件样例（vimeo_downloader / tcn_transformer）
 scripts/             # 开发脚本，按职责分层（见下）
 ```
@@ -92,10 +95,18 @@ python -m mediascribe archive --user "<作者主页URL>" -n 20   # 批量归档
 ## 三、开发约定
 
 - **路径**：一律用 `pathlib.Path`，不要拼字符串路径。
-- **类型**：公共函数必须有类型标注；docstring 用英文。
+- **类型**：公共函数必须有类型标注；**docstring 用英文**（2026-10-29 起恢复执行：
+  当日新增的 7 个模块已全量转英文；存量老模块仍为中文，改动到哪篇就顺手转哪篇）。
 - **用户可见字符串**：**必须**走 `mediascribe/i18n.py` 的 `t()`；新增 key 时在 `Messages`
-  类里写成 `{"en": ..., "zh": ...}` 字典。
-- **URL 安全**：一切外部 URL 必须过 `mediascribe.security.is_safe_url()`。
+  类里写成 `{"en": ..., "zh": ...}` 字典。**有 AST 门禁强制**：`tests/test_i18n_guard.py`
+  扫描全包 `print`/`raise` 里的 CJK 字面量，基线外的直接红灯（2026-10-29 起执行；
+  基线 = `test_i18n_guard.py` 里的 `_BASELINE`，只允许缩小）。argparse help 文本走
+  `build_parser(i18n_t)` 模式（见 batch_cli），暂不在 AST 门禁范围内。
+- **URL 安全**：外部 URL 的**域名白名单**用 `mediascribe.security.check_url_safety()` /
+  `TRUSTED_DOMAINS`（与 `url_utils._PLATFORM_FINGERPRINTS` 的一致性由
+  `tests/test_platform_consistency.py` 钉死）；`is_safe_url()` 只是格式检查（不查域名），
+  单独用它不构成安全判断。平台识别按主机名匹配（`url_utils.match_platform`），下载器
+  入口必须再做一次主机名断言，cookies 只准发对应平台域名。
 - **文件名安全**：一切用户可控文件名必须过 `mediascribe.security.sanitize_filename()`。
 - **平台常量**：不要在业务逻辑里硬编码平台名/域名，用 `mediascribe.security.TRUSTED_DOMAINS`。
 - **不要引入新顶层依赖**：同时更新 `pyproject.toml` 与 `requirements.txt`。
@@ -123,7 +134,7 @@ python -m mediascribe archive --user "<作者主页URL>" -n 20   # 批量归档
 |---|---|---|
 | 加一个下载平台 | `mediascribe/downloaders/` + `mediascribe/url_utils.py` 的平台路由 | `tests/test_new_downloaders.py` |
 | 加一个 ASR 引擎 | `mediascribe/transcribers/` + `factory.py` + `config.py::_VALID_ENGINES` | `tests/test_engine_consistency.py` |
-| 改 Web UI | `mediascribe/web/app.py` + `mediascribe/web/static/` | `tests/test_web_app*.py` |
+| 改 Web UI | `mediascribe/web/` 按职责落点：路由 `route_*.py`、请求校验 `validation.py` + `models.py`、装配 `assembly.py`、页面 `static/` | `tests/test_web_app*.py` |
 | 改批处理编排 | `mediascribe/batch_cli.py` + `batch_config.py` | `tests/test_review_fixes.py` |
 | 改 CLI 输出 | `mediascribe/agent_output.py`（**schema 升版需谨慎**） | `tests/test_agent_output.py` |
 | 改文档站 | `docs/` + `mkdocs.yml` 的 nav | `mkdocs build --strict` |
