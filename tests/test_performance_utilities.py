@@ -26,7 +26,10 @@ class TestProfileStep(unittest.TestCase):
         result = slow()
         self.assertEqual(result, "ok")
         self.assertIn("test_sleep", STEP_TIMES)
-        self.assertGreater(STEP_TIMES["test_sleep"][-1], 0.005)
+        # 0.01s 真睡在任何平台只会睡更久(计时器粒度), 记录值必为正;
+        # 阈值断言交给合成数据测试(见 test_from_registry), 这里只锁
+        # 「装饰器真的记录了时长」这个行为, 免受 runner 速度影响。
+        self.assertGreater(STEP_TIMES["test_sleep"][-1], 0.0)
 
     def test_records_on_exception(self):
         from mediascribe.performance import STEP_TIMES, clear_step_times, profile_step
@@ -44,26 +47,23 @@ class TestProfileStep(unittest.TestCase):
 
 class TestPerformanceReport(unittest.TestCase):
     def test_from_registry(self):
+        """聚合逻辑用**合成数据**直测(2026-10-29 修复)。
+
+        原实现靠 ``sleep(0.001) vs sleep(0.002)`` 的真实时长比较比值,
+        macOS matrix(计时器合并/调度抖动)上两次实测翻转(v3.4.0a1
+        发布验证 py3.12:0.00463 not greater than 0.00505)。时长记录
+        行为由 test_records_duration 覆盖, 这里只测 from_registry 的
+        统计口径, 注入确定值即无 runner 差异。
+        """
         from mediascribe.performance import (
             STEP_TIMES,
             PerformanceReport,
             clear_step_times,
-            profile_step,
         )
 
         clear_step_times()
-
-        @profile_step("alpha")
-        def a():
-            time.sleep(0.001)
-
-        @profile_step("beta")
-        def b():
-            time.sleep(0.002)
-
-        a()
-        a()
-        b()
+        STEP_TIMES["alpha"] = [0.001, 0.003]  # mean = 0.002
+        STEP_TIMES["beta"] = [0.01]  # total = 0.01
         report = PerformanceReport.from_registry()
         self.assertIn("alpha", report.steps)
         self.assertIn("beta", report.steps)
