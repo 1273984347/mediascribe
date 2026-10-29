@@ -100,3 +100,10 @@ site/
 
 # Agent local data (WorkBuddy memory/skills/identity — local only, not version-controlled)
 .workbuddy/
+
+# ---- AI 工具本地状态（勿入库·统一模板 2026-10-30）----
+.mimosa/
+.codebuddy/
+.writerHelper/
+.trae/*
+!.trae/skills/
