@@ -134,7 +134,7 @@ mediascribe/
 ├── mediascribe/          # Single product package: pipeline, downloaders, transcribers,
 │                         #   config, url_utils, batch_*, i18n, security, web/
 ├── tests/                # pytest suite
-├── docs/                 # Documentation site source (MkDocs) + docs/reports/ archive
+├── docs/                 # Documentation site source (MkDocs)
 ├── extension/            # Browser extension assets (used by mediascribe/web/app.py)
 ├── examples/plugins/     # Third-party plugin samples
 ├── scripts/              # Dev scripts by role: bench/ e2e/ pipeline/ tools/ launch/ gates/

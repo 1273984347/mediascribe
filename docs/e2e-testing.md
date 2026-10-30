@@ -58,7 +58,8 @@ running the suite themselves.
    `scripts/e2e/run_real_e2e.py`.
 2. Add a fixture URL to `scripts/e2e/wechat_mp_urls.txt` (only if
    the platform is WeChat-shaped).
-3. Update `docs/reports/e2e-results.md` with the new expected output.
+3. Run the matrix locally and record the expected output for the new case
+   (E2E result tables are local-only, not committed).
 
 ## Known flakiness
 

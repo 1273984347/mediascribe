@@ -57,7 +57,7 @@
 
 | 脚本 | 用途 |
 |---|---|
-| `e2e/capture_cli_help.py` | 重建 `docs/cli-screenshots/` 的 CLI help 快照（CLI 面变化后跑一次） |
+| `e2e/capture_cli_help.py` | 抓取 CLI help 快照到 `docs/cli-screenshots/`（输出目录不入库，CLI 面变化后本地核对用） |
 | `e2e/run_real_e2e.py` | 真实 URL 的端到端验证（真实网络 + 真实 ASR） |
 | `e2e/run_wechat_mp_e2e.py` | 微信公众号文章端到端验证，用 `e2e/wechat_mp_urls.txt` 作 fixture |
 | `e2e/capture_e2e_recording.py` | 录制 E2E 运行过程（终端日志 + 产物归档） |

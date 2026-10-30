@@ -237,6 +237,8 @@ jobs:
         id: notes
         # TAG 此前在本步骤未定义 → VER 恒为空, 永远回退 GITHUB_RELEASE.md
         # (2026-10-29 审查修复: 与 version 步骤同源取 tag)
+        # 2026-10-31: 发布说明草稿不再入库 (公开/私有内容分离)。
+        # 无草稿时现场生成最小兜底, 保证发布链在缺文件时不硬失败。
         run: |
           TAG=${GITHUB_REF#refs/tags/}
           [ "$TAG" = "$GITHUB_REF" ] && TAG=${{ github.event.inputs.tag }}
@@ -244,6 +246,9 @@ jobs:
           FILE="GITHUB_RELEASE_${VER}.md"
           if [ ! -f "$FILE" ]; then
             FILE="GITHUB_RELEASE.md"
+          fi
+          if [ ! -f "$FILE" ]; then
+            printf '# %s\n\nSee [CHANGELOG](CHANGELOG.md) for details.\n' "$TAG" > "$FILE"
           fi
           echo "file=${FILE}" >> $GITHUB_OUTPUT
       - name: Create GitHub release

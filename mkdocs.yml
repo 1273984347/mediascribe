@@ -95,16 +95,7 @@ nav:
   - License: license.md
   - Downloaders: downloaders.md
   - 使用说明: 使用说明.md
-  - CLI snapshots: cli-screenshots/index.md
   - Design notes: design/kimi-icon-motion-guide.md
-  - Report — tech selection (2026-10): reports/tech-selection-report-2026-10.md
-  - Report — workflow optimisation (2026-10): reports/workflow-optimization-report-2026-10.md
-  - Report — workflow optimisation (2026-09): reports/workflow-optimization-report-2026-09.md
-  - Report — E2E results: reports/e2e-results.md
-  - Report — publishing guide (v3): reports/publishing-v3.md
-  - Report — repo cleanup T01 (2026-10-24): reports/T01-文件分类整理-任务计划执行与经验沉淀报告-2026-10-24.md
-  - Report — Web UI fixes T02 (2026-10-25): reports/T02-Web-UI-版本号收敛与前端质量修复-任务计划执行与经验沉淀报告-2026-10-25.md
-  - Report — Web layer split T03 (2026-10-25): reports/T03-Web-层职责拆分-任务计划执行与经验沉淀报告-2026-10-25.md
 
 extra:
   version:
