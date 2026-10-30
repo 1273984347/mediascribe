@@ -40,6 +40,7 @@ import socket
 import statistics
 import subprocess
 import sys
+import sysconfig
 import threading
 import time
 from pathlib import Path
@@ -61,7 +62,8 @@ APPS = HERE / "apps"  # 各候选的脚手架源码 (入库)
 OUT = REPO / "output" / "bench" / "shell"  # 构建产物 (gitignore)
 RESULTS_PATH = HERE / "results.json"
 
-DEFAULT_PYTHON = r"C:\Users\12739\AppData\Local\Programs\Python\Python312\python.exe"
+# 兜底候选: PATH 上的 python (WindowsApps 商店 stub 会被 resolve_python 的 import 验证淘汰)
+DEFAULT_PYTHON = shutil.which("python") or ""
 
 # 断网验证用的代理黑洞 (127.0.0.1:9 = discard 端口, 必然连接失败)
 BLACKHOLE_PROXY = "http://127.0.0.1:9"
@@ -82,7 +84,8 @@ def resolve_python() -> str:
         candidates.append(env_py)
     if sys.executable:
         candidates.append(sys.executable)
-    candidates.append(DEFAULT_PYTHON)
+    if DEFAULT_PYTHON:
+        candidates.append(DEFAULT_PYTHON)
     for cand in candidates:
         try:
             r = subprocess.run(
@@ -1714,8 +1717,9 @@ def environment_info() -> Dict[str, Any]:
     mem = psutil.virtual_memory()
     cpu_info = {}
     try:
+        torch_version_py = Path(sysconfig.get_paths()["purelib"]) / "torch" / "version.py"
         with open(
-            r"C:\Users\12739\AppData\Local\Programs\Python\Python312\Lib\site-packages\torch\version.py",
+            torch_version_py,
             "r",
             encoding="utf-8",
             errors="replace",

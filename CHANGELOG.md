@@ -604,8 +604,8 @@ HTML**（双击即开，无需服务端、无需构建）。
 
 ### Added
 - **VAD-based long-video chunking**
-  ([audio_utils.py](file:///d:/1/video2text/video2text/audio_utils.py),
-  [transcribers/chunked.py](file:///d:/1/video2text/video2text/transcribers/chunked.py)):
+  (`audio_utils.py`,
+  `transcribers/chunked.py`):
   chunk splits are now driven by `webrtcvad` voice-activity detection
   when the optional dependency is installed.  Audio is scanned in
   20 ms frames at mode-3 aggressiveness; chunks are sealed on the
@@ -615,11 +615,11 @@ HTML**（双击即开，无需服务端、无需构建）。
   do not eat the first/last word.  When `webrtcvad` is not
   importable the code falls back to the legacy fixed-duration
   splitter, so existing callers are unaffected.  20 new tests in
-  [test_vad_chunking.py](file:///d:/1/video2text/douyin_batch/tests/test_vad_chunking.py)
+  `test_vad_chunking.py`
   cover the activation flag, silence/speech mix, fallback path,
   overlap stitching and PCM16 round-trip.
 - **Cross-run persistent cache**
-  ([cache.py](file:///d:/1/video2text/video2text/cache.py)):
+  (`cache.py`):
   downloads and transcriptions are now memoised to disk across
   processes, not just within a single Python run.  Layout follows
   the XDG Base Directory spec — the cache lives at
@@ -635,13 +635,13 @@ HTML**（双击即开，无需服务端、无需构建）。
   collect manually.  Stale or corrupt index files are detected via
   a monotonic schema version and silently rebuilt.  21 new tests
   in
-  [test_persistent_cache.py](file:///d:/1/video2text/douyin_batch/tests/test_persistent_cache.py)
+  `test_persistent_cache.py`
   cover XDG fallback, env override, LRU eviction at zero cap,
   TTL=0 semantics, OSError on ``_save_index``, and 4 KB
   payload round-trip.
 - **`profile` CLI sub-command**
-  ([__main__.py](file:///d:/1/video2text/video2text/__main__.py),
-  [profile_cli.py](file:///d:/1/video2text/video2text/profile_cli.py)):
+  (`__main__.py`,
+  `profile_cli.py`):
   ``python -m video2text profile <run.jsonl>`` aggregates pipeline
   profiling JSONL output into a Markdown report, a JSON summary,
   or a CSV — the 3-axis breakdown (stage / event / percentiles)
@@ -653,13 +653,13 @@ HTML**（双击即开，无需服务端、无需构建）。
   timestamp, ``--format {md,json,csv}`` switches the output
   format, and ``--tz-aware`` normalises naive timestamps to
   UTC before comparison.  26 new tests in
-  [test_profile_cli.py](file:///d:/1/video2text/douyin_batch/tests/test_profile_cli.py)
+  `test_profile_cli.py`
   cover parse-error fallback, percentile math, CSV escaping,
   timezone-aware filtering, top-N clamping to 0, and exit codes
   on empty input.
 - **WebSocket real-time job progress**
-  ([progress.py](file:///d:/1/video2text/video2text/progress.py),
-  [web/app.py](file:///d:/1/video2text/video2text/web/app.py)):
+  (`progress.py`,
+  `web/app.py`):
   long-running ``/api/transcribe`` and ``/api/batch`` jobs now
   publish a 3-bar progress event (download / transcribe /
   assemble) that the dashboard can stream without polling.  The
@@ -683,16 +683,16 @@ HTML**（双击即开，无需服务端、无需构建）。
     triggers a 4404 close frame with an ``error`` payload so the
     client can show a clean message.
   19 new tests across
-  [test_job_progress.py](file:///d:/1/video2text/douyin_batch/tests/test_job_progress.py)
+  `test_job_progress.py`
   and
-  [test_web_app_security.py](file:///d:/1/video2text/douyin_batch/tests/test_web_app_security.py)
+  `test_web_app_security.py`
   cover registry lifecycle, cancellation between stages, WS
   snapshot replay, 4404 on unknown id, and the 404 / 200
   semantics of the REST helpers.
 
 ### Changed
 - **`__main__.py` refactored into a dispatch shim**
-  ([__main__.py](file:///d:/1/video2text/video2text/__main__.py)):
+  (`__main__.py`):
   the entry point now parses the first positional argument and
   routes to ``_run_legacy`` (``transcribe`` / ``batch`` /
   ``-h``) or to the new ``profile`` sub-command.  All v3.1.0
@@ -703,7 +703,7 @@ HTML**（双击即开，无需服务端、无需构建）。
 
 ### Test infrastructure
 - **Coverage gap round 3**
-  ([test_coverage_gaps_3.py](file:///d:/1/video2text/douyin_batch/tests/test_coverage_gaps_3.py)):
+  (`test_coverage_gaps_3.py`):
   16 new tests target the 0%-or-low-% branches surfaced by the
   v3.2.0a code review — corrupted index recovery, TTL = 0
   short-circuit, LRU eviction with cap = 0, OSError handling in
@@ -726,11 +726,11 @@ coverage report -m (video2text scope)   # 75% overall, all v3.2.0a modules ≥ 8
 
 ### Added
 - **Browser Side Panel support**
-  ([manifest.json](file:///d:/1/video2text/extension/manifest.json),
-  [background.js](file:///d:/1/video2text/extension/background.js),
-  [popup.html](file:///d:/1/video2text/extension/popup.html),
-  [popup.js](file:///d:/1/video2text/extension/popup.js),
-  [popup.css](file:///d:/1/video2text/extension/popup.css)):
+  (`manifest.json`,
+  `background.js`,
+  `popup.html`,
+  `popup.js`,
+  `popup.css`):
   the Chrome / Edge extension now opens the same UI in the browser
   Side Panel (``chrome.sidePanel``) as in the toolbar popup.
   ``manifest.json`` declares ``sidePanel`` permission and
@@ -752,13 +752,13 @@ coverage report -m (video2text scope)   # 75% overall, all v3.2.0a modules ≥ 8
   - ``minimum_chrome_version`` bumped to ``114`` (the Side Panel
     API shipping version).
   - 31 new tests in
-    [test_extension_side_panel.py](file:///d:/1/video2text/douyin_batch/tests/test_extension_side_panel.py)
+    `test_extension_side_panel.py`
     cover the manifest contract, HTML element wiring, JS function
     presence, and ``node --check`` syntax validation.
 - **One-click extension ZIP download**
-  ([extension_builder.py](file:///d:/1/video2text/video2text/web/extension_builder.py),
-  [web/app.py](file:///d:/1/video2text/video2text/web/app.py),
-  [static/index.html](file:///d:/1/video2text/video2text/web/static/index.html)):
+  (`extension_builder.py`,
+  `web/app.py`,
+  `static/index.html`):
   the Web UI now lets end users grab a self-contained ZIP of the
   ``extension/`` tree without leaving the browser, so they can
   ``chrome://extensions`` → "Load unpacked" on Chrome / Edge
@@ -781,23 +781,23 @@ coverage report -m (video2text scope)   # 75% overall, all v3.2.0a modules ≥ 8
   have to edit the manifest.  A footer link in the Web UI
   surfaces the new page next to ``/api/health``.  24 new tests
   in
-  [test_extension_download.py](file:///d:/1/video2text/douyin_batch/tests/test_extension_download.py)
+  `test_extension_download.py`
   cover ZIP contents, path-traversal rejection, endpoint
   responses and rate-limit interaction.
 
 ### Security
-- **Docker hardening** ([Dockerfile](file:///d:/1/video2text/Dockerfile)):
+- **Docker hardening** (`Dockerfile`):
   the runtime image now runs as a dedicated non-root user
   (``video2text``, uid 1000), declares an inline ``HEALTHCHECK``
   that probes ``/api/health`` every 30 s, and pip uses
   ``--no-cache-dir`` in the builder.  A subtle bug in the previous
   ``chmod 777 /workspace`` was also fixed: the directory is now
   owned by the service account from the start.
-- **SourceRef typing** ([models.py](file:///d:/1/video2text/video2text/models.py)):
+- **SourceRef typing** (`models.py`):
   introduced ``SourceKind = Literal[...]`` and the
   ``is_known_kind`` property so downloader dispatch tables can
   rely on a closed set without breaking on unknown URLs.
-- **Web app rate limiting** ([web/app.py](file:///d:/1/video2text/video2text/web/app.py)):
+- **Web app rate limiting** (`web/app.py`):
   ``/api/transcribe`` is now protected by a per-client sliding-window
   rate limiter (default 10 requests / 60 s, configurable via
   ``VIDEO2TEXT_RATE_LIMIT`` and ``VIDEO2TEXT_RATE_LIMIT_WINDOW``,
@@ -807,19 +807,19 @@ coverage report -m (video2text scope)   # 75% overall, all v3.2.0a modules ≥ 8
   can surface a banner.
 
 ### Fixed
-- **MCP `transcribe_video` tool** ([mcp_server.py](file:///d:/1/video2text/video2text/mcp_server.py))
+- **MCP `transcribe_video` tool** (`mcp_server.py`)
   used an invented ``Pipeline(source=..., language=..., output_dir=..., whisper_model=...)``
   constructor and a non-existent ``Pipeline.run()`` method.  The tool
   now builds a real ``Settings``, instantiates ``Pipeline``, and
   calls ``Pipeline.transcribe(source_input=...)``.  Three new tests
   in ``test_mcp_server.py`` lock the contract in place.
-- **MCP `get_transcript` path-traversal** ([mcp_server.py](file:///d:/1/video2text/video2text/mcp_server.py)):
+- **MCP `get_transcript` path-traversal** (`mcp_server.py`):
   any caller could ask for ``/etc/passwd`` or ``~/.ssh/id_rsa``.
   The tool now pins reads to a configurable
   ``VIDEO2TEXT_TRANSCRIPT_ROOT`` (default ``./output/transcripts``),
   refuses symlink escapes via ``Path.relative_to``, blocks files
   larger than 5 MiB, and rejects non-UTF-8 bytes.
-- **Web app auth + CORS** ([web/app.py](file:///d:/1/video2text/video2text/web/app.py)):
+- **Web app auth + CORS** (`web/app.py`):
   ``/api/transcribe`` now requires a ``Bearer`` token when
   ``VIDEO2TEXT_API_TOKEN`` is set (constant-time comparison via
   ``hmac.compare_digest``).  CORS middleware pre-allows
@@ -833,7 +833,7 @@ coverage report -m (video2text scope)   # 75% overall, all v3.2.0a modules ≥ 8
 - **Web app job-id collision risk**: ``__import__('time').time()`` +
   ``abs(hash(url)) % 10**8`` replaced with top-level ``time`` +
   ``uuid.uuid4().hex[:8]``.
-- **`safe_stem` Windows-hostile regex** ([inputs.py](file:///d:/1/video2text/video2text/inputs.py)):
+- **`safe_stem` Windows-hostile regex** (`inputs.py`):
   the previous ``re.sub(r'[^\w\-_]', '_', name)`` left Windows
   reserved names (``CON``, ``PRN``, ``COM1``…) and control characters
   untouched, which could crash downloads on titles like
@@ -843,11 +843,11 @@ coverage report -m (video2text scope)   # 75% overall, all v3.2.0a modules ≥ 8
   MCP ``safe_filename`` tool.
 
 ### CI
-- **Dependabot** ([.github/dependabot.yml](file:///d:/1/video2text/.github/dependabot.yml)):
+- **Dependabot** (`.github/dependabot.yml`):
   weekly PRs for ``pip``, ``github-actions`` and ``docker``
   ecosystems, with grouped bumps for the ``whisper``, ``media``
   and ``ml`` dependency stacks so the queue stays reviewable.
-- **Bandit security scan** ([.github/workflows/bandit.yml](file:///d:/1/video2text/.github/workflows/bandit.yml)):
+- **Bandit security scan** (`.github/workflows/bandit.yml`):
   weekly + on-PR scan of ``video2text/`` and ``douyin_batch/``
   with the test tree excluded.  Reports uploaded as build
   artifacts and printed to the workflow log; ``-ll`` threshold
