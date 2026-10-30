@@ -5,7 +5,7 @@
       "os": "Windows-11-10.0.26200-SP0",
       "os_version": "10.0.26200",
       "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
-      "python_executable": "C:\\Users\\12739\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+      "python_executable": "C:\\Users\\<user>\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
       "node": "v24.14.0",
       "npm": "11.9.0",
       "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
@@ -60,7 +60,7 @@
         {
           "command": "python -m mediascribe.web.app --port N  (docs/getting-started.md, web-ui.md, extension/README.md)",
           "argv": [
-            "C:\\Users\\12739\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+            "C:\\Users\\<user>\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
             "-m",
             "mediascribe.web.app",
             "--host",
@@ -76,7 +76,7 @@
         {
           "command": "python -m uvicorn mediascribe.web.app:app  (scripts/launch/one_click_up.py 的 launch_local)",
           "argv": [
-            "C:\\Users\\12739\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+            "C:\\Users\\<user>\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
             "-m",
             "uvicorn",
             "mediascribe.web.app:app",
@@ -93,7 +93,7 @@
         {
           "command": "python -m uvicorn mediascribe.web.app:create_app --factory  (本基准采用的可用方式)",
           "argv": [
-            "C:\\Users\\12739\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+            "C:\\Users\\<user>\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
             "-m",
             "uvicorn",
             "mediascribe.web.app:create_app",
@@ -498,15 +498,15 @@
         "【未擅自装 MSVC】按任务约束不安装来历不明的工具链, 因此没有绕过本机阻断条件。"
       ],
       "environment_probe": {
-        "rustc": "C:\\Users\\12739\\.cargo\\bin\\rustc.EXE",
-        "cargo": "C:\\Users\\12739\\.cargo\\bin\\cargo.EXE",
+        "rustc": "C:\\Users\\<user>\\.cargo\\bin\\rustc.EXE",
+        "cargo": "C:\\Users\\<user>\\.cargo\\bin\\cargo.EXE",
         "rustc_version": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
         "msvc": {
           "vswhere_present": false,
           "cl_present": false,
           "vs_install_dirs": [],
           "link_exe": null,
-          "rustc_target_libdir": "C:\\Users\\12739\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\lib\\rustlib\\x86_64-pc-windows-msvc\\lib",
+          "rustc_target_libdir": "C:\\Users\\<user>\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\lib\\rustlib\\x86_64-pc-windows-msvc\\lib",
           "link_exe_on_path": false
         },
         "webview2": {

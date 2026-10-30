@@ -54,7 +54,8 @@ MEDIASCRIBE_DEVICE=cpu
 
 ```bash
 # 解释器必须是装了 fastapi/uvicorn/psutil 的那个（WindowsApps 商店 stub 不可用）
-PY="C:\Users\12739\AppData\Local\Programs\Python\Python312\python.exe"
+# 也可用 BENCH_PYTHON 环境变量指定，bench_shell.py 会自动回退到 sys.executable
+PY="python"
 
 $PY scripts/bench/shell/bench_shell.py b1 --runs 3   # FastAPI + uvicorn（现状）
 $PY scripts/bench/shell/bench_shell.py b2 --runs 3   # Vite+React 预构建壳（会跑 npm install + vite build）
@@ -198,8 +199,8 @@ https://v2.tauri.app/concept/size/ （**注意：本轮未逐项抓取该页数�
    ```
    npm error code EEXIST
    npm error syscall rename
-   npm error ENOENT: no such file or directory, rename 'C:\Users\12739\AppData\Local\npm-cache\_cacache\tmp\8a3a0237' -> 'C:\Users\12739\AppData\Local\npm-cache\_cacache\content-v2\sha512\a3\96\...'
-   npm error File exists: C:\Users\12739\AppData\Local\npm-cache\_cacache\content-v2\sha512\a3\96\...
+   npm error ENOENT: no such file or directory, rename 'C:\Users\<user>\AppData\Local\npm-cache\_cacache\tmp\8a3a0237' -> 'C:\Users\<user>\AppData\Local\npm-cache\_cacache\content-v2\sha512\a3\96\...'
+   npm error File exists: C:\Users\<user>\AppData\Local\npm-cache\_cacache\content-v2\sha512\a3\96\...
    ```
    → 改用 bench 专属缓存目录 `npm install --cache <dir>` 即可复现地避开。
 2. 连带效应：npm install 失败后 `npm run build` 报 `'vite' is not recognized as an internal or external command`
@@ -225,7 +226,7 @@ https://v2.tauri.app/concept/size/ （**注意：本轮未逐项抓取该页数�
    导致 `electron.exe` 永远缺失 —— 必须删掉残缺的包目录强制重跑。
 3. `electron-builder` 解压 `winCodeSign` 需要创建符号链接，本机无「创建符号链接」特权：
    ```
-   ERROR: Cannot create symbolic link : 客户端没有所需的特权。 : C:\Users\12739\AppData\Local\electron-builder\Cache\winCodeSign\...\darwin\10.12\lib\libcrypto.dylib
+   ERROR: Cannot create symbolic link : 客户端没有所需的特权。 : C:\Users\<user>\AppData\Local\electron-builder\Cache\winCodeSign\...\darwin\10.12\lib\libcrypto.dylib
    ```
    → 用 `win.signAndEditExecutable: false` 绕开（本基准的安装包因此不带 exe 资源元数据）。
 4. Electron 会派生 **主进程 + GPU + utility + renderer** 多个进程，内存必须按**进程树**求和，
