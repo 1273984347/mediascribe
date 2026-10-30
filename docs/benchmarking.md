@@ -19,11 +19,11 @@ and a third that compares **workbench delivery shapes**.
 |---|---|---|---|
 | **L3 — ASR engines** | `scripts/bench/asr/bench_asr.py` | RTF, error rate, peak VRAM, peak RAM, GPU temperature | `output/bench/asr/` |
 | **L3 — whisper.cpp** | `scripts/bench/asr/bench_whispercpp.py` | same metrics, same corpus, for the GGML/C++ engine | `output/bench/asr_cpp/` |
-| **L1 — front-end frameworks** | `scripts/bench/frontend/bench_frontend.py` | build time, bundle size, dependency size, cold start, render time, filter latency, scroll frame rate | `scripts/bench/frontend/results.json` |
-| **L2 — workbench shells** | `scripts/bench/shell/bench_shell.py` | cold start, resident memory, distribution size, offline self-containment, cross-platform | `scripts/bench/shell/results.json` |
+| **L1 — front-end frameworks** | `scripts/bench/frontend/bench_frontend.py` | build time, bundle size, dependency size, cold start, render time, filter latency, scroll frame rate | `scripts/bench/frontend/results.json` (local-only, not committed) |
+| **L2 — workbench shells** | `scripts/bench/shell/bench_shell.py` | cold start, resident memory, distribution size, offline self-containment, cross-platform | `scripts/bench/shell/results.json` (local-only, not committed) |
 
-The full comparison and its conclusions live in
-[`docs/tech-selection-report-2026-10.md`](https://github.com/1273984347/mediascribe/blob/main/docs/reports/tech-selection-report-2026-10.md).
+The full comparison and its conclusions live in the internal tech-selection
+report (not published; results tables above are the authoritative summary).
 
 ## The corpus is synthesised offline
 

@@ -30,7 +30,7 @@ mediascribe/          # 唯一产品包（安装名 mediascribe）
 └── ...
 
 tests/               # 单测（pytest）
-docs/                # mkdocs 站点源（docs_dir: docs）+ reports/ 历史报告
+docs/                # mkdocs 站点源（docs_dir: docs），只放面向用户的产品文档
 extension/           # 浏览器扩展（被 mediascribe/web/route_extension.py + extension_builder.py 使用）
 examples/plugins/    # 第三方插件样例（vimeo_downloader / tcn_transformer）
 scripts/             # 开发脚本，按职责分层（见下）
@@ -125,6 +125,15 @@ python -m mediascribe archive --user "<作者主页URL>" -n 20   # 批量归档
    factory 回退链）。改完必须跑 `tests/test_engine_consistency.py` 这类一致性测试。
 5. **提交前跑门禁**：`python scripts/gates/pre_push_gate.py`。它会跑 ruff 与 CI 同参快速测试，
    任何失败非零退出。
+6. **公开/私有内容严格分离（2026-10-31 起）**：GitHub 上的仓库 = 全新克隆即用的开源项目。
+   以下内容**一律不入库**（`.gitignore` 已钉死，`git add -f` 也别用）：
+   - 转录/归档产物：`output/`、`archive/`、cookies、本地配置副本；
+   - 测试与基准的**输出产物**：`docs/cli-screenshots/`、`scripts/bench/*/results.json`、
+     E2E 结果表——要核对就在本地跑脚本重生成；
+   - 内部开发报告与执行记录（原 `docs/reports/`）、发布说明草稿（`GITHUB_RELEASE_*.md`，
+     打 tag 时现场创建）、AI 工具本地状态（`.zcode/` 等）；
+   - 任何含本机用户名/绝对路径的内容（`C:\Users\<user>\...`、`file:///d:/...`）——
+     文档里写路径用相对路径或占位符。
 
 ---
 

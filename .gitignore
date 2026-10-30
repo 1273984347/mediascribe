@@ -107,3 +107,14 @@ site/
 .writerHelper/
 .trae/*
 !.trae/skills/
+.zcode/
+
+# ---- 内部产物与私有内容（2026-10-31 公开/私有内容分离，严禁入库）----
+# 内部开发报告 / 执行记录（公开仓库只保留面向用户的产品文档）
+docs/reports/
+# CLI help 快照是 capture_cli_help.py 的测试输出产物，需要时本地重生成
+docs/cli-screenshots/
+# 基准测试输出产物（results.json 由 bench 脚本落盘，属本机运行数据）
+scripts/bench/*/results.json
+# 发布说明草稿在打 tag 时创建即可，不留正式分支
+GITHUB_RELEASE_*.md
