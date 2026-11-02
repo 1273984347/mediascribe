@@ -265,3 +265,24 @@ class TestProbeSourceAlive:
 
         monkeypatch.setattr("urllib.request.urlopen", raise_403)
         assert _probe_source_alive("https://e.com/anti-bot") is True
+
+
+class TestProbeSchemeWhitelist:
+    """B310 收口: _probe_source_alive 只探测 http(s) 来源。"""
+
+    def test_non_http_scheme_is_gone(self):
+        from mediascribe.pipeline_stages import _probe_source_alive
+
+        assert _probe_source_alive("file:///etc/passwd") is False
+        assert _probe_source_alive("ftp://example.com/x") is False
+
+    def test_http_scheme_proceeds(self, monkeypatch):
+        import urllib.error
+
+        from mediascribe.pipeline_stages import _probe_source_alive
+
+        def raise_404(req, timeout):
+            raise urllib.error.HTTPError(req.full_url, 404, "Not Found", None, None)
+
+        monkeypatch.setattr("urllib.request.urlopen", raise_404)
+        assert _probe_source_alive("https://example.com/gone") is False
