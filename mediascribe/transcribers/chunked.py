@@ -86,25 +86,11 @@ def probe_duration(path: Path) -> float:
     back to the stdlib ``wave`` module for .wav files.  Raises
     RuntimeError if both fail.
     """
-    if shutil.which("ffprobe"):
-        try:
-            out = subprocess.check_output(
-                [
-                    "ffprobe",
-                    "-v",
-                    "error",
-                    "-show_entries",
-                    "format=duration",
-                    "-of",
-                    "default=noprint_wrappers=1:nokey=1",
-                    str(path),
-                ],
-                stderr=subprocess.STDOUT,
-                timeout=30,
-            )
-            return float(out.decode("utf-8", errors="replace").strip())
-        except Exception:
-            pass
+    from ..audio_utils import probe_duration_seconds
+
+    duration = probe_duration_seconds(path)
+    if duration is not None:
+        return duration
     if path.suffix.lower() == ".wav":
         try:
             with wave.open(str(path), "rb") as w:
