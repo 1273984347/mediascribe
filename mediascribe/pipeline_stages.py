@@ -587,78 +587,37 @@ class AssembleStage(Stage):
         return bool(ctx.text)
 
     def run(self, ctx: PipelineContext) -> PipelineContext:
-        # P2-11: 跨 stage 边界的关键校验改 RuntimeError(-O 下 assert
-        # 会被剥掉,ctx 不完整时会带着 None 一路炸到更深处)。
-        if ctx.source is None:
-            raise RuntimeError("AssembleStage requires ctx.source (run ParseSourceStage first)")
-        if ctx.text is None:
-            raise RuntimeError("AssembleStage requires ctx.text (run TranscribeStage first)")
-        if ctx.transcription is None:
-            raise RuntimeError(
-                "AssembleStage requires ctx.transcription (run TranscribeStage first)"
-            )
-        ctx.raise_if_cancelled()  # 落盘前(LLM 后处理可能阻塞)
-        # P2-11: TranscribeStage 已保证 audio_path 非空; 校验放在取消检查之后,
-        # 取消请求优先于结构校验。
-        if ctx.audio_path is None:
-            raise RuntimeError("AssembleStage requires ctx.audio_path (run TranscribeStage first)")
+        """编排: 校验 → 文本三连后处理 → 渲染落盘 → 组装结果。
+
+        (2026-11-03 拆分, 原 95 行 run 分为 _validate_inputs /
+        _process_text / _render_markdown / _build_metadata 四个私有阶段;
+        行为零变化, TestAssembleStage 契约网覆盖。)
+        """
+        self._validate_inputs(ctx)
+        # mypy 类型收窄: _validate_inputs 已用 RuntimeError 保证以下字段
+        # 非 None (assert 仅为类型提示, -O 剥掉后 RuntimeError 防线仍在)
+        assert ctx.source is not None
+        assert ctx.text is not None
+        assert ctx.transcription is not None
+        assert ctx.audio_path is not None
         base_name = ctx.base_name or ctx.source.display_name
 
-        # v3.2.0b: 自动后处理 (术语校正,含学习术语)
-        text = self._post_process(ctx.text)
-
-        # v3.4.2: 幻觉重复收敛 (ASR 解码循环 >=3 连相同句收敛为 1)
-        text, halluc_removed, repeated_pairs = self._collapse_repeats(text)
-
-        # v3.2.0d: LLM 后处理 (专有名词 / 同音字 / 标点 / 分段)
-        # 失败时回退到原文,不阻塞 pipeline
-        text, llm_status, llm_model = self._llm_post_process(text, ctx)
+        text, halluc_removed, repeated_pairs, llm_status, llm_model = self._process_text(
+            ctx.text, ctx
+        )
         ctx.raise_if_cancelled()  # LLM 后处理后(可能阻塞)
 
-        transcript_path = self._resolve_output_path(base_name, ctx.output)
-        metadata_path = self._resolve_metadata_path(transcript_path)
-        transcript_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # v3.4.0: 注入 ctx 供 build_markdown 读 timestamps / source
-        # (仅当注入的可调用签名接受时,见 __init__ 签名探测)
-        if self._accepts_ctx:
-            markdown = self._build_markdown(
-                base_name, text, ctx.transcription, ctx.downloaded, ctx=ctx
-            )
-        else:
-            markdown = self._build_markdown(base_name, text, ctx.transcription, ctx.downloaded)
-        # 在 markdown 头部插入后处理状态 banner
-        extra = f"; 幻觉重复收敛 {halluc_removed} 句" if halluc_removed else ""
-        markdown = self._inject_status_banner(markdown, llm_status, llm_model, extra_note=extra)
-        # v3.2.0e+: 原子写避免半写污染（markdown 通常 5-200KB）
-        _atomic_write_text(transcript_path, markdown, encoding="utf-8")
-
-        metadata = {
-            "source": {
-                "raw_input": ctx.source.raw_input,
-                "kind": ctx.source.kind,
-                "bv": ctx.source.bv,
-                "url": ctx.source.url,
-                "path": str(ctx.source.path) if ctx.source.path else None,
-            },
-            "engine": self._transcriber_name(ctx),
-            "model": ctx.transcription.get("model"),
-            "audio_path": str(ctx.audio_path) if ctx.audio_path else None,
-            "video_path": str(ctx.video_path) if ctx.video_path else None,
-            "download_metadata": ctx.downloaded.metadata if ctx.downloaded else None,
-            "language": ctx.transcription.get("language"),
-            "speaker_diarization": ctx.transcription.get("speaker_diarization", False),
-            "llm_post_process": {
-                "status": llm_status,
-                "model": llm_model,
-            },
-            "hallucination_repeats_removed": halluc_removed,
-            "repeated_pairs_suspect": repeated_pairs[:10],
-            # 资源守卫的降档/过载说明 —— 让用户知道「这次为什么用了小模型」
-            "resource_notices": list(ctx.resource_notices),
-            "generated_at": datetime.now().isoformat(),
-        }
-        _atomic_write_text(metadata_path, _json_dump(metadata), encoding="utf-8")
+        transcript_path, metadata_path, metadata = self._write_outputs(
+            ctx,
+            ctx.source,
+            ctx.transcription,
+            base_name,
+            text,
+            halluc_removed,
+            repeated_pairs,
+            llm_status,
+            llm_model,
+        )
 
         ctx.transcript_path = transcript_path
         ctx.metadata_path = metadata_path
@@ -678,6 +637,113 @@ class AssembleStage(Stage):
             speaker_diarization=ctx.transcription.get("speaker_diarization", False),
         )
         return ctx
+
+    @staticmethod
+    def _validate_inputs(ctx: PipelineContext) -> None:
+        """跨 stage 边界的关键校验 (P2-11: -O 下 assert 会被剥掉, 改
+        RuntimeError — ctx 不完整时会带着 None 一路炸到更深处)。"""
+        if ctx.source is None:
+            raise RuntimeError("AssembleStage requires ctx.source (run ParseSourceStage first)")
+        if ctx.text is None:
+            raise RuntimeError("AssembleStage requires ctx.text (run TranscribeStage first)")
+        if ctx.transcription is None:
+            raise RuntimeError(
+                "AssembleStage requires ctx.transcription (run TranscribeStage first)"
+            )
+        ctx.raise_if_cancelled()  # 落盘前(LLM 后处理可能阻塞)
+        # P2-11: TranscribeStage 已保证 audio_path 非空; 校验放在取消检查之后,
+        # 取消请求优先于结构校验。
+        if ctx.audio_path is None:
+            raise RuntimeError("AssembleStage requires ctx.audio_path (run TranscribeStage first)")
+
+    def _process_text(self, text: str, ctx: PipelineContext) -> tuple:
+        """文本三连后处理: 术语校正 → 幻觉重复收敛 → LLM 后处理。
+
+        返回 ``(text, halluc_removed, repeated_pairs, llm_status, llm_model)``。
+        """
+        # v3.2.0b: 自动后处理 (术语校正,含学习术语)
+        text = self._post_process(text)
+
+        # v3.4.2: 幻觉重复收敛 (ASR 解码循环 >=3 连相同句收敛为 1)
+        text, halluc_removed, repeated_pairs = self._collapse_repeats(text)
+
+        # v3.2.0d: LLM 后处理 (专有名词 / 同音字 / 标点 / 分段)
+        # 失败时回退到原文,不阻塞 pipeline
+        text, llm_status, llm_model = self._llm_post_process(text, ctx)
+        return text, halluc_removed, repeated_pairs, llm_status, llm_model
+
+    def _render_markdown(
+        self,
+        ctx: PipelineContext,
+        base_name: str,
+        text: str,
+        halluc_removed: int,
+        llm_status: str,
+        llm_model: str,
+    ) -> str:
+        """构建 markdown 并插入后处理状态 banner。"""
+        # v3.4.0: 注入 ctx 供 build_markdown 读 timestamps / source
+        # (仅当注入的可调用签名接受时,见 __init__ 签名探测)
+        if self._accepts_ctx:
+            markdown = self._build_markdown(
+                base_name, text, ctx.transcription, ctx.downloaded, ctx=ctx
+            )
+        else:
+            markdown = self._build_markdown(base_name, text, ctx.transcription, ctx.downloaded)
+        extra = f"; 幻觉重复收敛 {halluc_removed} 句" if halluc_removed else ""
+        return self._inject_status_banner(markdown, llm_status, llm_model, extra_note=extra)
+
+    def _write_outputs(
+        self,
+        ctx: PipelineContext,
+        source: SourceRef,
+        transcription: Dict[str, Any],
+        base_name: str,
+        text: str,
+        halluc_removed: int,
+        repeated_pairs: list,
+        llm_status: str,
+        llm_model: str,
+    ) -> tuple:
+        """渲染 markdown + metadata 并原子落盘, 返回 (transcript, metadata 路径, metadata)。"""
+        transcript_path = self._resolve_output_path(base_name, ctx.output)
+        metadata_path = self._resolve_metadata_path(transcript_path)
+        transcript_path.parent.mkdir(parents=True, exist_ok=True)
+
+        markdown = self._render_markdown(
+            ctx, base_name, text, halluc_removed, llm_status, llm_model
+        )
+        # v3.2.0e+: 原子写避免半写污染（markdown 通常 5-200KB）
+        _atomic_write_text(transcript_path, markdown, encoding="utf-8")
+
+        metadata = {
+            "source": {
+                "raw_input": source.raw_input,
+                "kind": source.kind,
+                "bv": source.bv,
+                "url": source.url,
+                "path": str(source.path) if source.path else None,
+            },
+            "engine": self._transcriber_name(ctx),
+            "model": transcription.get("model"),
+            "audio_path": str(ctx.audio_path) if ctx.audio_path else None,
+            "video_path": str(ctx.video_path) if ctx.video_path else None,
+            "download_metadata": ctx.downloaded.metadata if ctx.downloaded else None,
+            "language": transcription.get("language"),
+            "speaker_diarization": transcription.get("speaker_diarization", False),
+            "llm_post_process": {
+                "status": llm_status,
+                "model": llm_model,
+            },
+            "hallucination_repeats_removed": halluc_removed,
+            "repeated_pairs_suspect": repeated_pairs[:10],
+            # 资源守卫的降档/过载说明 —— 让用户知道「这次为什么用了小模型」
+            "resource_notices": list(ctx.resource_notices),
+            "generated_at": datetime.now().isoformat(),
+        }
+        _atomic_write_text(metadata_path, _json_dump(metadata), encoding="utf-8")
+
+        return transcript_path, metadata_path, metadata
 
     @staticmethod
     def _transcriber_name(ctx: PipelineContext) -> str:
