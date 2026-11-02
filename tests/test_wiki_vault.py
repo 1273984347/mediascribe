@@ -191,3 +191,51 @@ class TestWikiToggle(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestWikiPhase4(unittest.TestCase):
+    """Phase 4 后端契约: 全文搜索 + index 携带 raw 来源 URL。"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.vault = WikiVault(Path(self._tmp.name) / "vault")
+
+    def test_search_finds_content_with_snippet(self):
+        self.vault.archive_transcript(
+            self._write_md("# 机械键盘\n\n**[00:10]** 轴体切换很顺滑。"),
+            FAKE_METADATA,
+        )
+        results = self.vault.search("轴体")
+        self.assertEqual(len(results), 1)
+        hit = results[0]
+        self.assertEqual(hit["type"], "raw")
+        self.assertIn("轴体", hit["snippet"])
+        self.assertTrue(hit["path"].startswith("raw/"))
+
+    def test_search_case_insensitive_for_latin(self):
+        self.vault.archive_transcript(
+            self._write_md("# Notes\n\nmechanical keyboard overview"), FAKE_METADATA
+        )
+        self.assertEqual(len(self.vault.search("KEYBOARD")), 1)
+
+    def test_search_empty_query_returns_empty(self):
+        self.vault.archive_transcript(self._write_md(FAKE_MARKDOWN), FAKE_METADATA)
+        self.assertEqual(self.vault.search(""), [])
+        self.assertEqual(self.vault.search("   "), [])
+
+    def test_search_no_match(self):
+        self.vault.archive_transcript(self._write_md(FAKE_MARKDOWN), FAKE_METADATA)
+        self.assertEqual(self.vault.search("不存在的词组xyz"), [])
+
+    def test_index_includes_raw_source_url(self):
+        self.vault.archive_transcript(self._write_md(FAKE_MARKDOWN), FAKE_METADATA)
+        data = self.vault.index()
+        raw = [n for n in data["notes"] if n["type"] == "raw"]
+        self.assertEqual(len(raw), 1)
+        self.assertEqual(raw[0]["url"], "https://www.bilibili.com/video/BV1xx")
+
+    def _write_md(self, content: str) -> Path:
+        src_md = Path(self._tmp.name) / "in.md"
+        src_md.write_text(content, encoding="utf-8")
+        return src_md

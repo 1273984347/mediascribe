@@ -34,9 +34,13 @@
 
   <main>
     <div class="grid">
-      <nav class="panel" id="note-list" aria-label="笔记列表"></nav>
+      <nav class="panel side" aria-label="笔记列表">
+        <input type="search" id="wiki-search" placeholder="全文搜索…" autocomplete="off"
+               aria-label="全文搜索 vault 笔记">
+        <div id="note-list" class="note-scroll"></div>
+      </nav>
       <section class="panel viewer" id="viewer" aria-label="笔记内容">
-        <div class="empty">← 从左侧选择一篇笔记查看原文</div>
+        <div class="empty">← 从左侧选择一篇笔记阅读（渲染态可点 wikilink 与时间戳）</div>
       </section>
     </div>
   </main>

@@ -10,6 +10,8 @@
   --fill: rgba(255, 255, 255, 0.05);
   --fill-hover: rgba(255, 255, 255, 0.09);
   --blue: #007cff;
+  --red: #ff4756;
+  --green: #16c456;
   --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, "PingFang SC", "Microsoft YaHei", "Noto Sans", sans-serif;
   --mono: "Geist Mono", ui-monospace, "SF Mono", "Cascadia Code", Consolas, "PingFang SC", "Microsoft YaHei", monospace;
 }
@@ -102,3 +104,55 @@ h2.sec:first-child { margin-top: 0; }
 :focus-visible { outline: 2px solid rgba(127,127,127,.5); outline-offset: 2px; }
 @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ---- Phase 4 (2026-11-03): 侧栏搜索 / 渲染态阅读 / wikilink / 时间戳深链 ---- */
+.side { display: flex; flex-direction: column; gap: 10px; max-height: 78vh; }
+#wiki-search {
+  flex: none; width: 100%; padding: 8px 12px;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--fill); color: var(--fg);
+  font-family: var(--sans); font-size: 13px;
+}
+#wiki-search::placeholder { color: var(--fg-3); }
+#wiki-search:focus { outline: none; border-color: var(--blue); background: var(--surface); }
+.note-scroll { overflow-y: auto; min-height: 0; padding-right: 2px; }
+.note-item.search-hit { flex-wrap: wrap; align-items: baseline; }
+.note-item.search-hit .n { flex: 1; }
+.note-item .snippet {
+  flex-basis: 100%; font-size: 11px; color: var(--fg-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--mono);
+}
+
+/* 渲染态排版 — 紧凑、只服务阅读 */
+.rendered { max-height: 72vh; overflow: auto; padding-right: 8px; font-size: 13.5px; line-height: 1.8; }
+.rendered h1 { font-size: 17px; margin: 14px 0 8px; }
+.rendered h2 { font-size: 15px; margin: 14px 0 6px; color: var(--fg); }
+.rendered h3 { font-size: 14px; margin: 12px 0 4px; color: var(--fg-2); }
+.rendered p { margin: 6px 0; word-break: break-word; }
+.rendered ul { margin: 6px 0; padding-left: 20px; }
+.rendered li { margin: 3px 0; word-break: break-word; }
+.rendered blockquote {
+  margin: 8px 0; padding: 4px 12px; border-left: 3px solid var(--line);
+  color: var(--fg-2); font-size: 12.5px;
+}
+.rendered code {
+  font-family: var(--mono); font-size: 12px;
+  background: var(--fill); border-radius: 5px; padding: 1px 5px;
+}
+
+/* wikilink: 可点 = 蓝色, 缺失 = 灰色虚线 */
+.rendered .wiki-link { color: var(--blue); cursor: pointer; text-decoration: none; }
+.rendered .wiki-link:hover { text-decoration: underline; }
+.rendered .wiki-link.missing { color: var(--fg-3); cursor: default; text-decoration: underline dashed; }
+
+/* 时间戳深链 */
+.rendered .ts-link {
+  font-family: var(--mono); font-size: 12px; color: var(--blue);
+  text-decoration: none; padding: 0 1px;
+}
+.rendered .ts-link:hover { text-decoration: underline; }
+.rendered .ts-stamp { font-family: var(--mono); font-size: 12px; color: var(--fg-3); }
+
+/* 渲染/原文 视图切换钮: 当前态亮起 */
+.grp .act.viewtoggle.on { background: var(--fill-hover); color: var(--blue); border-color: var(--line); }
