@@ -53,10 +53,10 @@ def _index_html_model_options() -> set:
 
 
 def _mcp_ocr_enum() -> set:
-    """从 mcp_server.py 解析 ocr_engine 的 JSON schema enum。"""
-    source = (ROOT / "mediascribe" / "mcp_server.py").read_text(encoding="utf-8")
+    """从 mcp_server/tools.py 解析 ocr_engine 的 JSON schema enum。"""
+    source = (ROOT / "mediascribe" / "mcp_server" / "tools.py").read_text(encoding="utf-8")
     match = re.search(r'"ocr_engine":\s*\{\s*"type": "string",\s*"enum": \[(.*?)\]', source, re.S)
-    assert match, "未能在 mcp_server.py 里定位 ocr_engine enum"
+    assert match, "未能在 mcp_server/tools.py 里定位 ocr_engine enum"
     return set(re.findall(r'"([^"]+)"', match.group(1)))
 
 
