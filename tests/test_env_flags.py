@@ -28,10 +28,12 @@ class TestAudioOnlyEnv(unittest.TestCase):
                 with unittest.mock.patch.dict("os.environ", {"MEDIASCRIBE_AUDIO_ONLY": value}):
                     self.assertTrue(Settings().audio_only)
 
-    def test_falsy_and_garbage_rejected(self):
+    def test_falsy_rejected(self):
+        # 2026-11-03 起 audio_only 默认 True(见 TestAudioOnlyTriState):
+        # 只有显式 falsy 词才关; garbage 词跟随 zh_simplify 先例归默认
         from mediascribe.config import Settings
 
-        for value in FALSY:
+        for value in ("0", "false", "no", "off"):
             with self.subTest(value=value):
                 with unittest.mock.patch.dict("os.environ", {"MEDIASCRIBE_AUDIO_ONLY": value}):
                     self.assertFalse(Settings().audio_only)
@@ -78,3 +80,41 @@ class TestCleanupForceEnv(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAudioOnlyTriState(unittest.TestCase):
+    """2026-11-03 首航校准: audio_only 默认 True (转录产品不需要视频轨)。"""
+
+    def test_default_on_without_env(self):
+        from mediascribe.config import Settings
+
+        with unittest.mock.patch.dict("os.environ", {}, clear=False):
+            import os
+
+            os.environ.pop("MEDIASCRIBE_AUDIO_ONLY", None)
+            self.assertTrue(Settings().audio_only)
+
+    def test_env_can_disable(self):
+        from mediascribe.config import Settings
+
+        for value in ("0", "false", "no", "off"):
+            with self.subTest(value=value):
+                with unittest.mock.patch.dict("os.environ", {"MEDIASCRIBE_AUDIO_ONLY": value}):
+                    self.assertFalse(Settings().audio_only)
+
+    def test_explicit_false_overrides_default(self):
+        from mediascribe.config import Settings
+
+        with unittest.mock.patch.dict("os.environ", {}, clear=False):
+            import os
+
+            os.environ.pop("MEDIASCRIBE_AUDIO_ONLY", None)
+            self.assertFalse(Settings(audio_only=False).audio_only)
+
+    def test_env_overrides_default_when_no_explicit(self):
+        from mediascribe.config import Settings
+
+        with unittest.mock.patch.dict("os.environ", {"MEDIASCRIBE_AUDIO_ONLY": "0"}):
+            self.assertFalse(Settings().audio_only)
+        with unittest.mock.patch.dict("os.environ", {"MEDIASCRIBE_AUDIO_ONLY": "yes"}):
+            self.assertTrue(Settings().audio_only)

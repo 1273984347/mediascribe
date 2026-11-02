@@ -22,8 +22,12 @@ class TestModels:
     def test_source_ref_display_name_fallbacks(self):
         from mediascribe.models import SourceRef
 
+        # 2026-11-03 首航自测: 本地文件 display_name 不带原始扩展名
+        # (转录稿命名 test-audio.wav-<时间戳>.md → test-audio-<时间戳>.md)
         s = SourceRef(raw_input="raw", kind="video", path=Path("/tmp/a.mp4"))
-        assert s.display_name == "a.mp4"
+        assert s.display_name == "a"
+        s_hidden = SourceRef(raw_input="raw", kind="video", path=Path("/tmp/.wav"))
+        assert s_hidden.display_name == ".wav"  # stem 为空时回退全名
         s2 = SourceRef(raw_input="raw", kind="audio", url="http://x/a")
         assert s2.display_name == "http://x/a"
         s3 = SourceRef(raw_input="the raw text", kind="unknown")

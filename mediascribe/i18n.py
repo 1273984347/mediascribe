@@ -756,8 +756,15 @@ Environment variables:
         "zh": "GPU 温度 {temp}℃ 越过紧急线 {limit}℃",
     }
     RUNTIME_OVERLOAD = {
-        "en": "Resource overload detected: {reason} ⇒ requesting cancellation of this transcription",
-        "zh": "检测到资源过载：{reason} ⇒ 请求中止本次转录",
+        "en": (
+            "Resource overload detected: {reason} ⇒ cancellation requested "
+            "(takes effect at the next pipeline stage; the running decode "
+            "block finishes first — CLI: Ctrl+C aborts immediately)"
+        ),
+        "zh": (
+            "检测到资源过载：{reason} ⇒ 已请求中止"
+            "（在下一个管线阶段生效；当前解码块会跑完 — CLI 可 Ctrl+C 立即中止）"
+        ),
     }
     RUNTIME_LOG_PREFIX = {
         "en": "Resource guard: {message}",
@@ -1525,6 +1532,16 @@ Environment variables:
         "en": "a URL or BV id is required",
         "zh": "需要提供 URL 或 BV 号",
     }
+    BILI_FALLBACK_RESCUED = {
+        "en": (
+            "ℹ️ standard download hit a P2P CDN timeout — recovered "
+            "automatically via the Bilibili audio API ({name})"
+        ),
+        "zh": (
+            "ℹ️ 常规下载遇到 P2P 节点超时, 已自动改用 B 站音轨 API 完成下载"
+            "({name}) — 刚才的错误无需处理"
+        ),
+    }
     STAGE_EXTRACT_FAILED = {
         "en": "audio extraction failed",
         "zh": "音频提取失败",
@@ -1601,13 +1618,13 @@ Environment variables:
         "en": "✅ check complete — all critical dependencies ready",
         "zh": "✅ 自检完成 — 关键依赖就绪",
     }
+    DOCTOR_ENGINE_SKIP = {
+        "en": "  ⏭️ {engine} — engine not installed, skipping weight check",
+        "zh": "  ⏭️ {engine} — 引擎未安装，跳过权重检查",
+    }
     DOCTOR_CRITICAL_MISSING = {
         "en": "❌ critical dependency missing (ffmpeg) — fix it before running transcription",
         "zh": "❌ 自检发现关键缺失（ffmpeg）— 请先修复再运行转录",
-    }
-    DOCTOR_MISSING_WEIGHT = {
-        "en": "      · missing {engine}/{model} — {detail}",
-        "zh": "      · 缺 {engine}/{model} — {detail}",
     }
 
     # ==================== WhisperX progress / Web models ====================

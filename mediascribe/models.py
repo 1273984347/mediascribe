@@ -56,7 +56,9 @@ class SourceRef:
         if self.kind == "bilibili" and self.bv:
             return self.bv
         if self.path:
-            return self.path.name
+            # 2026-11-03 首航自测: 本地文件产物名不再携带原始扩展名
+            # (test-audio.wav → test-audio, 而非 test-audio.wav-<时间戳>)
+            return self.path.stem or self.path.name
         if self.url:
             return self.url
         return self.raw_input

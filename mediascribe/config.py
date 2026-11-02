@@ -49,7 +49,7 @@ class Settings:
         cache_dir: Optional[Path] = None,
         llm_post_process: Optional[Dict[str, Any]] = None,
         timestamps: bool = False,
-        audio_only: bool = False,
+        audio_only: Optional[bool] = None,
         cleanup_media: bool = False,
         zh_simplify: Optional[bool] = None,
     ):
@@ -114,11 +114,22 @@ class Settings:
         else:
             self.zh_simplify = True
 
-        # v3.4.2: 只拉音轨(转录场景够用, 省 ~70% 带宽; B 站直走 API 音轨)
-        # 布尔 env 统一词表(2026-10-29 拍板): 1/true/yes/on, 大小写不敏感
-        self.audio_only = bool(audio_only) or os.environ.get(
-            "MEDIASCRIBE_AUDIO_ONLY", ""
-        ).lower() in ("1", "true", "yes", "on")
+        # v3.4.2: 只拉音轨(转录场景够用, 省 ~70% 带宽; B 站直走 API 音轨)。
+        # 2026-11-03 首航自测校准: 默认改为 **开启** — 常规全量路径会先白等
+        # B 站 mcdn P2P 节点超时再触发兜底(实测 40s+ 且白下整条视频 ~10 倍
+        # 体积), audio_only 直走 playurl API 从源头绕开该坑。转录产品没有
+        # 需要保留视频的下游场景(verify 重下也只需音轨)。
+        # 三态解析: 显式参数 > env(宽词表 1/true/yes/on) > 默认 True;
+        # 关闭用 MEDIASCRIBE_AUDIO_ONLY=0/false/no/off。
+        env_audio = os.environ.get("MEDIASCRIBE_AUDIO_ONLY", "").strip().lower()
+        if audio_only is not None:
+            self.audio_only = audio_only
+        elif env_audio in ("1", "true", "yes", "on"):
+            self.audio_only = True
+        elif env_audio in ("0", "false", "no", "off"):
+            self.audio_only = False
+        else:
+            self.audio_only = True
 
         # v3.4.3: 转录成功后自动清理中间媒体(downloads/ 视频与 audio/ 音频)。
         # 只删托管目录内本任务产生的文件, 用户自备的本地视频/音频永不删除;
