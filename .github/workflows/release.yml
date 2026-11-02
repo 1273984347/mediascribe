@@ -10,14 +10,10 @@ name: release
 #                        across Ubuntu / macOS / Windows (matrix subset for speed)
 #   3. ``build``       — sdist + manylinux wheel
 #   4. ``publish-pypi``  — uses ``PYPI_API_TOKEN`` secret (id-token for OIDC)
-#   5. ``publish-docker`` — multi-arch (linux/amd64 + linux/arm64) push to
-#                           Docker Hub, tags ``<version>`` + ``latest``
 #   6. ``github-release`` — uploads sdist/wheel + GITHUB_RELEASE_*.md
 #
 # Required secrets:
 #   PYPI_API_TOKEN          (Trusted Publishing OIDC recommended)
-#   DOCKERHUB_USERNAME      (or leave docker job disabled)
-#   DOCKERHUB_TOKEN
 
 on:
   push:
@@ -159,55 +155,11 @@ jobs:
           # 如果还在用 API token,改为 password: ${{ secrets.PYPI_API_TOKEN }}
 
   # ------------------------------------------------------------------
-  # 5. publish multi-arch Docker image
-  # ------------------------------------------------------------------
-  publish-docker:
-    # 单 job 一次 buildx 出多架构 manifest list。此前 amd64/arm64 两个
-    # 矩阵 job 各自 push 同一组 tag,后者覆盖前者,docker pull 只能拉到
-    # 单架构镜像(2026-10-03 审查修复)。
-    name: publish · Docker (amd64 + arm64)
-    needs: build
-    # Disabled by default — requires DOCKERHUB_USERNAME / DOCKERHUB_TOKEN
-    # secrets and a Docker Hub repo. To enable: add repository *variable*
-    # ENABLE_DOCKER_PUBLISH=true (Settings → Secrets and variables →
-    # Actions → Variables) and configure the secrets.
-    if: vars.ENABLE_DOCKER_PUBLISH == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Extract version from tag
-        id: version
-        run: |
-          TAG=${GITHUB_REF#refs/tags/}
-          [ "$TAG" = "$GITHUB_REF" ] && TAG=${{ github.event.inputs.tag }}
-          echo "version=${TAG}" >> $GITHUB_OUTPUT
-      - name: Build & push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            1273984347/mediascribe:${{ steps.version.outputs.version }}
-            1273984347/mediascribe:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  # ------------------------------------------------------------------
-  # 6. GitHub release
+  # 5. GitHub release
   # ------------------------------------------------------------------
   github-release:
     name: github · release
-    needs: [build, publish-pypi, publish-docker]
+    needs: [build, publish-pypi]
     if: always() && needs.build.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -265,11 +217,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ------------------------------------------------------------------
-  # 7. summary
+  # 6. summary
   # ------------------------------------------------------------------
   release-summary:
     name: release · summary
-    needs: [publish-pypi, publish-docker, github-release]
+    needs: [publish-pypi, github-release]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     if: always() && needs.github-release.result == 'success'
@@ -282,10 +234,5 @@ jobs:
             echo "- PyPI: https://pypi.org/project/mediascribe/${{ github.ref_name }}/" >> $GITHUB_STEP_SUMMARY
           else
             echo "- PyPI: skipped (set repo variable ENABLE_PYPI_PUBLISH=true to enable)" >> $GITHUB_STEP_SUMMARY
-          fi
-          if [ "${{ needs.publish-docker.result }}" = "success" ]; then
-            echo "- Docker: docker pull 1273984347/mediascribe:${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "- Docker: skipped (set repo variable ENABLE_DOCKER_PUBLISH=true to enable)" >> $GITHUB_STEP_SUMMARY
           fi
           echo "- GitHub: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
