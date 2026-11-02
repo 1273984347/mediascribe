@@ -105,8 +105,9 @@ def test_run_doctor_ok_with_ffmpeg(tmp_path, monkeypatch, capsys, clean_doctor_e
     rc = run_doctor(workspace=tmp_path)
     out = capsys.readouterr().out
     assert rc == 0
-    assert "自检完成" in out
-    assert "环境自检" in out
+    # 文案走 t();断言兼容 en/zh 两种 locale 渲染
+    assert "自检完成" in out or "check complete" in out
+    assert "环境自检" in out or "environment check" in out
 
 
 def test_run_doctor_fails_without_ffmpeg(tmp_path, monkeypatch, capsys, clean_doctor_env):
@@ -114,7 +115,7 @@ def test_run_doctor_fails_without_ffmpeg(tmp_path, monkeypatch, capsys, clean_do
     rc = run_doctor(workspace=tmp_path)
     out = capsys.readouterr().out
     assert rc == 1
-    assert "关键缺失" in out
+    assert "关键缺失" in out or "critical dependency missing" in out
 
 
 def test_run_doctor_default_workspace_from_env(tmp_path, monkeypatch, capsys, clean_doctor_env):

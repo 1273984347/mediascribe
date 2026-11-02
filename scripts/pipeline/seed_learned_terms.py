@@ -521,6 +521,23 @@ def main() -> int:
     _save_db(db)
     print(f"已灌入 {added} 条新术语, 确认 {confirmed} 条已有术语 -> {store}")
 
+    # 2026-11-02: 落盘后跑卫生自检 (conflict/reverse/near_dup 等) —
+    # SAFE_TERMS 重复对防呆只拦文件内重复, 拦不住与库内已有条目的冲突
+    from mediascribe.learn import audit_terms
+
+    findings = audit_terms()
+    errors = [f for f in findings if f.severity == "error"]
+    warnings = [f for f in findings if f.severity == "warning"]
+    if findings:
+        print(f"\n术语库自检: {len(errors)} 错误 / {len(warnings)} 警告")
+        for f in findings:
+            print(f"  [{f.severity}] {f.kind}: {f.detail}")
+        if errors:
+            print("`learn audit` error 未清零, 请先处理再交付")
+            return 1
+    else:
+        print("\n术语库自检: 通过")
+
     preview = get_prompt_terms()
     print(f"\nprompt 注入预览:\n  {preview[:180]}...")
     return 0

@@ -58,7 +58,7 @@ class TestDouyinNoPlaywrightFallback:
 
         d = DouyinDownloader()
         with patch.object(d, "_extract_media_url_with_browser", return_value=(None, None)):
-            with pytest.raises(RuntimeError, match="媒体 URL"):
+            with pytest.raises(RuntimeError, match="媒体 URL|media URL"):
                 d.download(
                     SourceRef(raw_input="x", kind="douyin", url="https://www.douyin.com/video/1"),
                     Settings(workspace_root=tmp_path),

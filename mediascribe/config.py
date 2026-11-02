@@ -9,6 +9,8 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from .i18n import t
+
 _logger = logging.getLogger(__name__)
 
 # 合法转录引擎（与 mediascribe/transcribers/factory.py、web 层校验一致）
@@ -165,12 +167,7 @@ class Settings:
             self.llm_post_process["enabled"] = enabled_env in ("1", "true", "yes", "on")
         # 启用 LLM 时必须已显式配置 api_base，否则在构造期给出清晰错误
         if self.llm_post_process.get("enabled") and not self.llm_post_process.get("api_base"):
-            raise ValueError(
-                "LLM 后处理已启用（enabled=True），但未配置 api_base。"
-                " 请设置环境变量 MEDIASCRIBE_LLM_API_BASE"
-                "（如 https://api.deepseek.com / https://api.openai.com/v1），"
-                " 或在 Settings(llm_post_process={'api_base': ...}) 中显式传入。"
-            )
+            raise ValueError(t("LLM_API_BASE_REQUIRED"))
 
         self.ensure_directories()
 

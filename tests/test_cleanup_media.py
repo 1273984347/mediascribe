@@ -136,3 +136,132 @@ class TestSettingsFlag:
     def test_explicit_param_enables(self, tmp_path, monkeypatch):
         monkeypatch.delenv("MEDIASCRIBE_CLEANUP_MEDIA", raising=False)
         assert Settings(workspace_root=tmp_path / "ws", cleanup_media=True).cleanup_media is True
+
+
+# ---------------------------------------------------------------------------
+# 2026-11-02 可逆性门控: 来源不可回取时拒绝清理 (第三采样重下载前提)
+# ---------------------------------------------------------------------------
+class TestSourceReachabilityGate:
+    def test_gone_source_blocks_deletion(self, settings, media, monkeypatch):
+        monkeypatch.setattr(
+            "mediascribe.pipeline_stages._probe_source_alive", lambda url, timeout=5.0: False
+        )
+        deleted = cleanup_intermediate_media(
+            settings, media["audio"], media["video"], source_url="https://example.com/v/1"
+        )
+        assert deleted == []
+        assert media["audio"].exists() and media["video"].exists()
+
+    def test_indeterminate_source_blocks_deletion(self, settings, media, monkeypatch):
+        # 离线/超时 → 无法判定 → 同样拒绝 (宁留勿删)
+        monkeypatch.setattr(
+            "mediascribe.pipeline_stages._probe_source_alive", lambda url, timeout=5.0: None
+        )
+        deleted = cleanup_intermediate_media(
+            settings, media["audio"], media["video"], source_url="https://example.com/v/1"
+        )
+        assert deleted == []
+        assert media["audio"].exists()
+
+    def test_alive_source_deletes_normally(self, settings, media, monkeypatch):
+        monkeypatch.setattr(
+            "mediascribe.pipeline_stages._probe_source_alive", lambda url, timeout=5.0: True
+        )
+        deleted = cleanup_intermediate_media(
+            settings, media["audio"], media["video"], source_url="https://example.com/v/1"
+        )
+        assert len(deleted) == 2
+
+    def test_force_env_skips_probe(self, settings, media, monkeypatch):
+        # 探测说挂了也不删不了 → force 跳过探测, 离线批量场景的阀门
+        monkeypatch.setenv("MEDIASCRIBE_CLEANUP_FORCE", "1")
+        monkeypatch.setattr(
+            "mediascribe.pipeline_stages._probe_source_alive",
+            lambda url, timeout=5.0: (_ for _ in ()).throw(AssertionError("probe must not run")),
+        )
+        deleted = cleanup_intermediate_media(
+            settings, media["audio"], media["video"], source_url="https://example.com/v/1"
+        )
+        assert len(deleted) == 2
+
+    def test_force_env_wide_vocabulary(self, settings, media, monkeypatch):
+        monkeypatch.setattr(
+            "mediascribe.pipeline_stages._probe_source_alive", lambda url, timeout=5.0: False
+        )
+        for value in ("1", "true", "YES", "On"):
+            monkeypatch.setenv("MEDIASCRIBE_CLEANUP_FORCE", value)
+            assert cleanup_intermediate_media(
+                settings, media["audio"], media["video"], source_url="https://e.com/1"
+            ), f"force={value} 应跳过探测直接删除"
+            # 重建媒体文件供下一轮
+            media["audio"].write_bytes(b"a" * 64)
+            media["video"].write_bytes(b"v" * 128)
+
+    def test_local_source_no_probe(self, settings, media, monkeypatch):
+        # 本地文件来源没有 URL — 不探测直接删 (离线主路径零网络依赖)
+        monkeypatch.setattr(
+            "mediascribe.pipeline_stages._probe_source_alive",
+            lambda url, timeout=5.0: (_ for _ in ()).throw(AssertionError("probe must not run")),
+        )
+        deleted = cleanup_intermediate_media(settings, media["audio"])
+        assert [p.name for p in deleted] == ["BV123.wav"]
+
+    def test_nothing_deletable_no_probe(self, settings, monkeypatch):
+        monkeypatch.setattr(
+            "mediascribe.pipeline_stages._probe_source_alive",
+            lambda url, timeout=5.0: (_ for _ in ()).throw(AssertionError("probe must not run")),
+        )
+        assert (
+            cleanup_intermediate_media(
+                settings, None, settings.audio_dir / "ghost.wav", source_url="https://e.com/1"
+            )
+            == []
+        )
+
+
+class TestProbeSourceAlive:
+    def test_404_is_gone(self, monkeypatch):
+        import urllib.error
+
+        from mediascribe.pipeline_stages import _probe_source_alive
+
+        def raise_404(req, timeout):
+            raise urllib.error.HTTPError(req.full_url, 404, "Not Found", None, None)
+
+        monkeypatch.setattr("urllib.request.urlopen", raise_404)
+        assert _probe_source_alive("https://e.com/gone") is False
+
+    def test_200_is_alive(self, monkeypatch):
+        from mediascribe.pipeline_stages import _probe_source_alive
+
+        class FakeResp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            status = 200
+
+        monkeypatch.setattr("urllib.request.urlopen", lambda req, timeout: FakeResp())
+        assert _probe_source_alive("https://e.com/ok") is True
+
+    def test_network_error_indeterminate(self, monkeypatch):
+        from mediascribe.pipeline_stages import _probe_source_alive
+
+        def boom(req, timeout):
+            raise OSError("offline")
+
+        monkeypatch.setattr("urllib.request.urlopen", boom)
+        assert _probe_source_alive("https://e.com/x") is None
+
+    def test_403_head_blocked_treated_alive(self, monkeypatch):
+        import urllib.error
+
+        from mediascribe.pipeline_stages import _probe_source_alive
+
+        def raise_403(req, timeout):
+            raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", None, None)
+
+        monkeypatch.setattr("urllib.request.urlopen", raise_403)
+        assert _probe_source_alive("https://e.com/anti-bot") is True

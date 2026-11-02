@@ -7,6 +7,8 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
+from .i18n import t
+
 
 def retry(
     func: Callable,
@@ -77,7 +79,7 @@ def download_media_with_retry(
         suffix = output_path.suffix or ".mp4"
         tmp_path = downloader._download_media(media_url, output_path.parent, suffix=suffix)
         if not tmp_path or not tmp_path.exists():
-            raise IOError("核心下载器未产出文件")
+            raise IOError(t("DL_NO_OUTPUT_FILE"))
 
         # 移动到调用方指定的目标路径（核心生成的是临时 uuid 文件名）。
         if tmp_path.resolve() != output_path.resolve():
@@ -91,7 +93,7 @@ def download_media_with_retry(
         return True
 
     def _on_retry(attempt, exc):
-        print(f"      ⚠️ 第 {attempt} 次重试... ({type(exc).__name__})")
+        print(t("DL_RETRYING", attempt=attempt, exc_type=type(exc).__name__))
 
     try:
         result: bool = retry(
@@ -104,5 +106,5 @@ def download_media_with_retry(
         )
         return result
     except Exception as e:
-        print(f"      ❌ 下载最终失败: {e}")
+        print(t("DL_FINAL_FAILURE", err=e))
         return False

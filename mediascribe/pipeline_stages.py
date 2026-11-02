@@ -63,6 +63,7 @@ from .downloaders import (
     YouTubeDownloader,
     YtDlpDownloader,
 )
+from .i18n import t
 from .inputs import parse_source, safe_stem
 from .models import DownloadResult, SourceRef, TranscriptResult
 from .runtime_guard import ResourcePressureError, RuntimeMonitor
@@ -444,7 +445,7 @@ class ExtractAudioStage(Stage):
             ctx.base_name = ctx.source.display_name
         audio = extract_audio(ctx.video_path, ctx.settings.audio_dir, safe_stem(ctx.base_name))
         if audio is None:
-            raise RuntimeError("音频提取失败")
+            raise RuntimeError(t("STAGE_EXTRACT_FAILED"))
         ctx.raise_if_cancelled()  # ffmpeg 后
         ctx.audio_path = audio
         return ctx
@@ -494,13 +495,12 @@ class TranscribeStage(Stage):
             )
         if monitor.pressured:
             raise ResourcePressureError(
-                f"转录期间资源过载（{monitor.pressure_reason}）—— "
-                "结果可能不完整，已放弃本次转录。请降低模型档位或关闭其它占用资源的程序后重试。"
+                t("STAGE_RESOURCE_PRESSURE", reason=monitor.pressure_reason)
             )
         ctx.raise_if_cancelled()  # ASR 后
         text = (transcription.get("text") or "").strip()
         if not text:
-            raise RuntimeError("转录结果为空")
+            raise RuntimeError(t("STAGE_EMPTY_TRANSCRIPT"))
         ctx.transcription = transcription
         # 引擎名随转写结果一起带下去 —— markdown 的「转录引擎」字段需要它
         # (此前只有模型名, 导致该字段把 "small" 标成了引擎名)
@@ -800,16 +800,62 @@ def _build_llm_context(ctx: PipelineContext) -> dict:
 # ---------------------------------------------------------------------------
 # v3.4.3: 中间媒体清理(转录成功后, settings.cleanup_media 开关)
 # ---------------------------------------------------------------------------
-def cleanup_intermediate_media(settings: Settings, *paths: Optional[Path]) -> List[Path]:
+def _probe_source_alive(url: str, timeout: float = 5.0) -> Optional[bool]:
+    """轻量探测来源 URL 是否仍可回取 — 第三采样重下载的前提。
+
+    Returns
+    -------
+    ``True``  页面/资源仍在 (2xx/3xx, 或 403/405 这类反爬挡板但资源存在);
+    ``False`` 确定已失效 (404 / 410);
+    ``None``  无法判定 (网络错误 / 超时 / 离线环境)。
+    """
+    import urllib.error
+    import urllib.request
+
+    req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "Mozilla/5.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return True if resp.status < 400 else False
+    except urllib.error.HTTPError as exc:
+        if exc.code in (404, 410):
+            return False
+        if exc.code in (403, 405, 501):  # HEAD 被拒但资源大概率存在
+            return True
+        return None
+    except Exception:
+        return None
+
+
+def _cleanup_force_enabled() -> bool:
+    """MEDIASCRIBE_CLEANUP_FORCE 宽词表 (1/true/yes/on)。"""
+    return os.environ.get("MEDIASCRIBE_CLEANUP_FORCE", "").lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def cleanup_intermediate_media(
+    settings: Settings,
+    *paths: Optional[Path],
+    source_url: Optional[str] = None,
+) -> List[Path]:
     """删除托管目录内的中间媒体文件, 返回成功删除的路径列表。
 
     安全边界: 只删 ``settings.audio_dir`` / ``settings.downloads_dir``
     下的文件 — 用户自备的本地视频/音频(kind=video/audio, 路径在托管
     目录之外)与持久化下载缓存目录内的文件一律不动。单个文件删除失败
     (Windows 文件占用等)只警告不抛, 绝不影响已交付的转录结果。
+
+    2026-11-02 可逆性门控: 带 ``source_url`` 时删除前先探测来源是否
+    仍可回取 — 平台视频一旦下架, 第三采样 (verify) 的重下载路径就
+    **永久消失**。探测结果为 "已失效" 或 "无法判定" 时拒绝删除并
+    明示; 确需离线批量清理可设 ``MEDIASCRIBE_CLEANUP_FORCE=1`` 跳过
+    探测。本地文件来源 (无 URL) 不受影响。
     """
     managed = (settings.audio_dir.resolve(), settings.downloads_dir.resolve())
-    deleted: List[Path] = []
+    deletable: List[Path] = []
     for p in paths:
         if p is None:
             continue
@@ -819,12 +865,32 @@ def cleanup_intermediate_media(settings: Settings, *paths: Optional[Path]) -> Li
                 continue
             if not any(path.resolve().is_relative_to(d) for d in managed):
                 continue
+            deletable.append(path)
+        except Exception as exc:
+            logger.warning("清理中间媒体失败(忽略): %s: %r", p, exc)
+
+    if not deletable:
+        return []
+
+    if source_url and not _cleanup_force_enabled():
+        alive = _probe_source_alive(source_url)
+        if alive is not True:
+            state = "gone" if alive is False else "unknown"
+            logger.warning(
+                "来源可达性探测未通过 (%s): %s — 拒绝清理, 详见打印警告", state, source_url
+            )
+            print(t("CLEANUP_SOURCE_UNREACHABLE", url=source_url))
+            return []
+
+    deleted: List[Path] = []
+    for path in deletable:
+        try:
             size_mb = path.stat().st_size / 1048576
             path.unlink()
             deleted.append(path)
             logger.info("已清理中间媒体: %s (%.1f MB)", path.name, size_mb)
         except Exception as exc:
-            logger.warning("清理中间媒体失败(忽略): %s: %r", p, exc)
+            logger.warning("清理中间媒体失败(忽略): %s: %r", path, exc)
     return deleted
 
 
@@ -859,9 +925,16 @@ class CleanupStage(Stage):
 
     def run(self, ctx: PipelineContext) -> PipelineContext:
         print_cleanup_review_hint()
-        deleted = cleanup_intermediate_media(ctx.settings, ctx.audio_path, ctx.video_path)
+        source_ref = getattr(ctx, "source", None)
+        source_url = source_ref.url if source_ref is not None else None
+        deleted = cleanup_intermediate_media(
+            ctx.settings,
+            ctx.audio_path,
+            ctx.video_path,
+            source_url=source_url,
+        )
         if deleted:
-            print(f"🧹 已清理中间媒体 {len(deleted)} 个文件(转录稿与元数据不受影响)")
+            print(t("CLI_CLEANUP_DONE", n=len(deleted)))
         return ctx
 
 

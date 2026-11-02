@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from ..config import Settings
+from ..i18n import t
 from ..models import DownloadResult, SourceRef
 from ._http_download import CHROME_UA
 from .base import Downloader
@@ -68,7 +69,12 @@ def _api_get(session: Any, endpoint: str, params: dict[str, Any]) -> dict[str, A
     payload: dict[str, Any] = resp.json()
     if payload.get("code") != 0:
         raise RuntimeError(
-            f"B站 API {endpoint} 返回 code={payload.get('code')}: {payload.get('message')}"
+            t(
+                "BILI_API_ERROR",
+                endpoint=endpoint,
+                code=payload.get("code"),
+                message=payload.get("message"),
+            )
         )
     return payload
 
@@ -91,12 +97,12 @@ class YtDlpDownloader(Downloader):
         try:
             import yt_dlp
         except ImportError as e:
-            raise RuntimeError("yt-dlp 未安装，请运行: pip install yt-dlp") from e
+            raise RuntimeError(t("YTDLP_NOT_INSTALLED")) from e
 
         # 构建 URL
         url = source.url or (f"https://www.bilibili.com/video/{source.bv}" if source.bv else None)
         if not url:
-            raise ValueError("需要提供 URL 或 BV 号")
+            raise ValueError(t("YTDLP_URL_REQUIRED"))
 
         logger.info("使用链接: %s", url)
 
@@ -167,7 +173,7 @@ class YtDlpDownloader(Downloader):
                 video_path = self._resolve_video_path(ydl, info)
 
                 if not video_path or not Path(video_path).exists():
-                    raise RuntimeError(f"下载失败: 找不到视频文件 {video_path}")
+                    raise RuntimeError(t("DL_FILE_MISSING", path=video_path))
 
                 self._cleanup_format_intermediates(settings.downloads_dir, info.get("id"))
 

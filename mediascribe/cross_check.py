@@ -20,6 +20,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, cast
 
+from .i18n import t
+
 if TYPE_CHECKING:  # 仅类型检查需要, 运行时延迟导入避免循环依赖
     from .pipeline_stages import PipelineContext
 
@@ -227,12 +229,12 @@ def run_cross_check(pipeline: Any, result: Any, model: str) -> Optional[Path]:
     """
     audio_path = getattr(result, "audio_path", None)
     if not audio_path:
-        raise RuntimeError("交叉校对需要音频文件(纯文本源如公众号文章无音频)")
+        raise RuntimeError(t("XC_AUDIO_REQUIRED"))
 
     metadata = getattr(result, "metadata", None) or {}
     main_model = str(metadata.get("model") or getattr(result, "model", "") or "unknown")
     if model == main_model:
-        print(f"ℹ️ 对照模型与主稿模型相同({model}), 跳过交叉校对")
+        print(t("XC_SAME_MODEL", model=model))
         return None
 
     import copy as _copy
@@ -240,7 +242,7 @@ def run_cross_check(pipeline: Any, result: Any, model: str) -> Optional[Path]:
     settings = _copy.copy(pipeline.settings)
     settings.model = model
     transcriber = pipeline._create_transcriber(settings, model=model)
-    print(f"🔍 交叉校对: 用 {transcriber.name} 重转同一条音频...")
+    print(t("XC_RUNNING", engine=transcriber.name))
     transcription = transcriber.transcribe(
         Path(audio_path),
         prompt=_build_prompt(getattr(result.source, "kind", None)),
@@ -249,7 +251,7 @@ def run_cross_check(pipeline: Any, result: Any, model: str) -> Optional[Path]:
     )
     cross_text = (transcription.get("text") or "").strip()
     if not cross_text:
-        raise RuntimeError("对照模型转录结果为空")
+        raise RuntimeError(t("XC_EMPTY_RESULT"))
 
     divergences = diff_transcripts(result.text or "", cross_text)
     report = build_report(
@@ -270,6 +272,13 @@ def run_cross_check(pipeline: Any, result: Any, model: str) -> Optional[Path]:
     json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     content_count = payload["content_count"]
     noise_count = payload["noise_count"]
-    note = f"(虚词/语气词差异 {noise_count} 处只计数)" if noise_count else ""
-    print(f"🔍 交叉校对完成: 实词分歧 {content_count} 处{note} -> {report_path.name}")
+    note = t("XC_NOTE_NOISE", noise_count=noise_count) if noise_count else ""
+    print(
+        t(
+            "XC_DONE",
+            count=content_count,
+            note=note,
+            name=report_path.name,
+        )
+    )
     return report_path
