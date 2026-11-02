@@ -71,6 +71,35 @@ Response:
 Snapshot of a job's progress — `stage`, `stage_current`,
 `stage_total`, `cancelled`, `finished`, `error`.
 
+### `GET /api/jobs`
+
+List the jobs this server still knows about, **newest first**.  Each entry
+carries `job_id`, `url`, `stage`, `stage_index`, `stage_current`,
+`stage_total`, `finished`, `cancelled`, `error` and `created_at`.
+
+The Web UI calls this on page load to rebuild the queue, so a browser
+refresh no longer drops running jobs.  Requires the same bearer token as
+the other job routes when `MEDIASCRIBE_API_TOKEN` is set.
+
+Only live registry entries are returned — `/api/health` purges finished
+jobs older than one hour, so the list shrinks over time.  Jobs that are
+still running are never purged.
+
+```json
+{
+  "jobs": [
+    {
+      "job_id": "abc123",
+      "url": "https://...",
+      "stage": "transcribe",
+      "finished": false,
+      "cancelled": false,
+      "error": null
+    }
+  ]
+}
+```
+
 ### `POST /api/jobs/{job_id}/cancel`
 
 Cooperatively cancel a running job.  Sets `job.cancelled = True` and
@@ -115,9 +144,38 @@ Bidirectional WebSocket.  Server pushes stage events:
   still see a separate `cancelled_done` event when the worker
   raises `JobCancelled`; this is not delivered over the WS.)
 * `succeeded` / `failed` — terminal
+* `ping` — keepalive probe.  The payload also carries the current job
+  snapshot (`stage`, `stage_total`, …) so a reconnecting client can
+  restore its progress display.
 
 Client may send `{"event": "cancel"}` over the socket as an
 alternative to the REST endpoint.
+
+**Keepalive (ping / pong).**  The transcription stage is a single
+blocking call, so no stage events are emitted while it runs — a long
+transcription can easily go 10+ minutes without a single event.  The
+server therefore pings idle connections, and a client that answers with
+`{"event": "pong"}` keeps the connection alive.
+
+Only a **received** pong refreshes the server's idle timer; sending a
+ping does not.  "We wrote a ping" does not prove the peer is still there
+(a browser that lost network connectivity but whose TCP session was not
+torn down will happily accept writes into the kernel buffer), whereas a
+pong proves a full round trip.  A connection that gets no pong for
+`MEDIASCRIBE_WS_IDLE_TIMEOUT_SECONDS` (default 300 s) is closed.
+
+Note the ordering: the server sends its ping **before** deciding the
+peer is idle, and then waits out one more ping interval.  Judging
+idleness before sending the ping would race the pong — the answer would
+never arrive in time, and every long transcription would be disconnected.
+
+Fatal close codes (the client must not reconnect):
+
+| Code | Meaning |
+|---|---|
+| `4404` | Unknown job (server restarted, or the job was purged) |
+| `1008` | Authentication failed |
+| `1011` | Internal server error |
 
 ### `POST /api/transcribe` (legacy)
 
@@ -171,6 +229,12 @@ python -m mediascribe.web.app --host 0.0.0.0 --port 8000 --reload
 
 ## Production notes
 
+* **The page tells you whether a token is needed.**  The header shows
+  `本机免令牌` / `需要令牌` / `鉴权状态未知`, derived from the
+  `auth_enabled` field of `/api/health`.  The third state exists because
+  a failed probe must not be reported as "no token needed" — that would
+  send you into a wall of 401/403 responses on a server that does
+  require one.
 * **CORS is restrictive by default.**  The built-in allowlist covers
   `http(s)://(localhost|127.0.0.1|host.docker.internal)(:port)?`,
   `chrome-extension://<id>`, `moz-extension://<id>`, and `file://`.

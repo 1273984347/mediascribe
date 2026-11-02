@@ -99,6 +99,44 @@ def _register_job_control_routes(app: "FastAPI") -> None:
             raise HTTPException(status_code=404, detail=f"unknown job: {job_id}")
         return job.to_dict()
 
+    @app.get("/api/jobs", dependencies=[_depends(_require_api_token)])
+    def list_jobs() -> Dict[str, Any]:
+        """List the jobs this server still knows about (newest first).
+
+        The Web UI persists ``job_id`` in ``localStorage`` and calls this on
+        page load to restore the queue.  Without it a browser refresh drops
+        every card while the jobs keep running server-side — the user loses
+        the transcript even though the work completed.
+
+        Only live registry entries are returned; ``/api/health`` purges
+        finished jobs older than one hour, so this naturally shrinks over
+        time.  Each entry carries the fields the UI needs to rebuild a card:
+        ``job_id`` / ``url`` / ``stage`` / ``finished`` / ``cancelled``.
+        """
+        registry = _job_registry(app)
+        # ``ProgressRegistry`` 用 dict 存储 ⇒ ``list()`` 返回的就是**插入
+        # 顺序**(= 创建顺序)。倒过来即「最新在前」。
+        # 不用 created_at 排序: Windows 时钟分辨率约 15ms, 同一批提交的
+        # 多个 job 时间戳会相同 ⇒ 排序结果不确定。
+        jobs = list(reversed(registry.list()))
+        return {
+            "jobs": [
+                {
+                    "job_id": job.job_id,
+                    "url": job.url,
+                    "stage": job.stage,
+                    "stage_index": job.stage_index,
+                    "stage_current": job.stage_current,
+                    "stage_total": job.stage_total,
+                    "finished": job.finished,
+                    "cancelled": job.cancelled,
+                    "error": job.error,
+                    "created_at": job.created_at,
+                }
+                for job in jobs
+            ]
+        }
+
 
 def _register_submit_jobs_route(app: "FastAPI", workspace: Path, pipeline_factory) -> None:
     """Route registrar — create_app 装配时调用(2026-10-03 审查拆分, 路由逐字搬移)。"""
