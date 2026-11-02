@@ -514,3 +514,96 @@ class TestCacheCoverageGaps:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDownloadCacheLruEviction(unittest.TestCase):
+    """前置条件测试 (搁置清单 #2): LRU 字节上限淘汰行为钉死, 提基类的安全网。"""
+
+    def setUp(self) -> None:
+        import tempfile
+
+        self.tmp = Path(tempfile.mkdtemp(prefix="v2t_lru_"))
+        self.cache_dir = self.tmp / "cache"
+
+    def _put(self, cache, url: str, size: int = 100) -> None:
+        src = self.tmp / f"src-{url[-1]}.bin"
+        src.write_bytes(b"x" * size)
+        cache.put(url, src)
+
+    def test_byte_cap_evicts_oldest_first(self):
+        from mediascribe.cache import PersistentDownloadCache
+
+        cache = PersistentDownloadCache(base=self.cache_dir, max_bytes=250)
+        self._put(cache, "https://e.com/a")
+        self._put(cache, "https://e.com/b")
+        self._put(cache, "https://e.com/c")  # total 300 > 250 → 淘汰 A
+        self.assertIsNone(cache.get("https://e.com/a"), "最旧的 A 应被 LRU 淘汰")
+        self.assertIsNotNone(cache.get("https://e.com/c"))
+        self.assertEqual(cache.stats().evictions, 1)
+
+    def test_touch_survives_eviction(self):
+        from mediascribe.cache import PersistentDownloadCache
+
+        cache = PersistentDownloadCache(base=self.cache_dir, max_bytes=250)
+        self._put(cache, "https://e.com/a")
+        self._put(cache, "https://e.com/b")
+        cache.get("https://e.com/a")  # 触摸 A → B 变成最旧
+        self._put(cache, "https://e.com/c")
+        self.assertIsNone(cache.get("https://e.com/b"), "被触摸后 A 留下, 淘汰 B")
+        self.assertIsNotNone(cache.get("https://e.com/a"))
+
+
+class TestDownloadCacheFinalizerFlush(unittest.TestCase):
+    """前置条件测试: finalize 兜底把脏 index 落盘 (GC 路径)。"""
+
+    def test_dirty_index_flushed_on_gc(self):
+        import gc
+        import tempfile
+
+        from mediascribe.cache import PersistentDownloadCache
+
+        tmp = Path(tempfile.mkdtemp(prefix="v2t_fin_"))
+        cache_dir = tmp / "cache"
+        cache = PersistentDownloadCache(base=cache_dir, max_bytes=0)
+        cache.put("https://e.com/a", _mk_src(tmp, "a.bin"))
+        # close() 之外制造脏状态: get 命中只改内存 (P2-2)
+        cache.get("https://e.com/a")
+        index_before = (cache_dir / "downloads.index.json").read_text(encoding="utf-8")
+        del cache
+        gc.collect()
+        index_after = (cache_dir / "downloads.index.json").read_text(encoding="utf-8")
+        # GC 后 index 落盘: 命中触摸的 lru_seq=2 已被 finalize 兜底写回
+        # (put 时是 1, get 触摸后变 2 — 只在内存, finalize 负责落盘)
+        self.assertIn("https://e.com/a", index_after)
+        self.assertIn('"lru_seq": 2', index_after)
+
+
+def _mk_src(tmp: Path, name: str) -> Path:
+    src = tmp / name
+    src.write_bytes(b"data")
+    return src
+
+
+class TestChunkCacheMaxEntries(unittest.TestCase):
+    """前置条件测试: 条数上限 LRU 驱逐 (P2-4)。"""
+
+    def test_max_entries_evicts_oldest(self):
+        import tempfile
+
+        from mediascribe.cache import PersistentChunkCache
+
+        tmp = Path(tempfile.mkdtemp(prefix="v2t_chunk_"))
+        src = tmp / "audio.wav"
+        src.write_bytes(b"audio")
+        chunks = tmp / "chunks"
+        chunks.mkdir()
+        (chunks / "000.wav").write_bytes(b"c0")
+
+        cache = PersistentChunkCache(base=tmp / "cache", max_entries=2)
+        for i in range(3):
+            (chunks / "000.wav").write_bytes(f"c{i}".encode())
+            cache.put(src, {"i": i}, chunks)
+        info = cache.info()
+        self.assertEqual(info["entries"], 2, "max_entries=2 应只留 2 条")
+        self.assertIsNone(cache.get(src, {"i": 0}), "最旧的 i=0 应被驱逐")
+        self.assertIsNotNone(cache.get(src, {"i": 2}))
