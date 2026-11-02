@@ -65,6 +65,13 @@ def main(argv: list[str]) -> int:
             "ruff format --check",
             [sys.executable, "-m", "ruff", "format", "--check", "."],
         )
+        # 2026-11-03: 跨平台类型检查 — 10-29 教训(ctypes.WinDLL 只在 Linux
+        # CI 红灯, 开发机 Windows 恒绿), 本地门禁必须覆盖 CI 的 stub 视角,
+        # 否则 "CI 红本地绿" 这类问题永远只有推上去才暴露。
+        ok &= _run(
+            "mypy (linux view)",
+            [sys.executable, "-m", "mypy", "mediascribe", "--platform", "linux"],
+        )
     if do_test:
         ok &= _run(
             "pytest (unit selection)",
