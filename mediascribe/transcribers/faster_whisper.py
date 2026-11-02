@@ -41,31 +41,13 @@ _TAIL_REWIND_SECONDS = 10.0  # 补录切片向前回退量, 保证衔接处有�
 
 
 def _probe_duration_seconds(path: Path) -> Optional[float]:
-    """ffprobe 探测媒体时长(秒); 不可用时返回 None, 守卫静默跳过。"""
-    import shutil
-    import subprocess
+    """ffprobe 探测媒体时长(秒); 不可用时返回 None, 守卫静默跳过。
 
-    ffprobe = shutil.which("ffprobe")
-    if not ffprobe:
-        return None
-    try:
-        out = subprocess.run(
-            [
-                ffprobe,
-                "-v",
-                "quiet",
-                "-show_entries",
-                "format=duration",
-                "-of",
-                "csv=p=0",
-                str(path),
-            ],
-            capture_output=True,
-            timeout=30,
-        )
-        return float(out.stdout.decode("utf-8", errors="replace").strip())
-    except Exception:
-        return None
+    2026-11-03: 实现收敛到 audio_utils.probe_duration_seconds (搁置清单 #5)。
+    """
+    from ..audio_utils import probe_duration_seconds
+
+    return probe_duration_seconds(path)
 
 
 def _extract_tail_wav(src: Path, start: float, dst: Path) -> bool:

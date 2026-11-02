@@ -298,3 +298,34 @@ def detect_speech_segments(
 def vad_available() -> bool:
     """Public predicate: True iff ``detect_speech_segments`` can run."""
     return _is_webrtcvad_available()
+
+
+def probe_duration_seconds(path: Path) -> Optional[float]:
+    """ffprobe 探测媒体时长(秒); 不可用/失败返回 None。
+
+    2026-11-03 合并: 此前 chunked.probe_duration 与
+    faster_whisper._probe_duration_seconds 各持一份 flag 拼法不同的
+    ffprobe 调用 (搁置清单 #5)。统一用 ``-v error`` 拼法 (错误可见),
+    两处语义 (裸数字输出) 不变。
+    """
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return None
+    try:
+        out = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(path),
+            ],
+            capture_output=True,
+            timeout=30,
+        )
+        return float(out.stdout.decode("utf-8", errors="replace").strip())
+    except Exception:
+        return None
