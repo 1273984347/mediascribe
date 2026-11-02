@@ -37,6 +37,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+from mediascribe import pinyin_search
+
 logger = logging.getLogger(__name__)
 
 try:  # 复用 markdown_builder 的平台中文名映射(kind → "Bilibili" 等)
@@ -54,6 +56,22 @@ _ILLEGAL = re.compile(r'[\\/:*?"<>|#^\[\]\r\n\t]+')
 _WS = re.compile(r"\s+")
 _FM_URL = re.compile(r'^url:\s*"(.*)"\s*$', re.MULTILINE)
 _FM_FIELD_TMPL = "^{key}:[ \\t]*(.*)$"
+_FM_BLOCK = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
+
+
+def _head_snippet(text: str, width: int = 100) -> str:
+    """正文起始片段 — 拼音命中没有原文命中点时用笔记开头代替。
+
+    跳过 YAML front-matter、标题行与归属引用行, 取第一条实质内容行
+    并截断到 ``width`` 字符。没有任何实质行时返回空串。
+    """
+    body = _FM_BLOCK.sub("", text)
+    for line in body.splitlines():
+        line = line.strip()
+        if not line or line.startswith(("#", ">")):
+            continue
+        return line[:width]
+    return ""
 
 
 def wiki_enabled() -> bool:
@@ -632,11 +650,16 @@ class WikiVault:
 
         2026-11-03 Phase 4。大小写不敏感(拉丁文); 片段取命中点前后各
         60 字符并压平换行。空查询返回空表。
+        拼音扩展: 纯字母查询额外按笔记标题的拼音键匹配(全拼 / 首字母 /
+        模糊音折叠, 见 :mod:`mediascribe.pinyin_search`), 与子串命中
+        互斥不重复; 拼音命中没有原文命中点, 片段取正文起始行。
+        pypinyin 缺失时拼音通道静默跳过, 子串搜索不受影响。
         """
         q = (query or "").strip()
         if not q:
             return []
         needle = q.lower()
+        pinyin_q = pinyin_search.normalize_query(q)
         results: List[Dict[str, str]] = []
         for sub, ntype in (("raw", "raw"), ("wiki", "wiki")):
             for path in sorted((self.root / sub).glob("*.md")):
@@ -645,11 +668,14 @@ class WikiVault:
                 except OSError:  # pragma: no cover - defensive
                     continue
                 idx = text.lower().find(needle)
-                if idx < 0:
+                if idx >= 0:
+                    start = max(0, idx - 60)
+                    end = min(len(text), idx + len(q) + 60)
+                    snippet = text[start:end].replace("\n", " ").strip()
+                elif pinyin_q and pinyin_search.match_title(path.stem, pinyin_q):
+                    snippet = _head_snippet(text)
+                else:
                     continue
-                start = max(0, idx - 60)
-                end = min(len(text), idx + len(q) + 60)
-                snippet = text[start:end].replace("\n", " ").strip()
                 results.append(
                     {
                         "name": path.stem,
