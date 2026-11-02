@@ -39,7 +39,7 @@ import time
 import uuid
 from html import unescape
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from ..config import Settings
 from ..i18n import t
@@ -48,6 +48,9 @@ from ..security import is_tencent_cdn_url
 from ..url_utils import host_matches
 from ._http_download import CHROME_UA, build_http_session, cred_get, stream_download
 from .base import Downloader
+
+if TYPE_CHECKING:  # pragma: no cover
+    from PIL import Image
 
 logger = logging.getLogger(__name__)
 
@@ -124,35 +127,62 @@ class WechatMpDownloader(Downloader):
             ocr_texts, ocr_success, ocr_total = self._ocr_images(image_urls, settings.downloads_dir)
 
         if video_url:
-            # 视频型公众号消息：下载视频并保留文本作为副标题
-            logger.info("检测到视频消息，开始下载视频...")
-            video_path = self._download_video(video_url, settings.downloads_dir)
-            if not video_path or not video_path.exists():
-                raise RuntimeError(t("WP_DOWNLOAD_MISSING", path=video_path))
-            logger.info("视频下载成功: %s", video_path.name)
-            return DownloadResult(
-                source=source,
-                video_path=video_path,
-                title=meta.get("title") or f"wechat_mp_{int(time.time())}",
-                webpage_url=url,
-                metadata={
-                    "url": url,
-                    "kind": "wechat_mp_video",
-                    "video_url": video_url,
-                    "title": meta.get("title"),
-                    "author": meta.get("author"),
-                    "nickname": meta.get("nickname"),
-                    "excerpt": (text or "")[:500],
-                },
-            )
+            return self._video_message_result(source, url, meta, text, video_url, settings)
+        return self._text_article_result(
+            source, url, meta, text, image_urls, ocr_texts, ocr_success, ocr_total, settings
+        )
 
-        # 纯文本公众号文章：写入一个 .md 形式的伪音频占位文件，
-        # pipeline 在检测到 metadata['wechat_mp_text'] 时跳过 ASR，
-        # 直接用 `text` 字段作为 transcript 内容。
+    def _video_message_result(
+        self,
+        source: SourceRef,
+        url: str,
+        meta: dict,
+        text: Optional[str],
+        video_url: str,
+        settings: Settings,
+    ) -> DownloadResult:
+        """视频型公众号消息：下载视频并保留文本作为副标题。"""
+        logger.info("检测到视频消息，开始下载视频...")
+        video_path = self._download_video(video_url, settings.downloads_dir)
+        if not video_path or not video_path.exists():
+            raise RuntimeError(t("WP_DOWNLOAD_MISSING", path=video_path))
+        logger.info("视频下载成功: %s", video_path.name)
+        return DownloadResult(
+            source=source,
+            video_path=video_path,
+            title=meta.get("title") or f"wechat_mp_{int(time.time())}",
+            webpage_url=url,
+            metadata={
+                "url": url,
+                "kind": "wechat_mp_video",
+                "video_url": video_url,
+                "title": meta.get("title"),
+                "author": meta.get("author"),
+                "nickname": meta.get("nickname"),
+                "excerpt": (text or "")[:500],
+            },
+        )
+
+    def _text_article_result(
+        self,
+        source: SourceRef,
+        url: str,
+        meta: dict,
+        text: Optional[str],
+        image_urls: list,
+        ocr_texts: list,
+        ocr_success: int,
+        ocr_total: int,
+        settings: Settings,
+    ) -> DownloadResult:
+        """纯文本公众号文章：写 .md 伪音频占位文件。
+
+        pipeline 检测到 ``metadata['wechat_mp_text']`` 时跳过 ASR, 直接用
+        ``text`` 字段作为 transcript 内容。status: 纯文本 → success,
+        文本 OK 但 OCR 部分失败 → partial。
+        """
         if text is None:
             text = ""
-
-        # 计算 status：纯文本 → success，文本 OK 但 OCR 部分失败 → partial
         status = "success"
         if ocr_total > 0 and ocr_success < ocr_total:
             status = "partial"
@@ -407,27 +437,16 @@ class WechatMpDownloader(Downloader):
                 urls.append(url)
         return urls
 
-    def _ocr_image(self, image_url: str, save_dir: Path) -> Optional[str]:
-        """
-        下载图片并尝试 OCR。引擎选择规则：
+    def _download_ocr_image(self, image_url: str) -> Optional["Image.Image"]:
+        """下载单张图片并解析为 PIL Image; 任何失败返回 None。
 
-        - ``self._ocr_engine == "auto"``（默认）按以下顺序尝试：
-          1. paddleocr（中文识别效果最好）
-          2. pytesseract（轻量，多语言）
-          3. easyocr（兜底）
-        - 显式指定 ``paddleocr / pytesseract / easyocr`` 时只走该引擎，
-          失败直接返回 None（不静默回退到其他引擎）。
-
-        任意一个失败（依赖未安装 / 网络 / 识别为空）都返回 None。
-        不抛异常，永远安全降级。
+        图片地址由远端作者控制：仅下载腾讯系 CDN 资源，且不带 cookies
+        出腾讯域名（2026-10-29 审查 P0-2; SEC-001 逐跳守卫）。
         """
-        # 图片地址由远端作者控制：仅下载腾讯系 CDN 资源，且不带 cookies
-        # 出腾讯域名（2026-10-29 审查 P0-2）。
         if not is_tencent_cdn_url(image_url):
             logger.warning("图片地址不在腾讯系 CDN，跳过下载/OCR: %s", image_url)
             return None
         try:
-            # SEC-001: 同上, 图片跳转同样不得带 cookies 出腾讯域
             resp = cred_get(
                 image_url,
                 headers={
@@ -448,74 +467,113 @@ class WechatMpDownloader(Downloader):
 
             from PIL import Image
 
-            img = Image.open(BytesIO(resp.content))
+            return Image.open(BytesIO(resp.content))
         except Exception as e:
             logger.warning("解析图片失败: %s", e)
             return None
 
-        # 可选：把图片保存到本地
-        if getattr(self, "_save_images", False):
-            try:
-                save_dir.mkdir(parents=True, exist_ok=True)
-                ext = ".png"
-                if "format" in img.info:
-                    ext = "." + (img.format or "PNG").lower()
-                file_name = f"wemp_{int(time.time() * 1000)}{ext}"
-                img.save(save_dir / file_name)
-            except Exception as e:
-                logger.warning("保存图片失败: %s", e)
+    def _save_ocr_image(self, img: "Image.Image", save_dir: Path) -> None:
+        """可选：把图片保存到本地 (失败只警告)。"""
+        if not getattr(self, "_save_images", False):
+            return
+        try:
+            save_dir.mkdir(parents=True, exist_ok=True)
+            ext = ".png"
+            if "format" in img.info:
+                ext = "." + (img.format or "PNG").lower()
+            file_name = f"wemp_{int(time.time() * 1000)}{ext}"
+            img.save(save_dir / file_name)
+        except Exception as e:
+            logger.warning("保存图片失败: %s", e)
+
+    def _ocr_via_paddle(self, img: "Image.Image", engine: str) -> Optional[str]:
+        """引擎 1：paddleocr（中文公众号文章首选）。显式指定失败即 None。"""
+        try:
+            # PaddleOCR 初始化耗时较长，复用进程内单例（与 easyocr 一致）
+            ocr = _get_paddleocr_ocr()
+            result = ocr.ocr(img, cls=True)
+            lines: list = []
+            for page in result or []:
+                for item in page or []:
+                    if item and len(item) >= 2 and item[1]:
+                        lines.append(item[1][0])
+            if lines:
+                return "\n".join(lines)
+        except Exception:
+            if engine == "paddleocr":
+                return None
+        return None
+
+    def _ocr_via_tesseract(self, img: "Image.Image", engine: str, lang: str) -> Optional[str]:
+        """引擎 2：pytesseract（轻量，多语言）。显式指定失败即 None。"""
+        try:
+            import pytesseract  # type: ignore
+
+            text: str = pytesseract.image_to_string(img, lang=lang)
+            if text and text.strip():
+                return text.strip()
+        except Exception:
+            if engine == "pytesseract":
+                return None
+        return None
+
+    def _ocr_via_easyocr(self, img: "Image.Image", engine: str, lang: str) -> Optional[str]:
+        """引擎 3：easyocr（兜底）。显式指定失败即 None。"""
+        # pytesseract 风格的语言代码 → easyocr 语言列表
+        langs_map = {
+            "chi_sim+eng": ["ch_sim", "en"],
+            "chi_tra+eng": ["ch_tra", "en"],
+            "eng": ["en"],
+        }
+        try:
+            easyocr_langs = langs_map.get(lang, [lang])
+            # Reader 加载耗时 ~3s，复用进程内单例
+            reader = _get_easyocr_reader(easyocr_langs)
+            result = reader.readtext(img, detail=0)
+            if result:
+                return "\n".join(result)
+        except Exception:
+            if engine == "easyocr":
+                return None
+        return None
+
+    def _ocr_image(self, image_url: str, save_dir: Path) -> Optional[str]:
+        """
+        下载图片并尝试 OCR。引擎选择规则：
+
+        - ``self._ocr_engine == "auto"``（默认）按以下顺序尝试：
+          1. paddleocr（中文识别效果最好）
+          2. pytesseract（轻量，多语言）
+          3. easyocr（兜底）
+        - 显式指定 ``paddleocr / pytesseract / easyocr`` 时只走该引擎，
+          失败直接返回 None（不静默回退到其他引擎）。
+
+        任意一个失败（依赖未安装 / 网络 / 识别为空）都返回 None。
+        不抛异常，永远安全降级。
+
+        2026-11-03 拆分: 下载 (_download_ocr_image) / 保存 (_save_ocr_image)
+        / 三引擎 (_ocr_via_*) 各自成方法, 级联与降级语义原样保留。
+        """
+        img = self._download_ocr_image(image_url)
+        if img is None:
+            return None
+        self._save_ocr_image(img, save_dir)
 
         engine = getattr(self, "_ocr_engine", "auto") or "auto"
         lang = getattr(self, "_ocr_lang", "chi_sim+eng") or "chi_sim+eng"
 
-        # 引擎 1：paddleocr（中文公众号文章首选）
         if engine in ("auto", "paddleocr"):
-            try:
-                # PaddleOCR 初始化耗时较长，复用进程内单例（与 easyocr 一致）
-                ocr = _get_paddleocr_ocr()
-                result = ocr.ocr(img, cls=True)
-                lines: list = []
-                for page in result or []:
-                    for item in page or []:
-                        if item and len(item) >= 2 and item[1]:
-                            lines.append(item[1][0])
-                if lines:
-                    return "\n".join(lines)
-            except Exception:
-                if engine == "paddleocr":
-                    return None
-
-        # 引擎 2：pytesseract
+            text = self._ocr_via_paddle(img, engine)
+            if text:
+                return text
         if engine in ("auto", "pytesseract"):
-            try:
-                import pytesseract  # type: ignore
-
-                text: str = pytesseract.image_to_string(img, lang=lang)
-                if text and text.strip():
-                    return text.strip()
-            except Exception:
-                if engine == "pytesseract":
-                    return None
-
-        # 引擎 3：easyocr（兜底）
+            text = self._ocr_via_tesseract(img, engine, lang)
+            if text:
+                return text
         if engine in ("auto", "easyocr"):
-            # pytesseract 风格的语言代码 → easyocr 语言列表
-            langs_map = {
-                "chi_sim+eng": ["ch_sim", "en"],
-                "chi_tra+eng": ["ch_tra", "en"],
-                "eng": ["en"],
-            }
-            try:
-                easyocr_langs = langs_map.get(lang, [lang])
-                # Reader 加载耗时 ~3s，复用进程内单例
-                reader = _get_easyocr_reader(easyocr_langs)
-                result = reader.readtext(img, detail=0)
-                if result:
-                    return "\n".join(result)
-            except Exception:
-                if engine == "easyocr":
-                    return None
-
+            text = self._ocr_via_easyocr(img, engine, lang)
+            if text:
+                return text
         return None
 
     def _ocr_images(self, image_urls: list, save_dir: Path) -> tuple:

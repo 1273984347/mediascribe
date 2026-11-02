@@ -122,35 +122,7 @@ class YtDlpDownloader(Downloader):
                     return result
                 logger.warning("API 无可用音轨, 落回 yt-dlp 路径")
 
-        ydl_opts = self._build_ydl_opts(source, settings)
-        if getattr(settings, "audio_only", False):
-            # 非 B 站源 audio_only: 只选音频流
-            ydl_opts["format"] = "ba/b"
-
-        # 进度钩子 - 按 5% 分桶节流（与 douyin 下载进度同一策略）
-        if progress:
-            last_bucket = [-1]
-
-            def progress_hook(data: dict[str, Any]) -> None:
-                status = data.get("status")
-                if status != "downloading":
-                    return
-                total = data.get("total_bytes") or data.get("total_bytes_estimate") or 0
-                downloaded = data.get("downloaded_bytes") or 0
-                if total > 0:
-                    bucket = int(downloaded / total * 100 // 5)
-                    if bucket != last_bucket[0]:
-                        last_bucket[0] = bucket
-                        logger.info(
-                            "下载进度: %.0f%% (%d / %d 字节)",
-                            downloaded / total * 100,
-                            downloaded,
-                            total,
-                        )
-                else:
-                    logger.info("下载进度: %d 字节", downloaded)
-
-            ydl_opts["progress_hooks"] = [progress_hook]
+        ydl_opts = self._build_ydl_opts_with_progress(source, settings, progress)
 
         # 执行下载（一次 extract_info 拿到信息 + 文件）
         logger.info("开始下载...")
@@ -193,25 +165,68 @@ class YtDlpDownloader(Downloader):
                 )
         except Exception as e:
             logger.error("下载失败: %s", e)
-
-            # B 站专用兜底：音轨被调度到 P2P CDN 时 yt-dlp 直连必挂，
-            # 改走 playurl API 的 backup_url（常规 upos 镜像）拉音轨。
-            if _parse_bilibili(url)[0] is not None:
-                logger.warning("尝试 B 站 API 备用源（仅音轨）...")
-                try:
-                    result = self._download_bilibili_audio(url, settings)
-                except Exception as fb_err:
-                    logger.error("备用源失败: %s", fb_err)
-                else:
-                    if result is not None:
-                        logger.info("备用源下载成功: %s", result.video_path.name)
-                        return result
-
+            fallback = self._try_bilibili_fallback(url, settings, e)
+            if fallback is not None:
+                return fallback
             logger.info("可能的解决方法:")
             logger.info("  1) 检查网络连接")
             logger.info("  2) 尝试访问视频网页确认视频存在")
             logger.info("  3) 尝试使用完整 URL 而不是短链接")
             raise
+
+    def _build_ydl_opts_with_progress(
+        self, source: SourceRef, settings: Settings, progress: Optional[Any]
+    ) -> dict:
+        """构建 yt-dlp 选项; audio_only 选纯音频流, progress 挂 5% 分桶
+        节流钩子（与 douyin 下载进度同一策略）。"""
+        ydl_opts = self._build_ydl_opts(source, settings)
+        if getattr(settings, "audio_only", False):
+            ydl_opts["format"] = "ba/b"
+        if progress:
+            last_bucket = [-1]
+
+            def progress_hook(data: dict[str, Any]) -> None:
+                status = data.get("status")
+                if status != "downloading":
+                    return
+                total = data.get("total_bytes") or data.get("total_bytes_estimate") or 0
+                downloaded = data.get("downloaded_bytes") or 0
+                if total > 0:
+                    bucket = int(downloaded / total * 100 // 5)
+                    if bucket != last_bucket[0]:
+                        last_bucket[0] = bucket
+                        logger.info(
+                            "下载进度: %.0f%% (%d / %d 字节)",
+                            downloaded / total * 100,
+                            downloaded,
+                            total,
+                        )
+                else:
+                    logger.info("下载进度: %d 字节", downloaded)
+
+            ydl_opts["progress_hooks"] = [progress_hook]
+        return ydl_opts
+
+    def _try_bilibili_fallback(
+        self, url: str, settings: Settings, err: Exception
+    ) -> Optional[DownloadResult]:
+        """B 站专用兜底：音轨被调度到 P2P CDN 时 yt-dlp 直连必挂，
+        改走 playurl API 的 backup_url（常规 upos 镜像）拉音轨。
+
+        返回兜底成功的结果; 非 B 站源 / API 失败 / 无可用音轨返回 None
+        (由调用方继续走原异常路径)。"""
+        if _parse_bilibili(url)[0] is None:
+            return None
+        logger.warning("尝试 B 站 API 备用源（仅音轨）...")
+        try:
+            result = self._download_bilibili_audio(url, settings)
+        except Exception as fb_err:
+            logger.error("备用源失败: %s", fb_err)
+            return None
+        if result is not None:
+            logger.info("备用源下载成功: %s", result.video_path.name)
+            return result
+        return None
 
     def _download_bilibili_audio(self, url: str, settings: Settings) -> Optional[DownloadResult]:
         """playurl API 兜底：从 base_url/backup_url 逐个尝试拉取音轨。
