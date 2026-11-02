@@ -18,7 +18,9 @@ globalThis.window = {}; globalThis.localStorage = { getItem: () => null, setItem
 globalThis.fetch = () => new Promise(() => {});
 globalThis.CSS = { escape: (s) => s };
 
-const { escapeHtml, tsToSeconds, withTimestamp, renderMarkdown } = await import("file:///D:/MediaScribe/mediascribe/web/static/wiki.js");
+// 相对脚本自身定位 wiki.js — 机器无关 (2026-11-03: 首推硬编码 D: 路径在 CI 必炸)
+const WIKI_JS = new URL("../../mediascribe/web/static/wiki.js", import.meta.url).href;
+const { escapeHtml, tsToSeconds, withTimestamp, renderMarkdown } = await import(WIKI_JS);
 
 let failed = 0;
 const check = (name, cond) => { if (!cond) { console.error("FAIL:", name); failed++; } else console.log("ok:", name); };
