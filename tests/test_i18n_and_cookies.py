@@ -289,42 +289,6 @@ class TestWechatMpDownloaderCookies(unittest.TestCase):
     def test_default_no_cookies(self):
         self.assertEqual(self.d._active_cookies, {})
 
-    def test_attach_dict(self):
-        self.d.attach_cookies(cookies={"skey": "x"})
-        self.assertEqual(self.d._active_cookies, {"skey": "x"})
-        self.assertEqual(self.d._cookies_source, "dict")
-
-    def test_attach_file(self):
-        from mediascribe.downloaders.wechat_mp import WechatMpDownloader
-
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".txt", delete=False, encoding="utf-8"
-        ) as f:
-            f.write("fromfile=1\n")
-            tmp = f.name
-        try:
-            d = WechatMpDownloader()
-            d.attach_cookies(cookies_file=Path(tmp))
-            self.assertEqual(d._active_cookies.get("fromfile"), "1")
-            self.assertTrue(d._cookies_source.startswith("file:"))
-        finally:
-            os.unlink(tmp)
-
-    def test_dict_overrides_file(self):
-        from mediascribe.downloaders.wechat_mp import WechatMpDownloader
-
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".txt", delete=False, encoding="utf-8"
-        ) as f:
-            f.write("k=fromfile\n")
-            tmp = f.name
-        try:
-            d = WechatMpDownloader()
-            d.attach_cookies(cookies={"k": "fromdict"}, cookies_file=Path(tmp))
-            self.assertEqual(d._active_cookies["k"], "fromdict")
-        finally:
-            os.unlink(tmp)
-
     def test_settings_cookies_inherited_on_download(self):
         """download() 内部自动注入 settings.wechat_cookies。"""
         from mediascribe.config import Settings

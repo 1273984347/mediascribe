@@ -34,8 +34,10 @@ def _build_pipeline(req: "TranscribeRequest", workspace: Path):
       * ``_PIPELINE_CACHE`` 的 FIFO 淘汰 + 写入由 ``_PIPELINE_CACHE_LOCK`` 保护，
         防止并发请求同时触发淘汰导致多写。
       * 命中缓存时**不修改** cached 实例的 ``settings``，而是构造一个新的
-        ``Pipeline`` 共享 cached 的 ``transcriber`` / ``downloader``（重资源 5s+
-        模型加载），保证每请求独立的 ``settings`` 不被并发污染。
+        ``Pipeline`` 复用缓存里的 ``transcriber``（重资源 5s+ 模型加载），
+        保证每请求独立的 ``settings`` 不被并发污染。
+      * 2026-11-02 SEC-002: 缓存只存 ``transcriber`` — downloader 持有
+        ``_active_cookies`` 会话状态，跨请求复用会凭据粘滞，每请求新建。
     """
     from mediascribe.config import Settings
     from mediascribe.pipeline import Pipeline, resolve_device
@@ -71,13 +73,9 @@ def _build_pipeline(req: "TranscribeRequest", workspace: Path):
             wechat_cookies=cookies,
         )
         settings.device = device
-        # SEC-002: 只复用 transcriber (重资源), downloader 每请求新建 —
-        # WechatMpDownloader 持有 _active_cookies 会话状态, 跨请求复用
-        # 会把 A 的凭据粘滞给 B
-        return Pipeline(
-            settings,
-            transcriber=cached.transcriber,
-        )
+        # 缓存值就是 transcriber 本体 (SEC-002: downloader 持有会话状态
+        # 不可跨请求复用, 每请求新建)
+        return Pipeline(settings, transcriber=cached)
 
     settings = Settings(
         workspace_root=workspace,
@@ -91,18 +89,13 @@ def _build_pipeline(req: "TranscribeRequest", workspace: Path):
     # FIFO: 容量 8，超出淘汰最旧。持锁避免并发写入 race。
     with _PIPELINE_CACHE_LOCK:
         # Double-checked: 另一线程可能在我们构造 Pipeline 时已写入相同 key。
-        # 此时丢弃本次构造的 pipeline（其 transcriber 已加载但未缓存，可被 GC），
-        # 复用 cache 中的 transcriber/downloader。
+        # 此时丢弃本次构造的 pipeline（其 transcriber 已加载但未缓存，可被 GC）。
         existing = _PIPELINE_CACHE.get(cache_key)
         if existing is not None:
-            # SEC-002: 同上, downloader 不复用
-            return Pipeline(
-                settings,
-                transcriber=existing.transcriber,
-            )
+            return Pipeline(settings, transcriber=existing)
         if len(_PIPELINE_CACHE) >= 8:
             _PIPELINE_CACHE.pop(next(iter(_PIPELINE_CACHE)))
-        _PIPELINE_CACHE[cache_key] = pipeline
+        _PIPELINE_CACHE[cache_key] = pipeline.transcriber
     return pipeline
 
 

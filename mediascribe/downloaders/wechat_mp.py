@@ -66,27 +66,6 @@ class WechatMpDownloader(Downloader):
         self._active_cookies: dict = {}
         self._cookies_source: str = "none"
 
-    def attach_cookies(
-        self,
-        cookies: Optional[dict] = None,
-        cookies_file: Optional[Path] = None,
-    ) -> None:
-        """
-        显式注入 cookies。优先级：cookies > cookies_file。
-        接受 Netscape / JSON / key=value 单行格式。
-        """
-        from ..config import _load_cookie_file
-
-        if cookies:
-            self._active_cookies = {str(k): str(v) for k, v in cookies.items()}
-            self._cookies_source = "dict"
-        elif cookies_file:
-            self._active_cookies = _load_cookie_file(Path(cookies_file))
-            self._cookies_source = f"file:{cookies_file}"
-        else:
-            self._active_cookies = {}
-            self._cookies_source = "none"
-
     # ------------------------------------------------------------------
     # Downloader interface
     # ------------------------------------------------------------------
