@@ -220,39 +220,47 @@ def _is_echo_suspect(prev_core: str, second_core: str, next_core: str) -> bool:
     )
 
 
-def detect_repeated_pairs_detailed(text: str, min_len: int = 6, suffix_len: int = 8) -> list:
-    """:func:`detect_repeated_pairs` 的分级版本, 返回
-    ``[{"text": ..., "kind": "echo"|"artifact"}]``。
+def _scan_repeated_pairs(
+    text: str,
+    *,
+    min_len: int,
+    suffix_len: int,
+    classify: bool,
+    key_mode: str,
+) -> list:
+    """两版扫描器的共用三级引擎 (2026-11-03 参数化合并, 搁置清单 #1)。
 
-    ``kind`` 为启发式标注(供人工甄别参考, 非判定), 词表与判定面
-    用四个真实样本定标(见 _ECHO_* 注释):
-    * ``echo`` — 第二遍重复以第二人称称呼开头(讲者复述学生主张再
-      反驳, 如"…写在第一个分论点。/你要写在第一个分论点,你就偏题了",
-      过度坦诚一集真应答), 或后续句为真转折 → 更可能是应答式口语
-      重复, 保留;
-    * ``artifact`` — 其余 → 更可能是 ASR 解码循环伪影, 建议人工合并。
+    两个变化轴即原两实现的全部差异, 其余逐行同构:
+    - ``key_mode``  — 去重键: ``"core"``(归一化 core, 句级/短语级共享键
+      空间, 后缀级 ``"sfx:"`` 前缀分离) vs ``"unit"``(原文单元);
+    - ``classify``  — 输出形态: 纯文本串 vs ``{"text","kind"}`` 分级
+      (echo/artifact 启发式标注, 词表用四个真实样本定标, 见 _ECHO_*)。
 
-    与 :func:`detect_repeated_pairs` 同一套三级扫描(句级/短语级/
-    共享后缀, 含跨行承接), 独立实现以携带位置信息。
+    三级扫描: 句级恰好 2 连(跨行 carry 承接) / 短语级恰好 2 连 /
+    共享后缀的部分重复。归一化长度 < ``min_len`` 的单元忽略。
     """
     if not text:
         return []
     suspects: list = []
     seen: set = set()
-
-    def _report(unit: str, echo: bool) -> None:
-        if unit not in seen:
-            seen.add(unit)
-            suspects.append({"text": unit.strip(), "kind": "echo" if echo else "artifact"})
-
-    def _echo(prev_core: str, second_core: str, next_core: str) -> bool:
-        return _is_echo_suspect(prev_core, second_core, next_core)
-
-    sent_carry: list = [None]
+    sent_carry: list = [None]  # 跨行承接上一行末句(段落间 2 连)
     unit_carry: list = [None]
 
+    def _report(unit: str, prev: str, second: str, nxt: str, key: str) -> None:
+        if key in seen:
+            return
+        seen.add(key)
+        if classify:
+            echo = _is_echo_suspect(prev, second, nxt)
+            suspects.append({"text": unit.strip(), "kind": "echo" if echo else "artifact"})
+        else:
+            suspects.append(unit.strip())
+
     def _scan_run(seq_items: list, carry: list) -> None:
-        """恰好 2 连扫描(跨行由 carry 承接上一行末单元; 空白单元透明)。"""
+        """恰好 2 连扫描; ``carry=[prev_unit]`` 承接跨行边界。
+
+        空白单元(归一化为空)在连续性判断中透明 — "A,␣A" 视作相邻。
+        """
         seq = ([carry[0]] if carry and carry[0] else []) + seq_items
         cores = [_normalize_sentence(u) for u in seq]
         content = [i for i, c in enumerate(cores) if c]
@@ -268,7 +276,9 @@ def detect_repeated_pairs_detailed(text: str, min_len: int = 6, suffix_len: int 
                     second = cores[content[i + 1]]
                     nxt = cores[content[j + 1]] if j + 1 < len(content) else ""
                     prev = cores[content[i - 1]] if i > 0 else ""
-                    _report(seq[idx], _echo(prev, second, nxt))
+                    unit = seq[idx]
+                    key = core if key_mode == "core" else unit
+                    _report(unit, prev, second, nxt, key)
                 i = j + 1
                 continue
             i += 1
@@ -277,12 +287,14 @@ def detect_repeated_pairs_detailed(text: str, min_len: int = 6, suffix_len: int 
         carry.append(seq[last] if last is not None else (carry[0] if carry else None))
 
     for line in text.splitlines():
-        # 1) 句级恰好 2 连(跨行由 carry 承接)
+        # 1) 句级恰好 2 连(仅按句末标点切分) — 复读句常含逗号, 只在
+        #    短语级扫描会被逗号切碎而漏检(2026-10-02"刻舟求剑"一集
+        #    实锤); 跨段落(空行分隔)的 2 连由 carry 承接
         _scan_run(_split_full_sentences(line), sent_carry)
-        # 2) 短语级恰好 2 连
+        # 2) 短语级恰好 2 连(全部标点切分, 覆盖无句末标点的短语循环)
         units = _split_sentence_units(line)
         _scan_run(units, unit_carry)
-        # 3) 共享后缀的部分重复(第二遍以第二人称/后续句真转折 → echo)
+        # 3) 共享后缀的部分重复(完全相同的对归上面两级, 跳过)
         for k in range(len(units) - 1):
             c1 = _normalize_sentence(units[k])
             c2 = _normalize_sentence(units[k + 1])
@@ -290,8 +302,29 @@ def detect_repeated_pairs_detailed(text: str, min_len: int = 6, suffix_len: int 
                 continue
             if _common_suffix_len(c1, c2) >= suffix_len:
                 nxt = _normalize_sentence(units[k + 2]) if k + 2 < len(units) else ""
-                _report(units[k + 1], _echo(c1, c2, nxt))
+                unit = units[k + 1]
+                key = ("sfx:" + c2) if key_mode == "core" else unit
+                _report(unit, c1, c2, nxt, key)
     return suspects
+
+
+def detect_repeated_pairs_detailed(text: str, min_len: int = 6, suffix_len: int = 8) -> list:
+    """:func:`detect_repeated_pairs` 的分级版本, 返回
+    ``[{"text": ..., "kind": "echo"|"artifact"}]``。
+
+    ``kind`` 为启发式标注(供人工甄别参考, 非判定), 词表与判定面
+    用四个真实样本定标(见 _ECHO_* 注释):
+    * ``echo`` — 第二遍重复以第二人称称呼开头(讲者复述学生主张再
+      反驳, 如"…写在第一个分论点。/你要写在第一个分论点,你就偏题了",
+      过度坦诚一集真应答), 或后续句为真转折 → 更可能是应答式口语
+      重复, 保留;
+    * ``artifact`` — 其余 → 更可能是 ASR 解码循环伪影, 建议人工合并。
+
+    去重键 = 原文单元 (2026-11-03 起为共用引擎的 ``key_mode="unit"``)。
+    """
+    return _scan_repeated_pairs(
+        text, min_len=min_len, suffix_len=suffix_len, classify=True, key_mode="unit"
+    )
 
 
 def detect_repeated_pairs(text: str, min_len: int = 6, suffix_len: int = 8) -> list:
@@ -304,69 +337,14 @@ def detect_repeated_pairs(text: str, min_len: int = 6, suffix_len: int = 8) -> l
        字, 后者是前者的冗余复述(如"…在终点的地方被定义的, 而是在
        终点的地方被定义的", 2026-10-02"人的寿命"一集实锤)。
 
-    与 :func:`collapse_hallucination_repeats` 同一套切分/归一化逻辑;
     归一化长度 < ``min_len`` 的短语(如"活在当下"式口语强调)忽略,
     避免告警噪音; 只告警不修改。
+    去重键 = 归一化 core, 句级/短语级共享键空间, 后缀级 "sfx:" 前缀
+    分离 (2026-11-03 起为共用引擎的 ``key_mode="core"``)。
     """
-    if not text:
-        return []
-    suspects: list = []
-    seen: set = set()
-    sent_carry: list = [None]  # 跨行承接上一行末句(段落间 2 连)
-    unit_carry: list = [None]
-
-    def _report(unit: str, key: str) -> None:
-        if key not in seen:
-            seen.add(key)
-            suspects.append(unit.strip())
-
-    def _scan_run(units: list, seen: set, suspects: list, carry: list) -> None:
-        """单元序列内恰好 2 连扫描; ``carry=[prev_unit]`` 承接跨行边界。
-
-        空白单元(归一化为空)在连续性判断中透明 — "A,␣A" 视作相邻。
-        """
-        seq = ([carry[0]] if carry and carry[0] else []) + units
-        cores = [_normalize_sentence(u) for u in seq]
-        content = [i for i, c in enumerate(cores) if c]
-        i = 0
-        while i < len(content):
-            idx = content[i]
-            core = cores[idx]
-            if len(core) >= min_len:
-                j = i
-                while j + 1 < len(content) and cores[content[j + 1]] == core:
-                    j += 1
-                if j - i + 1 == 2:
-                    key = core
-                    if key not in seen:
-                        seen.add(key)
-                        suspects.append(seq[idx].strip())
-                i = j + 1
-                continue
-            i += 1
-        last = content[-1] if content else None
-        carry.clear()
-        carry.append(seq[last] if last is not None else (carry[0] if carry else None))
-
-    for line in text.splitlines():
-        # 1) 句级恰好 2 连(仅按句末标点切分) — 复读句常含逗号, 只在
-        #    短语级扫描会被逗号切碎而漏检(2026-10-02"刻舟求剑"一集
-        #    实锤: "所以,在最后的升华点的时候,我们一定能够找到它。"
-        #    句级 A,A,B 模式漏报); 跨段落(空行分隔)的 2 连由 carry 承接
-        sentences = _split_full_sentences(line)
-        _scan_run(sentences, seen, suspects, sent_carry)
-        # 2) 短语级恰好 2 连(全部标点切分, 覆盖无句末标点的短语循环)
-        units = _split_sentence_units(line)
-        _scan_run(units, seen, suspects, unit_carry)
-        # 3) 共享后缀的部分重复(完全相同的对归上面两级, 跳过)
-        for k in range(len(units) - 1):
-            c1 = _normalize_sentence(units[k])
-            c2 = _normalize_sentence(units[k + 1])
-            if c1 == c2 or min(len(c1), len(c2)) < min_len:
-                continue
-            if _common_suffix_len(c1, c2) >= suffix_len:
-                _report(units[k + 1], "sfx:" + c2)
-    return suspects
+    return _scan_repeated_pairs(
+        text, min_len=min_len, suffix_len=suffix_len, classify=False, key_mode="core"
+    )
 
 
 def post_process_transcript(
