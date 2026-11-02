@@ -80,11 +80,12 @@ class TestAuditTerms:
         findings = audit_terms(path)
         assert "noop" in _kinds(findings, "warning")
 
-    def test_homophone_variant_detected(self, tmp_path):
-        # 归一化不同 (字不同) 但两侧拼音全同 — 同音字变体重复
-        path = _make_db(tmp_path, [("在与此", "再接再厉"), ("载与此", "再接再利")])
-        findings = audit_terms(path)
-        assert "near_dup" in _kinds(findings, "warning")
+    def test_same_right_homophones_not_flagged(self, tmp_path):
+        # 2026-11-03 实库校准: 不同 wrong → 同一 right 的同音变体组是
+        # 正常积累 (每个误识写法都需要独立 replace 规则, 合并丢功能),
+        # 不再报 warning — 355 条实库首跑 27 条全是此类误报
+        path = _make_db(tmp_path, [("马元", "马原"), ("马源", "马原"), ("马园", "马原")])
+        assert audit_terms(path) == []
 
     def test_findings_carry_evidence_detail(self, tmp_path):
         path = _make_db(tmp_path, [("徐涛", "徐涛老师"), ("徐涛", "徐涛教授")])
