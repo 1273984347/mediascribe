@@ -123,13 +123,48 @@ def _register_ws_progress_route(app: "FastAPI") -> None:
         client_task = asyncio.create_task(websocket.receive_text())
         session_deadline = loop.time() + max_session_seconds
         last_activity = loop.time()
+
+        async def _handle_client_message(raw: str) -> bool:
+            """处理一条客户端消息。返回 False 表示应终止连接。
+
+            2026-10-31 重构: cancel 处理原本在两处重复(主循环 + ping 等待
+            窗口), 抽到这里 —— ping 窗口里收到的 pong 与 cancel 走同一条
+            路径, 不会漏。
+            """
+            try:
+                parsed = _json.loads(raw)
+            except Exception:
+                parsed = None
+            if not (isinstance(parsed, dict) and parsed.get("event") == "cancel"):
+                return True
+            if ws_authenticated:
+                registry.cancel(job_id)
+                # Also cancel any registered AsyncPipeline so
+                # in-flight ``asyncio.Task``s are torn down.
+                ap = app.state.async_pipelines.get(job_id)
+                if ap is not None and hasattr(ap, "cancel"):
+                    try:
+                        ap.cancel()
+                    except Exception:
+                        pass
+                return True
+            # P1-1: 未鉴权连接不允许驱动 cancel。
+            try:
+                await websocket.send_json(
+                    {
+                        "event": "error",
+                        "message": "cancel requires an authenticated connection",
+                    }
+                )
+            except Exception:
+                return False
+            return True
+
         try:
             while not job.finished:
                 now = loop.time()
                 if now >= session_deadline:
                     break  # P2-9: 最大会话时长 — 防止连接永久挂起
-                if idle_timeout > 0 and (now - last_activity) >= idle_timeout:
-                    break  # P2-9: 空闲超时 — 无事件且无客户端消息
                 wait_timeout = min(
                     ping_interval,
                     max(0.05, session_deadline - now),
@@ -159,39 +194,67 @@ def _register_ws_progress_route(app: "FastAPI") -> None:
                         # WebSocket closed by client.
                         return
                     last_activity = loop.time()
-                    try:
-                        parsed = _json.loads(msg)
-                    except Exception:
-                        parsed = None
-                    if isinstance(parsed, dict) and parsed.get("event") == "cancel":
-                        if ws_authenticated:
-                            registry.cancel(job_id)
-                            # Also cancel any registered AsyncPipeline so
-                            # in-flight ``asyncio.Task``s are torn down.
-                            ap = app.state.async_pipelines.get(job_id)
-                            if ap is not None and hasattr(ap, "cancel"):
-                                try:
-                                    ap.cancel()
-                                except Exception:
-                                    pass
-                        else:
-                            # P1-1: 未鉴权连接不允许驱动 cancel。
-                            try:
-                                await websocket.send_json(
-                                    {
-                                        "event": "error",
-                                        "message": "cancel requires an authenticated connection",
-                                    }
-                                )
-                            except Exception:
-                                return
+                    if not await _handle_client_message(msg):
+                        return
                     client_task = asyncio.create_task(websocket.receive_text())
                 if not done:
                     # 超时 — 发 ping 让客户端探测连接活性; 继续等待。
+                    #
+                    # 2026-10-31 交互审查 P0-2 + 独立盲审 P2-5:
+                    # 转写阶段是一次**阻塞调用**(progress.py:242-247 的
+                    # pipeline.transcribe 包住全部耗时), 期间**不发任何事件**
+                    # ⇒ 任何超过 idle_timeout(默认 300s)的真实转写都会被
+                    # 服务端主动掐断, 前端只看到「连接断开」。
+                    #
+                    # 客户端现在会回 pong(见前端 jobs.js 的心跳), 而
+                    # ``client_task`` 分支会刷新 last_activity —— 所以
+                    # **这里不能**再刷新: 「发出 ping」不代表对端还活着
+                    # (浏览器断网但 TCP 未断时, ping 会写进缓冲区而不报错)。
+                    # 只有**收到 pong** 才证明连接真的可用。
                     try:
-                        await websocket.send_json({"event": "ping"})
+                        # ping 里带上 job 快照 —— 客户端重连后靠它补回进度
+                        # (断线期间发生的阶段推进不会重放, 事件队列只保留增量)。
+                        await websocket.send_json({"event": "ping", **job.to_dict()})
                     except Exception:
                         return
+                    # 空闲判定**必须放在 ping 之后**, 且要给客户端一次往返
+                    # 的机会 —— pong 要经过一次网络往返才到。
+                    #
+                    # 2026-10-31 回归实证: 判定放在 ping 之前 ⇒ pong 永远
+                    # 来不及 ⇒ 长任务 100% 被掐断(正是本次要修的 P0-2);
+                    # 放在 ping 之后但立即判定 ⇒ 同样是"pong 还没到" ⇒ 同样
+                    # 断连。必须**再等一个 pong 周期**才判。
+                    if idle_timeout > 0:
+                        pong_deadline = loop.time() + min(ping_interval, idle_timeout)
+                        while loop.time() < pong_deadline:
+                            done, _ = await asyncio.wait(
+                                {event_task, client_task},
+                                timeout=max(0.05, pong_deadline - loop.time()),
+                                return_when=asyncio.FIRST_COMPLETED,
+                            )
+                            if event_task in done:
+                                event = event_task.result()
+                                last_activity = loop.time()
+                                try:
+                                    await websocket.send_json(event)
+                                except Exception:
+                                    return
+                                event_task = asyncio.create_task(subscriber_queue.get())
+                            if client_task in done:
+                                try:
+                                    raw = client_task.result()
+                                except Exception:
+                                    return
+                                last_activity = loop.time()
+                                if not await _handle_client_message(raw):
+                                    return
+                                client_task = asyncio.create_task(websocket.receive_text())
+                            if done:
+                                break
+                        if (loop.time() - last_activity) >= idle_timeout:
+                            # 发了 ping、又等满一个 pong 周期, 仍无任何回应
+                            # ⇒ 连接真的死了。
+                            break
             # Final snapshot then close
             try:
                 await websocket.send_json({"event": "snapshot", **job.to_dict()})

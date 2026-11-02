@@ -89,7 +89,7 @@ def _register_extension_routes(app: "FastAPI") -> None:
         # Render the same minimal dark theme as the main UI (KIMI-style
         # neutral dark) for visual consistency.
         html = (
-            '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+            '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">'
             '<meta name="color-scheme" content="dark">'
             "<title>MediaScribe Browser Extension</title>"
             "<style>"
@@ -111,20 +111,35 @@ def _register_extension_routes(app: "FastAPI") -> None:
             ".tag{display:inline-block;background:rgba(255,255,255,.05);color:rgba(255,255,255,.56);"
             "padding:2px 8px;border-radius:999px;font-size:11px;margin-left:6px;}"
             ".ok{color:#16c456;}.warn{color:#ff9f0a;}"
+            ".back{display:inline-block;color:#007cff;text-decoration:none;"
+            "margin:0 0 20px;font-size:13px;}"
             "</style></head><body>"
+            # 2026-10-31 交互审查(页面跳转路径): /extension 原本是**孤岛** ——
+            # 首页 footer 用 target="_blank" 打开它, 页面里却没有任何返回工作台
+            # 的入口, 用户只能靠浏览器后退。补一个显式返回链接。
+            '<a class="back" href="/">&larr; 返回转写台 (Back to workbench)</a>'
             '<div class="card">'
-            "<h1>MediaScribe Browser Extension"
-            f'<span class="tag">manifest v{_EXTENSION_MANIFEST_VERSION}</span>'
+            "<h1>MediaScribe Browser Extension "
+            '<span style="font-size:14px;font-weight:400;color:rgba(255,255,255,.56)">'
+            "浏览器扩展</span>"
+            f' <span class="tag">manifest v{_EXTENSION_MANIFEST_VERSION}</span>'
             "</h1>"
             "<p>Send the URL of the page you are reading straight to this "
             "Web UI and read the transcript in a toolbar popup or the "
-            "browser's right-side panel.</p>"
+            "browser's right-side panel."
+            "<br>把当前页面的链接直接发到这个 Web UI, 在工具栏弹窗或侧边栏里"
+            "读转写文稿。</p>"
             f"<p>{token_hint}</p>"
             '<a class="btn" href="/api/extension/download">Download '
-            "extension (.zip)</a> "
+            "extension (.zip) / 下载扩展</a> "
+            # 2026-10-31 交互审查: 该端点**默认返回 HTML**(浏览器可读版),
+            # 不是 markdown 文件 —— 旧文案写 "(markdown)" 与实际行为不符。
+            # 现在两个入口都给: 网页版便于阅读, ?raw=1 才是真 markdown 文件。
             '<a class="btn secondary" href="/api/extension/install.md">'
-            "Install guide (markdown)</a>"
-            "<h2>Install in 30 seconds</h2>"
+            "Install guide / 安装指南</a> "
+            '<a class="btn secondary" href="/api/extension/install.md?raw=1">'
+            "Raw .md</a>"
+            "<h2>Install in 30 seconds / 30 秒装好</h2>"
             "<ol>"
             "<li>Click <b>Download extension</b> above and save the ZIP.</li>"
             "<li>Extract it into a permanent folder, e.g. "
@@ -135,7 +150,7 @@ def _register_extension_routes(app: "FastAPI") -> None:
             "<li>Click <b>Load unpacked</b> and select the extracted folder.</li>"
             "<li>Click the toolbar icon (or open the side panel) — done.</li>"
             "</ol>"
-            "<h2>Troubleshooting</h2>"
+            "<h2>Troubleshooting / 排查</h2>"
             "<ul>"
             "<li><b>Side panel button missing</b> — update to Chrome / "
             "Edge 114 or newer.</li>"

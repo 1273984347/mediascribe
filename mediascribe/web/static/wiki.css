@@ -60,6 +60,9 @@ h2.sec:first-child { margin-top: 0; }
 /* flex 子项必须 min-width:0 才能触发 ellipsis, 否则长标题撑出面板 */
 .note-item .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .empty { color: var(--fg-3); font-size: 13px; padding: 30px; text-align: center; }
+/* 2026-10-31 交互审查 P2-7: 加载/删除失败必须**看得见** ——
+   旧实现只写 title 属性, 用户看不到任何提示。 */
+.viewer-err { color: var(--red); }
 .viewer pre {
   margin: 0; white-space: pre-wrap; word-break: break-word;
   font-family: var(--mono); font-size: 12.5px; line-height: 1.75; color: var(--fg);
