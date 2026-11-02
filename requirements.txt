@@ -3,8 +3,9 @@
 # thin install shim used by `make install` / `make dev`; CI and the
 # Dockerfile install extras directly via `pip install -e ".[...]"`.
 #
-# NOTE: the `llm` extra (openai>=1.0.0, used by mediascribe.llm_post_process)
-# is intentionally NOT pulled in here — opt in with
-#   pip install -e ".[llm]"      (repo checkout)
-#   pip install "mediascribe[llm]"  (installed package)
--e .[web,ocr,faster-whisper,mcp]
+# NOTE: several extras are intentionally NOT pulled in here — opt in:
+#   pip install -e ".[llm]"       LLM 后处理 (openai, OpenAI-compatible API)
+#   pip install -e ".[ocr]"       公众号图片文章 OCR (paddleocr/easyocr ≈150 包,
+#                                 纯文本/视频转录用不到 — 2026-11-03 首航自测起默认不装)
+#   pip install -e ".[vad]"       智能分块 VAD (webrtcvad)
+-e .[web,faster-whisper,mcp]
