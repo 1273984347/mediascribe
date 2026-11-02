@@ -154,7 +154,102 @@ class CacheStats:
     bytes_in_use: int
 
 
-class PersistentDownloadCache:
+class _PersistentIndexCache:
+    """PersistentCache 两兄弟的共享机制基类 (2026-11-03 提基类, 搁置清单 #2)。
+
+    子类差异只剩三件: 键方案 (``_key_for`` / ``_key``)、存储单位
+    (文件 vs 目录, 经 :meth:`_remove_path` 钩子)、容量语义
+    (``max_bytes`` vs ``max_entries``, 各自 ``_enforce_cap``)。
+    """
+
+    def _init_cache_state(self, base: Path, name: str, ttl_seconds: int) -> None:
+        """加载 index + 注册 finalize 兜底 (子类 __init__ 调用)。"""
+        self._base = Path(base)
+        self._base.mkdir(parents=True, exist_ok=True)
+        self._name = name
+        self._ttl = int(ttl_seconds)
+        self._index = _load_index(self._base, self._name)
+        self._hits = 0
+        self._misses = 0
+        self._lru_seq = 0  # LRU 单调序号 — time.time() 在 Windows ~15ms 粒度下会打平
+        self._evictions = 0
+        # P2-2: get() 命中只更新内存 last_access(消灭每次命中的
+        # 全量 index 重写);脏标记 + finalize 兜底保证 LRU 顺序
+        # 在 put/_evict/close 之外的路径也能落盘。
+        self._dirty = [False]
+        self._finalizer = weakref.finalize(
+            self,
+            _flush_index_finalizer,
+            self._base,
+            self._name,
+            self._index,
+            self._dirty,
+        )
+
+    def _touch_lru(self, entry: dict) -> None:
+        """命中触点: 只写内存, 落盘时机收敛到 put/_evict/close/atexit。"""
+        self._lru_seq += 1
+        entry["last_access"] = time.time()
+        entry["lru_seq"] = self._lru_seq  # 同毫秒触点用序号决胜
+        self._dirty[0] = True
+
+    def _persist_index(self) -> None:
+        """立即落盘 index 并清除脏标记(put/_evict/close 路径)。"""
+        _save_index(self._base, self._name, self._index)
+        self._dirty[0] = False
+
+    def _flush_dirty_index(self) -> None:
+        if self._dirty[0]:
+            self._dirty[0] = False
+            _save_index(self._base, self._name, self._index)
+
+    def close(self) -> None:
+        """落盘内存中的 index 变更并解除 finalize 兜底。"""
+        self._flush_dirty_index()
+        self._finalizer.detach()
+
+    def prune(self) -> int:
+        """Evict entries older than ``ttl_seconds`` and return the count."""
+        if self._ttl <= 0:
+            return 0
+        cutoff = time.time() - self._ttl
+        victims = [k for k, v in self._index.items() if v.get("created", 0) < cutoff]
+        return self._evict(victims)
+
+    def _lru_ordered(self) -> list:
+        """index 按 (last_access, lru_seq) 升序 — 最旧在前。"""
+        return sorted(
+            self._index.items(),
+            key=lambda kv: (
+                kv[1].get("last_access", 0),
+                kv[1].get("lru_seq", 0),
+            ),
+        )
+
+    def _remove_path(self, path: Path) -> None:
+        """删除单个缓存单位 — 子类钩子: 文件 unlink / 目录 rmtree。"""
+        raise NotImplementedError
+
+    def _evict(self, keys: list[str]) -> int:
+        n = 0
+        for k in keys:
+            entry = self._index.pop(k, None)
+            if entry is None:
+                continue
+            p = self._base / entry["filename"]
+            try:
+                if p.exists():
+                    self._remove_path(p)
+                    n += 1
+            except OSError:
+                pass
+            self._evictions += 1
+        if keys:
+            self._persist_index()
+        return n
+
+
+class PersistentDownloadCache(_PersistentIndexCache):
     """A content-addressed URL→path cache that survives across runs.
 
     Parameters
@@ -184,28 +279,10 @@ class PersistentDownloadCache:
         ttl_seconds: int = _DEFAULT_TTL_SECONDS,
         max_bytes: int = _DEFAULT_MAX_BYTES,
     ) -> None:
-        self._base = Path(base) if base else persistent_cache_dir()
-        self._base.mkdir(parents=True, exist_ok=True)
-        self._ttl = int(ttl_seconds)
         self._max_bytes = int(max_bytes)
-        self._name = "downloads"
-        self._index = _load_index(self._base, self._name)
-        self._hits = 0
-        self._misses = 0
-        self._lru_seq = 0  # LRU 单调序号 — time.time() 在 Windows ~15ms 粒度下会打平
         self._stores = 0
-        self._evictions = 0
-        # P2-2: get() 命中只更新内存 last_access(消灭每次命中的
-        # 全量 index 重写);脏标记 + finalize 兜底保证 LRU 顺序
-        # 在 put/_evict/close 之外的路径也能落盘。
-        self._dirty = [False]
-        self._finalizer = weakref.finalize(
-            self,
-            _flush_index_finalizer,
-            self._base,
-            self._name,
-            self._index,
-            self._dirty,
+        self._init_cache_state(
+            Path(base) if base else persistent_cache_dir(), "downloads", ttl_seconds
         )
 
     @property
@@ -214,21 +291,6 @@ class PersistentDownloadCache:
 
     def _key_for(self, url: str) -> str:
         return hashlib.sha256(url.encode("utf-8")).hexdigest()
-
-    def _persist_index(self) -> None:
-        """立即落盘 index 并清除脏标记(put/_evict/close 路径)。"""
-        _save_index(self._base, self._name, self._index)
-        self._dirty[0] = False
-
-    def _flush_dirty_index(self) -> None:
-        if self._dirty[0]:
-            self._dirty[0] = False
-            _save_index(self._base, self._name, self._index)
-
-    def close(self) -> None:
-        """落盘内存中的 index 变更并解除 finalize 兜底。"""
-        self._flush_dirty_index()
-        self._finalizer.detach()
 
     def get(self, url: str) -> Optional[Path]:
         """Return the cached path for ``url`` or None.
@@ -250,10 +312,7 @@ class PersistentDownloadCache:
             self._dirty[0] = True
             self._misses += 1
             return None
-        self._lru_seq += 1
-        entry["last_access"] = time.time()
-        entry["lru_seq"] = self._lru_seq  # 同毫秒触点用序号决胜
-        self._dirty[0] = True
+        self._touch_lru(entry)
         self._hits += 1
         return path
 
@@ -305,26 +364,11 @@ class PersistentDownloadCache:
         self._persist_index()
         return n
 
-    def prune(self) -> int:
-        """Evict entries older than ``ttl_seconds`` and return the count."""
-        if self._ttl <= 0:
-            return 0
-        cutoff = time.time() - self._ttl
-        victims = [k for k, v in self._index.items() if v.get("created", 0) < cutoff]
-        return self._evict(victims)
-
     def _enforce_cap(self) -> None:
         """LRU-evict until ``bytes_in_use <= max_bytes``."""
         if self._max_bytes <= 0:
             return
-        # Sort by last_access ascending; oldest first.
-        ordered = sorted(
-            self._index.items(),
-            key=lambda kv: (
-                kv[1].get("last_access", 0),
-                kv[1].get("lru_seq", 0),
-            ),
-        )
+        ordered = self._lru_ordered()
         total = sum(v["size"] for v in self._index.values())
         victims: list[str] = []
         for k, v in ordered:
@@ -334,23 +378,8 @@ class PersistentDownloadCache:
             victims.append(k)
         self._evict(victims)
 
-    def _evict(self, keys: list[str]) -> int:
-        n = 0
-        for k in keys:
-            entry = self._index.pop(k, None)
-            if entry is None:
-                continue
-            p = self._base / entry["filename"]
-            try:
-                if p.exists():
-                    p.unlink()
-                    n += 1
-            except OSError:
-                pass
-            self._evictions += 1
-        if keys:
-            self._persist_index()
-        return n
+    def _remove_path(self, path: Path) -> None:
+        path.unlink()
 
     def stats(self) -> CacheStats:
         return CacheStats(
@@ -382,7 +411,7 @@ class PersistentDownloadCache:
 # ---------------------------------------------------------------------------
 
 
-class PersistentChunkCache:
+class PersistentChunkCache(_PersistentIndexCache):
     """Cache audio chunks keyed by (source path, mtime, size, params).
 
     Unlike :class:`PersistentDownloadCache`, the key here is *content-
@@ -404,23 +433,9 @@ class PersistentChunkCache:
         ttl_seconds: int = _DEFAULT_TTL_SECONDS,
         max_entries: int = _DEFAULT_MAX_CHUNK_ENTRIES,
     ) -> None:
-        self._base = Path(base) if base else persistent_cache_dir() / "chunks"
-        self._base.mkdir(parents=True, exist_ok=True)
-        self._ttl = int(ttl_seconds)
         self._max_entries = int(max_entries)
-        self._name = "chunks"
-        self._index = _load_index(self._base, self._name)
-        self._hits = 0
-        self._misses = 0
-        self._lru_seq = 0  # LRU 单调序号 — time.time() 在 Windows ~15ms 粒度下会打平
-        self._dirty = [False]
-        self._finalizer = weakref.finalize(
-            self,
-            _flush_index_finalizer,
-            self._base,
-            self._name,
-            self._index,
-            self._dirty,
+        self._init_cache_state(
+            Path(base) if base else persistent_cache_dir() / "chunks", "chunks", ttl_seconds
         )
 
     def _key(self, src: Path, params: dict) -> str:
@@ -433,20 +448,6 @@ class PersistentChunkCache:
         }
         raw = json.dumps(payload, sort_keys=True, ensure_ascii=False)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
-    def _persist_index(self) -> None:
-        _save_index(self._base, self._name, self._index)
-        self._dirty[0] = False
-
-    def _flush_dirty_index(self) -> None:
-        if self._dirty[0]:
-            self._dirty[0] = False
-            _save_index(self._base, self._name, self._index)
-
-    def close(self) -> None:
-        """落盘内存中的 index 变更并解除 finalize 兜底。"""
-        self._flush_dirty_index()
-        self._finalizer.detach()
 
     def has(self, src: Path, params: dict) -> bool:
         return self.get(src, params) is not None
@@ -462,10 +463,7 @@ class PersistentChunkCache:
             self._misses += 1
             return None
         # P2-4: LRU 触点只写内存,落盘时机收敛到 put/_evict/close
-        self._lru_seq += 1
-        entry["last_access"] = time.time()
-        entry["lru_seq"] = self._lru_seq  # 同毫秒触点用序号决胜
-        self._dirty[0] = True
+        self._touch_lru(entry)
         self._hits += 1
         return self._base / filename
 
@@ -496,14 +494,6 @@ class PersistentChunkCache:
         self._enforce_cap()
         return target
 
-    def prune(self) -> int:
-        """Evict entries older than ``ttl_seconds`` and return the count."""
-        if self._ttl <= 0:
-            return 0
-        cutoff = time.time() - self._ttl
-        victims = [k for k, v in self._index.items() if v.get("created", 0) < cutoff]
-        return self._evict(victims)
-
     def _enforce_cap(self) -> None:
         """LRU-evict until ``len(index) <= max_entries``."""
         if self._max_entries <= 0:
@@ -511,32 +501,12 @@ class PersistentChunkCache:
         excess = len(self._index) - self._max_entries
         if excess <= 0:
             return
-        ordered = sorted(
-            self._index.items(),
-            key=lambda kv: (
-                kv[1].get("last_access", 0),
-                kv[1].get("lru_seq", 0),
-            ),
-        )
-        victims = [k for k, _ in ordered[:excess]]
+        victims = [k for k, _ in self._lru_ordered()[:excess]]
         self._evict(victims)
 
-    def _evict(self, keys: list[str]) -> int:
-        n = 0
-        for k in keys:
-            entry = self._index.pop(k, None)
-            if entry is None:
-                continue
-            p = self._base / entry["filename"]
-            try:
-                if p.exists():
-                    shutil.rmtree(p, ignore_errors=True)
-                    n += 1
-            except OSError:
-                pass
-        if keys:
-            self._persist_index()
-        return n
+    def _remove_path(self, path: Path) -> None:
+        # chunk 是目录单位 — 保留 ignore_errors 语义 (与原 rmtree 一致)
+        shutil.rmtree(path, ignore_errors=True)
 
     def info(self) -> dict:
         return {
