@@ -810,11 +810,16 @@ def _probe_source_alive(url: str, timeout: float = 5.0) -> Optional[bool]:
     ``None``  无法判定 (网络错误 / 超时 / 离线环境)。
     """
     import urllib.error
+    import urllib.parse
     import urllib.request
+
+    # 只探测 http(s) 来源; 其它 scheme (file: 等) 视同不可回取
+    if urllib.parse.urlparse(url).scheme not in ("http", "https"):
+        return False
 
     req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "Mozilla/5.0"})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 — scheme 已白名单
             return True if resp.status < 400 else False
     except urllib.error.HTTPError as exc:
         if exc.code in (404, 410):
