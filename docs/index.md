@@ -69,7 +69,7 @@ examples/plugins/             # third-party plugin samples
 | Version | 3.3.0 |
 | License | MIT |
 | Python | 3.11 – 3.13 |
-| Tests | 1192 (1187 passed / 5 skipped) |
+| Tests | live CI badge (1000+ tests) |
 | Platforms | 6 (+ local files) |
 | Engines | 4 (auto-fallback) |
 

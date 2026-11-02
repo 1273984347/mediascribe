@@ -5,7 +5,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-1192%20tests-brightgreen.svg)](#testing)
+[![Tests](https://github.com/1273984347/mediascribe/actions/workflows/test.yml/badge.svg)](https://github.com/1273984347/mediascribe/actions/workflows/test.yml)
 [![Coverage](https://img.shields.io/badge/Coverage-75%25-green.svg)](#testing)
 [![Platforms](https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](#-cross-platform)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://docs.astral.sh/ruff/)
@@ -29,7 +29,7 @@
 - 🎬 **Multi-Platform Support** - Bilibili, Douyin, YouTube, Xiaohongshu, WeChat MP, local files
 - 🌍 **100% Offline** - Local AI models, no data uploaded
 - 🚀 **No Cookies Required** - Smart URL extraction bypasses authentication
-- 🤖 **Multiple AI Engines** - Whisper, WhisperX, faster-whisper
+- 🤖 **Multiple AI Engines** - Whisper, faster-whisper, WhisperX, whisper.cpp
 - 📝 **Markdown Output** - Structured transcripts with metadata
 - 🔄 **Batch Processing** - Download entire creator's content
 - 🛡️ **Production Ready** - Logging, error handling, resume support
@@ -48,11 +48,20 @@
 git clone https://github.com/1273984347/mediascribe.git
 cd mediascribe
 
-# Install dependencies
+# Install dependencies (lightweight: ~40 packages, CPU torch)
 pip install -r requirements.txt
 
 # Install Playwright browser (for Douyin/Bilibili)
 playwright install chromium
+
+# Optional extras:
+pip install -e ".[ocr]"    # WeChat MP image-article OCR (+~150 packages)
+pip install -e ".[vad]"    # smart chunking VAD
+pip install -e ".[llm]"    # LLM post-processing (OpenAI-compatible API)
+
+# NVIDIA GPU: install CUDA torch for a multi-x speedup (PyPI default is CPU-only)
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+# then run with: python -m mediascribe transcribe <URL> --device cuda
 ```
 
 #### Single Video Transcription
@@ -322,7 +331,7 @@ The schema is **stable v1** and documented in
 ```bash
 make help        # list all targets
 make install     # pip install -r requirements.txt
-make test        # python scripts/run_tests.py (1187 passed / 5 skipped)
+make test        # python scripts/run_tests.py
 make lint        # ruff check + ruff format --check
 make format      # ruff check --fix + ruff format
 make verify      # syntax + imports + tests
@@ -332,7 +341,7 @@ On Windows without `make`, the same commands work as plain
 `python -m pip install -r requirements.txt` etc. (see the
 [`Makefile`](Makefile) header comments).
 
-### 1192 tests across the whole surface (1187 passed / 5 skipped), running in ~2 min:
+### Full test surface, running in ~2 min (see the live CI badge above for the current count):
 
 ```bash
 python scripts/run_tests.py
@@ -386,7 +395,7 @@ The library uses `pathlib` everywhere, normalises `~` and env-vars in user paths
 - 🎬 **多平台支持** - B站、抖音、YouTube、小红书、微信公众号、本地文件
 - 🌍 **100% 离线** - 本地 AI 模型，不上传数据
 - 🚀 **无需 Cookies** - 智能 URL 提取绕过认证
-- 🤖 **多种 AI 引擎** - Whisper、WhisperX、faster-whisper
+- 🤖 **多种 AI 引擎** - Whisper、faster-whisper、WhisperX、whisper.cpp
 - 📝 **Markdown 输出** - 结构化转录文档
 - 🔄 **批量处理** - 批量下载作者全部往期内容
 - 🛡️ **生产就绪** - 日志、错误处理、断点续传
