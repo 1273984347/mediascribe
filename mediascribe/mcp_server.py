@@ -453,6 +453,15 @@ def _tool_transcribe_video(args: Dict[str, Any]) -> Dict[str, Any]:
     if not source_input:
         raise ValueError("transcribe_video requires 'source' (URL or local path)")
 
+    # SEC-003 (2026-11-02 审计): URL 源过域名白名单, 与 Web 层同标准 —
+    # 防止 drive-by 调用把任意 URL 塞给 yt-dlp 抓取
+    if isinstance(source_input, str) and source_input.lower().startswith(("http://", "https://")):
+        from mediascribe.security import check_url_safety
+
+        is_safe, reason = check_url_safety(source_input)
+        if not is_safe:
+            raise ValueError(f"URL rejected by domain allowlist: {reason}")
+
     # The MCP tool is opinionated about defaults that may be different from
     # what the CLI uses.  Build a minimal Settings that honours the args
     # the caller passed through, falling back to safe defaults.
@@ -861,6 +870,24 @@ def _mcp_token_ok(headers: Any) -> bool:
     return hmac.compare_digest(presented, expected)
 
 
+def _origin_allowed(origin: str) -> bool:
+    """Origin 白名单: 本机回环地址与浏览器扩展。
+
+    MCP HTTP 传输只服务本机客户端; 任何指向外部站点的 Origin 都意味着
+    请求来自某个网页 (drive-by), 一律拒绝。
+    """
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(origin)
+    except ValueError:
+        return False
+    if parsed.scheme == "chrome-extension":
+        return True
+    host = (parsed.hostname or "").lower()
+    return host in ("127.0.0.1", "localhost", "::1")
+
+
 def _mcp_host_ok(host_header: str, port: int) -> bool:
     """P1-4②: Host 头白名单, 防 DNS rebinding。
 
@@ -916,6 +943,20 @@ def _make_http_server(host: str, port: int) -> Any:
                 # P1-4③: 超限直接 413, 不缓冲 body。丢弃已声明的 body
                 # (设硬上限防止恶意超大声明拖住服务线程)。
                 self._reply_plain(413, "request body too large")
+                self._drain(length)
+                return
+            # SEC-003 (2026-11-02 审计): 浏览器 drive-by 防护。
+            # text/plain 是 CORS 简单请求、无需预检, 任意网页可盲打本端口 —
+            # 强制 application/json (与 Web 层 _require_json_content_type 同闸);
+            # 携带 Origin 的跨源请求一律拒绝 (本服务只服务本机 CLI/桌面客户端)。
+            ctype = (self.headers.get("Content-Type") or "").strip().lower()
+            if not ctype.startswith("application/json"):
+                self._reply_plain(415, "Content-Type must be application/json")
+                self._drain(length)
+                return
+            origin = (self.headers.get("Origin") or "").strip()
+            if origin and not _origin_allowed(origin):
+                self._reply_plain(403, "cross-origin requests are not allowed")
                 self._drain(length)
                 return
             body = self.rfile.read(length).decode("utf-8", errors="replace")

@@ -71,10 +71,12 @@ def _build_pipeline(req: "TranscribeRequest", workspace: Path):
             wechat_cookies=cookies,
         )
         settings.device = device
+        # SEC-002: 只复用 transcriber (重资源), downloader 每请求新建 —
+        # WechatMpDownloader 持有 _active_cookies 会话状态, 跨请求复用
+        # 会把 A 的凭据粘滞给 B
         return Pipeline(
             settings,
             transcriber=cached.transcriber,
-            downloader=cached.downloader,
         )
 
     settings = Settings(
@@ -93,10 +95,10 @@ def _build_pipeline(req: "TranscribeRequest", workspace: Path):
         # 复用 cache 中的 transcriber/downloader。
         existing = _PIPELINE_CACHE.get(cache_key)
         if existing is not None:
+            # SEC-002: 同上, downloader 不复用
             return Pipeline(
                 settings,
                 transcriber=existing.transcriber,
-                downloader=existing.downloader,
             )
         if len(_PIPELINE_CACHE) >= 8:
             _PIPELINE_CACHE.pop(next(iter(_PIPELINE_CACHE)))

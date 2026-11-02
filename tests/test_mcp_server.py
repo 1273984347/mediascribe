@@ -315,7 +315,10 @@ class TestMCPServer(unittest.TestCase):
                 "tools/call",
                 {
                     "name": "transcribe_video",
-                    "arguments": {"source": "https://example.com/v", "language": "auto"},
+                    "arguments": {
+                        "source": "https://www.bilibili.com/video/BV1xx411c7mD",
+                        "language": "auto",
+                    },
                 },
             )
 
@@ -332,7 +335,10 @@ class TestMCPServer(unittest.TestCase):
                 "tools/call",
                 {
                     "name": "transcribe_video",
-                    "arguments": {"source": "https://example.com/v", "language": "auto"},
+                    "arguments": {
+                        "source": "https://www.bilibili.com/video/BV1xx411c7mD",
+                        "language": "auto",
+                    },
                 },
             )
         import json as _json

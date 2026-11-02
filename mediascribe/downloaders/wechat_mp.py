@@ -41,14 +41,12 @@ from html import unescape
 from pathlib import Path
 from typing import Any, Optional
 
-import requests
-
 from ..config import Settings
 from ..i18n import t
 from ..models import DownloadResult, SourceRef
 from ..security import is_tencent_cdn_url
 from ..url_utils import host_matches
-from ._http_download import CHROME_UA, build_http_session, stream_download
+from ._http_download import CHROME_UA, build_http_session, cred_get, stream_download
 from .base import Downloader
 
 logger = logging.getLogger(__name__)
@@ -124,11 +122,7 @@ class WechatMpDownloader(Downloader):
         self._ocr_lang: str = ocr_lang or "chi_sim+eng"
         self._save_images: bool = bool(save_images)
 
-        # 自动注入 cookies（来自 settings.wechat_cookies）
-        if settings.wechat_cookies and not self._active_cookies:
-            self._active_cookies = dict(settings.wechat_cookies)
-            self._cookies_source = "settings"
-            logger.info("使用 settings 注入的 %d 个 cookie", len(self._active_cookies))
+        self._refresh_cookies(settings)
 
         html = self._fetch_html(url)
         if not html:
@@ -212,6 +206,18 @@ class WechatMpDownloader(Downloader):
     # ------------------------------------------------------------------
     # HTML fetch + parse
     # ------------------------------------------------------------------
+    def _refresh_cookies(self, settings: Settings) -> None:
+        """按调用刷新会话 cookies (2026-11-02 审计 SEC-002)。
+
+        旧实现 ``not self._active_cookies`` 门控会让缓存的 downloader
+        实例把请求 A 的会话 cookies 粘滞给请求 B, 并静默丢弃请求 C
+        显式提供的 cookies — 跨请求凭据串用。这里无条件按次快照。
+        """
+        self._active_cookies = dict(settings.wechat_cookies or {})
+        self._cookies_source = "settings" if self._active_cookies else ""
+        if self._active_cookies:
+            logger.info("使用 settings 注入的 %d 个 cookie", len(self._active_cookies))
+
     def _cookies_for(self, url: str) -> Optional[dict]:
         """Cookies to attach for a request toward ``url``.
 
@@ -238,11 +244,13 @@ class WechatMpDownloader(Downloader):
             "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
         }
         try:
-            resp = requests.get(
+            # SEC-001: 携带 cookies 的请求手动接管重定向, 逐跳断言腾讯域
+            resp = cred_get(
                 url,
                 headers=headers,
                 cookies=self._cookies_for(url),
                 timeout=20,
+                redirect_guard=is_tencent_cdn_url,
             )
             resp.raise_for_status()
             resp.encoding = resp.apparent_encoding or "utf-8"
@@ -440,7 +448,8 @@ class WechatMpDownloader(Downloader):
             logger.warning("图片地址不在腾讯系 CDN，跳过下载/OCR: %s", image_url)
             return None
         try:
-            resp = requests.get(
+            # SEC-001: 同上, 图片跳转同样不得带 cookies 出腾讯域
+            resp = cred_get(
                 image_url,
                 headers={
                     "User-Agent": CHROME_UA,
@@ -448,6 +457,7 @@ class WechatMpDownloader(Downloader):
                 },
                 cookies=self._cookies_for(image_url),
                 timeout=20,
+                redirect_guard=is_tencent_cdn_url,
             )
             resp.raise_for_status()
         except Exception as e:
@@ -586,15 +596,16 @@ class WechatMpDownloader(Downloader):
         file_path = save_dir / f"wechat_mp_{uuid.uuid4().hex[:8]}.mp4"
         session = build_http_session()
         cookies = self._cookies_for(video_url)
-        if cookies:
-            session.cookies.update(cookies)
         try:
+            # SEC-001: cookies 只随首跳发出, 后续跳逐跳断言腾讯域且不带凭据
             return stream_download(
                 video_url,
                 file_path,
                 session=session,
                 headers=headers,
                 timeout=120,
+                cookies=cookies,
+                redirect_guard=is_tencent_cdn_url,
             )
         except Exception as e:
             logger.warning("下载视频失败: %s (%s)", video_url, e)
