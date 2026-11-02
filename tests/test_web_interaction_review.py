@@ -650,8 +650,10 @@ class TestBlindReviewFixes(unittest.TestCase):
         src = self._code("wiki.js")
         body = self._body("wiki.js", "function setViewerMessage")
         self.assertIn("appendChild", body, msg="错误提示未追加, 会覆盖正文")
+        # 2026-11-03 Phase 4: 渲染态正文容器从 <pre> 换成 [data-body]
+        # (渲染/原文两种视图共用), 正文存在性判断同步更新
         self.assertIn(
-            'viewer.querySelector("pre")',
+            'viewer.querySelector("[data-body]")',
             body,
             msg="未判断查看区是否已有正文",
         )

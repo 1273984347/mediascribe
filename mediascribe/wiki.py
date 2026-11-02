@@ -605,10 +605,19 @@ class WikiVault:
         """知识库视图数据: 笔记清单 + HOME 内容(供 Web API 使用)。"""
         with self._lock:
             records = self._scan_raw()
+            url_by_name = {r["name"]: r.get("url", "") for r in records}
             notes: List[Dict[str, str]] = []
             for sub, ntype in (("raw", "raw"), ("wiki", "wiki")):
                 for p in sorted((self.root / sub).glob("*.md")):
-                    notes.append({"name": p.stem, "path": f"{sub}/{p.name}", "type": ntype})
+                    note: Dict[str, str] = {
+                        "name": p.stem,
+                        "path": f"{sub}/{p.name}",
+                        "type": ntype,
+                    }
+                    if ntype == "raw":
+                        # 2026-11-03 Phase 4: 前端时间戳深链需要来源 URL
+                        note["url"] = url_by_name.get(p.stem, "")
+                    notes.append(note)
             home_path = self.root / _HOME_NOTE
             home = home_path.read_text(encoding="utf-8") if home_path.exists() else ""
             return {
@@ -617,6 +626,41 @@ class WikiVault:
                 "raw_count": len(records),
                 "concepts": sorted(p.stem for p in self.wiki_dir.glob("概念 - *.md")),
             }
+
+    def search(self, query: str, *, limit: int = 50) -> List[Dict[str, str]]:
+        """全文搜索: vault 全部 .md 里包含 ``query`` 的笔记 + 命中片段。
+
+        2026-11-03 Phase 4。大小写不敏感(拉丁文); 片段取命中点前后各
+        60 字符并压平换行。空查询返回空表。
+        """
+        q = (query or "").strip()
+        if not q:
+            return []
+        needle = q.lower()
+        results: List[Dict[str, str]] = []
+        for sub, ntype in (("raw", "raw"), ("wiki", "wiki")):
+            for path in sorted((self.root / sub).glob("*.md")):
+                try:
+                    text = path.read_text(encoding="utf-8", errors="replace")
+                except OSError:  # pragma: no cover - defensive
+                    continue
+                idx = text.lower().find(needle)
+                if idx < 0:
+                    continue
+                start = max(0, idx - 60)
+                end = min(len(text), idx + len(q) + 60)
+                snippet = text[start:end].replace("\n", " ").strip()
+                results.append(
+                    {
+                        "name": path.stem,
+                        "path": f"{sub}/{path.name}",
+                        "type": ntype,
+                        "snippet": snippet,
+                    }
+                )
+                if len(results) >= limit:
+                    return results
+        return results
 
     def _write_home(
         self, records: List[Dict[str, str]], concepts: Optional[List[str]] = None

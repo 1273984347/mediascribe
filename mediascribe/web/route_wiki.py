@@ -85,6 +85,14 @@ def _register_wiki_routes(app: "FastAPI") -> None:
             media_type="text/markdown; charset=utf-8",
         )
 
+    @app.get("/api/wiki/search", dependencies=[_depends(_require_api_token)])
+    def wiki_search(q: str = "") -> Dict[str, Any]:
+        """全文搜索 vault 笔记(Phase 4)。空查询返回空结果表。"""
+        vault = app.state.wiki_vault
+        if vault is None:
+            return {"enabled": False, "results": []}
+        return {"enabled": True, "results": vault.search(q)}
+
     @app.delete("/api/wiki/note", dependencies=[_depends(_require_api_token)])
     def wiki_note_delete(name: str) -> Dict[str, Any]:
         """删除单篇笔记并同步派生视图(概念账本 / 聚合 / HOME)。"""

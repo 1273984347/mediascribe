@@ -264,3 +264,51 @@ class TestWebAppJobEndpoints:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestWikiSearchRoute(unittest.TestCase):
+    """Phase 4: /api/wiki/search 路由契约 (启用/禁用两态 + 命中)。"""
+
+    def setUp(self):
+        import tempfile
+
+        from fastapi.testclient import TestClient
+
+        from mediascribe.web.app import create_app
+        from mediascribe.wiki import WikiVault
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.app_obj = create_app(workspace=Path(self._tmp.name))
+        # 注入真实 vault 并归档一篇可命中的笔记
+        self.vault = WikiVault(Path(self._tmp.name) / "vault")
+        md = Path(self._tmp.name) / "in.md"
+        md.write_text("# 机械键盘\n\n**[00:10]** 轴体切换很顺滑。\n", encoding="utf-8")
+        self.vault.archive_transcript(
+            md,
+            {
+                "source": {"kind": "bilibili", "url": "https://www.bilibili.com/video/BV1xx"},
+                "download_metadata": {"webpage_url": "https://www.bilibili.com/video/BV1xx"},
+            },
+        )
+        self.app_obj.state.wiki_vault = self.vault
+        self.client = TestClient(self.app_obj)
+
+    def test_search_hits_archived_note(self):
+        r = self.client.get("/api/wiki/search", params={"q": "轴体"})
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertTrue(data["enabled"])
+        self.assertEqual(len(data["results"]), 1)
+        self.assertIn("轴体", data["results"][0]["snippet"])
+
+    def test_search_empty_query(self):
+        r = self.client.get("/api/wiki/search", params={"q": ""})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["results"], [])
+
+    def test_search_disabled_vault(self):
+        self.app_obj.state.wiki_vault = None
+        r = self.client.get("/api/wiki/search", params={"q": "x"})
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(r.json()["enabled"])
