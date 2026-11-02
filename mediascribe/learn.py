@@ -512,26 +512,23 @@ def _norm_term(s: str) -> str:
     return re.sub(r"[\W_]+", "", s, flags=re.UNICODE).casefold()
 
 
-def _pinyin_of(words: set[str]) -> dict[str, str]:
-    """批量拼音映射; pypinyin 不可用时返回空表 (跳过拼音类检查)。"""
-    try:
-        from pypinyin import lazy_pinyin
-    except ImportError:
-        return {}
-    return {w: "".join(lazy_pinyin(w)) for w in words}
-
-
 def audit_terms(path: Optional[Path] = None) -> list[TermFinding]:
     """术语库卫生自检 — 回填前后都应跑一次 (error 级清零才回填)。
 
-    五类检查:
+    四类检查:
     - ``conflict`` (error): 同一 wrong 映射多个不同 right — 生效表
       ``get_active_terms()`` 按插入序静默取最后一条, 前面的全部失效;
     - ``reverse`` (error): A→B 与 B→A 同时存在 — 顺序替换自反污染;
     - ``chain`` (warning): A→B 且 B→C — 顺序替换会双跳;
-    - ``near_dup`` (warning): 归一化后相同的变体对, 或两侧拼音全同的
-      同音变体对 (SAFE_TERMS 重复对事故的直接形态);
+    - ``near_dup`` (warning): 归一化后相同的变体对 (SAFE_TERMS 重复对
+      事故的直接形态 — 纯空白/标点/大小写差异的冗余条目);
     - ``noop`` (warning): 归一化后 wrong==right — 纯大小写/标点变体。
+
+    注意 (2026-11-03 实库校准): **不同 wrong → 同一 right 的同音变体
+    组不算问题** — post_process 逐 wrong 做 str.replace, 每个误识写法
+    (马元/马源/马园/马圆→马原) 都需要独立规则, 合并反而丢失纠正能力。
+    曾按拼音全同报 warning, 实库 355 条首跑即 27 条全是此类误报,
+    训练用户忽略 audit 输出 — 已移除该检查。
     """
     db = _load_db(path)
     findings: list[TermFinding] = []
@@ -581,7 +578,6 @@ def audit_terms(path: Optional[Path] = None) -> list[TermFinding]:
 
     # near_dup + noop: 归一化分组
     norm_groups: dict[tuple[str, str], list[tuple[str, str]]] = {}
-    reported: set[tuple[str, str]] = set()
     for w, r in pairs:
         nw, nr = _norm_term(w), _norm_term(r)
         if nw == nr:
@@ -593,29 +589,6 @@ def audit_terms(path: Optional[Path] = None) -> list[TermFinding]:
         if len(group) > 1:
             shown = ", ".join(f"{w!r}->{r!r}" for w, r in group)
             findings.append(TermFinding("warning", "near_dup", f"variant duplicates: {shown}"))
-            reported.update(group)
-
-    # near_dup: 拼音全同的同音变体 (归一化不同才查, 避免与上一步重复)
-    pmap = _pinyin_of({w for w, _ in pairs} | {r for _, r in pairs})
-    if pmap:
-        seen: dict[tuple[str, str], tuple[str, str]] = {}
-        for w, r in pairs:
-            if (w, r) in reported:
-                continue
-            key = (pmap.get(w, ""), pmap.get(r, ""))
-            if not key[0] or not key[1]:
-                continue
-            if key in seen and (w, r) != seen[key]:
-                a = seen[key]
-                findings.append(
-                    TermFinding(
-                        "warning",
-                        "near_dup",
-                        f"homophone variants: {a[0]!r}->{a[1]!r} vs {w!r}->{r!r}",
-                    )
-                )
-            else:
-                seen.setdefault(key, (w, r))
 
     return findings
 
