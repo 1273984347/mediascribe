@@ -838,7 +838,12 @@ class Pipeline:
         # (目录白名单保证只删托管目录内的文件)
         if getattr(self.settings, "cleanup_media", False):
             print_cleanup_review_hint()
-            deleted = cleanup_intermediate_media(self.settings, audio_path, video_path)
+            deleted = cleanup_intermediate_media(
+                self.settings,
+                audio_path,
+                video_path,
+                source_url=source.url,
+            )
             if deleted:
                 print(t("CLI_CLEANUP_DONE", n=len(deleted)))
         return TranscriptResult(

@@ -26,6 +26,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
+from ..i18n import t
 from ..model_weights import missing_hint
 from ..zh_normalize import simplified_initial_prompt
 from .base import Transcriber
@@ -173,8 +174,12 @@ def _load_whisper_model(model_name: str, device: str, compute_type: str) -> Any:
             # HuggingFace 的原始异常（LocalEntryNotFound / SSL 噪音）对用户
             # 没有可操作性 —— 换成带预置指引的中文错误。
             raise RuntimeError(
-                f"模型 {model_name!r} 的权重未预置，且联网下载失败：{exc2}\n"
-                f"{missing_hint('faster-whisper', model_name)}"
+                t(
+                    "FW_WEIGHTS_MISSING",
+                    model=model_name,
+                    exc=exc2,
+                    hint=missing_hint("faster-whisper", model_name),
+                )
             ) from exc2
 
 
@@ -194,7 +199,7 @@ def _get_cached_model(model_name: str, device: str, compute_type: str) -> Any:
         try:
             from faster_whisper import WhisperModel  # noqa: F401 -- 探测依赖, 报错给友好提示
         except ImportError as e:
-            raise RuntimeError("faster-whisper 未安装，请运行: pip install faster-whisper") from e
+            raise RuntimeError(t("FW_NOT_INSTALLED")) from e
         logger.info(
             "加载 faster-whisper 模型: %s (device=%s, compute_type=%s)",
             model_name,

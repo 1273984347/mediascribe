@@ -56,5 +56,25 @@ class TestBatchBoolEnv(unittest.TestCase):
                 self.assertTrue(config.keep_audio)
 
 
+class TestCleanupForceEnv(unittest.TestCase):
+    """MEDIASCRIBE_CLEANUP_FORCE — 2026-11-02 可逆性门控的强制阀。"""
+
+    def test_wide_vocabulary_accepted(self):
+        from mediascribe.pipeline_stages import _cleanup_force_enabled
+
+        for value in TRUTHY:
+            with self.subTest(value=value):
+                with unittest.mock.patch.dict("os.environ", {"MEDIASCRIBE_CLEANUP_FORCE": value}):
+                    assert _cleanup_force_enabled() is True
+
+    def test_falsy_and_garbage_rejected(self):
+        from mediascribe.pipeline_stages import _cleanup_force_enabled
+
+        for value in FALSY:
+            with self.subTest(value=value):
+                with unittest.mock.patch.dict("os.environ", {"MEDIASCRIBE_CLEANUP_FORCE": value}):
+                    assert _cleanup_force_enabled() is False
+
+
 if __name__ == "__main__":
     unittest.main()

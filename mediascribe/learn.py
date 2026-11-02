@@ -64,8 +64,10 @@ __all__ = [
     "import_terms",
     "clear_learned_terms",
     "learned_terms_path",
+    "audit_terms",
     "Correction",
     "LearnedTermsDB",
+    "TermFinding",
 ]
 
 # 置信度阈值: 同一错误出现 N 次后自动确认
@@ -491,6 +493,131 @@ def clear_learned_terms(path: Optional[Path] = None) -> None:
         backup = store.with_name(f"{store.name}.{time.strftime('%Y%m%d-%H%M%S')}.bak")
         shutil.copy2(store, backup)
         store.unlink()
+
+
+# ---------------------------------------------------------------------------
+# 术语库卫生自检 (2026-11-02: SAFE_TERMS 重复对事故的工具化)
+# ---------------------------------------------------------------------------
+@dataclass
+class TermFinding:
+    """一条术语库自检发现。"""
+
+    severity: str  # "error" | "warning"
+    kind: str  # "conflict" | "reverse" | "chain" | "near_dup" | "noop"
+    detail: str  # 证据 (英文, 日志风格; CLI 外框文案走 t())
+
+
+def _norm_term(s: str) -> str:
+    """变体归一化: 去空白/标点/下划线 + casefold。"""
+    return re.sub(r"[\W_]+", "", s, flags=re.UNICODE).casefold()
+
+
+def _pinyin_of(words: set[str]) -> dict[str, str]:
+    """批量拼音映射; pypinyin 不可用时返回空表 (跳过拼音类检查)。"""
+    try:
+        from pypinyin import lazy_pinyin
+    except ImportError:
+        return {}
+    return {w: "".join(lazy_pinyin(w)) for w in words}
+
+
+def audit_terms(path: Optional[Path] = None) -> list[TermFinding]:
+    """术语库卫生自检 — 回填前后都应跑一次 (error 级清零才回填)。
+
+    五类检查:
+    - ``conflict`` (error): 同一 wrong 映射多个不同 right — 生效表
+      ``get_active_terms()`` 按插入序静默取最后一条, 前面的全部失效;
+    - ``reverse`` (error): A→B 与 B→A 同时存在 — 顺序替换自反污染;
+    - ``chain`` (warning): A→B 且 B→C — 顺序替换会双跳;
+    - ``near_dup`` (warning): 归一化后相同的变体对, 或两侧拼音全同的
+      同音变体对 (SAFE_TERMS 重复对事故的直接形态);
+    - ``noop`` (warning): 归一化后 wrong==right — 纯大小写/标点变体。
+    """
+    db = _load_db(path)
+    findings: list[TermFinding] = []
+    pairs = [(c.wrong, c.right) for c in db.terms.values()]
+    if not pairs:
+        return findings
+
+    # conflict: 同 wrong 多 right
+    by_wrong: dict[str, list[str]] = {}
+    for w, r in pairs:
+        by_wrong.setdefault(w, []).append(r)
+    for w, rights in by_wrong.items():
+        uniq = list(dict.fromkeys(rights))
+        if len(uniq) > 1:
+            shown = " / ".join(repr(r) for r in uniq)
+            findings.append(
+                TermFinding(
+                    "error",
+                    "conflict",
+                    f"wrong={w!r} maps to {len(uniq)} distinct rights: {shown}; "
+                    "only the last one takes effect",
+                )
+            )
+
+    pair_set = set(pairs)
+    # reverse: A→B 与 B→A
+    for w, r in sorted(pair_set):
+        if w < r and (r, w) in pair_set:
+            findings.append(
+                TermFinding("error", "reverse", f"{w!r}->{r!r} and {r!r}->{w!r} both present")
+            )
+
+    # chain: A→B 且 B→C (C != B)
+    targets: dict[str, set[str]] = {}
+    for w, r in pairs:
+        targets.setdefault(w, set()).add(r)
+    for w, r in sorted(pair_set):
+        for t in sorted(targets.get(r, set())):
+            if t != r:
+                findings.append(
+                    TermFinding(
+                        "warning",
+                        "chain",
+                        f"{w!r}->{r!r} and {r!r}->{t!r}: sequential replace hits twice",
+                    )
+                )
+
+    # near_dup + noop: 归一化分组
+    norm_groups: dict[tuple[str, str], list[tuple[str, str]]] = {}
+    reported: set[tuple[str, str]] = set()
+    for w, r in pairs:
+        nw, nr = _norm_term(w), _norm_term(r)
+        if nw == nr:
+            findings.append(
+                TermFinding("warning", "noop", f"{w!r}->{r!r}: identical after normalization")
+            )
+        norm_groups.setdefault((nw, nr), []).append((w, r))
+    for group in norm_groups.values():
+        if len(group) > 1:
+            shown = ", ".join(f"{w!r}->{r!r}" for w, r in group)
+            findings.append(TermFinding("warning", "near_dup", f"variant duplicates: {shown}"))
+            reported.update(group)
+
+    # near_dup: 拼音全同的同音变体 (归一化不同才查, 避免与上一步重复)
+    pmap = _pinyin_of({w for w, _ in pairs} | {r for _, r in pairs})
+    if pmap:
+        seen: dict[tuple[str, str], tuple[str, str]] = {}
+        for w, r in pairs:
+            if (w, r) in reported:
+                continue
+            key = (pmap.get(w, ""), pmap.get(r, ""))
+            if not key[0] or not key[1]:
+                continue
+            if key in seen and (w, r) != seen[key]:
+                a = seen[key]
+                findings.append(
+                    TermFinding(
+                        "warning",
+                        "near_dup",
+                        f"homophone variants: {a[0]!r}->{a[1]!r} vs {w!r}->{r!r}",
+                    )
+                )
+            else:
+                seen.setdefault(key, (w, r))
+
+    return findings
 
 
 # ---------------------------------------------------------------------------

@@ -48,6 +48,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Tuple
 
+from .i18n import t
+
 logger = logging.getLogger(__name__)
 
 
@@ -299,7 +301,7 @@ class LLMPostProcessor:
         try:
             from openai import OpenAI
         except ImportError as e:
-            raise RuntimeError("openai 库未安装，请运行: pip install openai") from e
+            raise RuntimeError(t("LLM_OPENAI_MISSING")) from e
         self._client = OpenAI(
             api_key=self.api_key,
             base_url=self.api_base,
@@ -362,7 +364,7 @@ class LLMPostProcessor:
                         exc,
                     )
         # 所有重试耗尽
-        raise last_exc if last_exc else RuntimeError("LLM API 调用失败，未知原因")
+        raise last_exc if last_exc else RuntimeError(t("LLM_CALL_FAILED_UNKNOWN"))
 
     @staticmethod
     def _is_retryable(exc: Exception) -> bool:

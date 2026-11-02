@@ -26,6 +26,7 @@ from typing import Any, Iterator, Optional, Tuple
 
 import torch
 
+from ..i18n import t
 from ..model_weights import missing_hint
 from ..zh_normalize import simplified_initial_prompt
 from .base import Transcriber
@@ -109,8 +110,12 @@ def _get_cached_model(whisper_module: Any, model_name: str, device: str) -> Any:
                 # 「RuntimeError: Model {name} not found; available models = ...」
                 # —— 对用户没有可操作性。换成带预置指引的中文错误。
                 raise RuntimeError(
-                    f"模型 {model_name!r} 的权重未预置：{exc}\n"
-                    f"{missing_hint('whisper', model_name)}"
+                    t(
+                        "WHISPER_WEIGHTS_MISSING",
+                        model=model_name,
+                        exc=exc,
+                        hint=missing_hint("whisper", model_name),
+                    )
                 ) from exc
         _MODEL_CACHE[key] = model
         while len(_MODEL_CACHE) > _MODEL_CACHE_MAX:
@@ -147,7 +152,7 @@ class WhisperTranscriber(Transcriber):
         model = self._ensure_model()
 
         if progress:
-            print("转录中...")
+            print(t("WHISPER_TRANSCRIBING"))
 
         options: dict[str, Any] = {
             "verbose": False,
@@ -187,7 +192,7 @@ class WhisperTranscriber(Transcriber):
 
             self.device = "cuda" if _torch.cuda.is_available() else "cpu"
 
-        print(f"加载 Whisper 模型: {self.model_name} (设备: {self.device})")
+        print(t("WHISPER_LOADING", model=self.model_name, device=self.device))
 
         # torch 2.6+ 兼容补丁仅在加载窗口内临时生效; 实例走模块级缓存复用
         self._model = _get_cached_model(whisper, self.model_name, self.device)

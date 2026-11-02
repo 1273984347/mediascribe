@@ -418,7 +418,12 @@ def _execute_transcribe(pipeline: Pipeline, args, settings: Settings) -> int:
     if deferred_cleanup:
         from .pipeline_stages import cleanup_intermediate_media
 
-        deleted = cleanup_intermediate_media(settings, result.audio_path, result.video_path)
+        deleted = cleanup_intermediate_media(
+            settings,
+            result.audio_path,
+            result.video_path,
+            source_url=result.source.url,
+        )
         if deleted:
             print(t("CLI_CLEANUP_DONE", n=len(deleted)))
     _print_next_steps(result)
@@ -719,10 +724,14 @@ def _run_learn(argv: List[str]) -> int:
     # learn clear
     sub.add_parser("clear", help="清空学习记录")
 
+    # learn audit
+    sub.add_parser("audit", help="术语库卫生自检 (冲突/互反/链式/变体重复/无效对)")
+
     args = parser.parse_args(argv)
 
     from .learn import (
         _load_db,  # type: ignore[attr-defined]
+        audit_terms,
         clear_learned_terms,
         compare,
         confirm_term,
@@ -832,6 +841,19 @@ def _run_learn(argv: List[str]) -> int:
         clear_learned_terms()
         print(t("LEARN_CLEARED"))
         return 0
+
+    if args.action == "audit":
+        findings = audit_terms()
+        if not findings:
+            print(t("LEARN_AUDIT_CLEAN"))
+            return 0
+        errors = sum(1 for f in findings if f.severity == "error")
+        warnings = len(findings) - errors
+        print(t("LEARN_AUDIT_HEADER", errors=errors, warnings=warnings))
+        for f in findings:
+            print(t("LEARN_AUDIT_FINDING", sev=f.severity, kind=f.kind, detail=f.detail))
+        print(t("LEARN_AUDIT_FIX_HINT"))
+        return 1 if errors else 0
 
     return 1
 

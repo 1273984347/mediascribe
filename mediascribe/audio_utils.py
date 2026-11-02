@@ -13,6 +13,8 @@ import wave
 from pathlib import Path
 from typing import Any, List, Optional, Tuple
 
+from .i18n import t
+
 _logger = logging.getLogger(__name__)
 
 
@@ -60,7 +62,7 @@ def extract_audio(
     """
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
-        raise RuntimeError("未找到 FFmpeg，请先安装并添加到 PATH")
+        raise RuntimeError(t("FF_NOT_FOUND"))
 
     output_dir.mkdir(parents=True, exist_ok=True)
     audio_path = output_dir / f"{stem}_{_source_tag(video_path)}.wav"
@@ -81,7 +83,7 @@ def extract_audio(
     ]
 
     if progress:
-        print("提取音频中...")
+        print(t("FF_EXTRACTING"))
 
     # 超时解析: 参数 > env > 默认。env="0" 表示禁用超时（极端调试场景）。
     resolved_timeout = timeout
@@ -114,12 +116,14 @@ def extract_audio(
         # P2-8: 超时路径清理半写输出,避免留下被误认为完整的 wav
         audio_path.unlink(missing_ok=True)
         timeout_desc = f"{resolved_timeout:.0f}s" if resolved_timeout else "N/A"
-        raise RuntimeError(f"FFmpeg 提取音频超时 (>{timeout_desc}): {video_path.name}") from exc
+        raise RuntimeError(
+            t("FF_EXTRACT_TIMEOUT", timeout_desc=timeout_desc, name=video_path.name)
+        ) from exc
 
     if result.returncode != 0:
         # P2-8: 失败路径同样清理半写输出
         audio_path.unlink(missing_ok=True)
-        raise RuntimeError(f"FFmpeg 错误: {result.stderr}")
+        raise RuntimeError(t("FF_ERROR", stderr=result.stderr))
 
     if audio_path.exists():
         return audio_path

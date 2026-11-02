@@ -11,6 +11,8 @@ import ipaddress
 import os
 from typing import Optional
 
+from ..i18n import t
+
 try:
     from fastapi import Header, HTTPException, Request, status
 except ImportError:  # pragma: no cover - optional
@@ -64,9 +66,7 @@ def _require_api_token(
             return  # auth disabled, trusted (local/private) client
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                "API token 未配置, 已拒绝非本机/内网来源的请求。请设置 MEDIASCRIBE_API_TOKEN。"
-            ),
+            detail=t("WEBSEC_TOKEN_UNCONFIGURED"),
         )
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(

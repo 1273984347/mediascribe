@@ -29,22 +29,10 @@ _EXEMPT_MODULES = {
 }
 
 # 存量债基线（相对 mediascribe/ 的 posix 路径 → 命中数）。
-# 2026-10-29 建立时 30 个文件 170 处；审查点名面当日清偿至 12 个文件 45 处。
-# 只允许缩小，不允许回潮。
-_BASELINE = {
-    "audio_utils.py": 4,
-    "config.py": 1,
-    "cross_check.py": 5,
-    "doctor.py": 12,
-    "downloaders/douyin.py": 4,
-    "downloaders/ytdlp.py": 4,
-    "llm_post_process.py": 2,
-    "pipeline_stages.py": 4,
-    "retry.py": 3,
-    "transcribers/faster_whisper.py": 2,
-    "transcribers/whisper.py": 3,
-    "web/security.py": 1,
-}
+# 2026-10-29 建立时 30 个文件 170 处；审查点名面当日清偿至 12 个文件 45 处；
+# 2026-11-02 全量清偿归零（见 Messages 里 "i18n 基线清偿" 段）。
+# 只允许缩小，不允许回潮 —— 现在是空基线，任何 CJK print/raise 都直接红灯。
+_BASELINE: dict[str, int] = {}
 
 
 def _has_cjk(s: str) -> bool:

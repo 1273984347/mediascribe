@@ -25,6 +25,8 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
+from .i18n import t
+
 __all__ = ["run_doctor"]
 
 _OK, _WARN, _FAIL = "✅", "⚠️ ", "❌"
@@ -82,7 +84,7 @@ def _check_av_tools() -> bool:
 
     返回是否关键依赖就绪(供 run_doctor 决定退出码)。
     """
-    print("\n📌 音视频工具")
+    print(t("DOCTOR_SECTION_TOOLS"))
     ffmpeg = shutil.which("ffmpeg")
     critical_ok = _check(
         "ffmpeg",
@@ -102,7 +104,7 @@ def _check_av_tools() -> bool:
 
 def _check_device() -> None:
     """📌 运行设备 — CUDA / Metal / ROCm / CPU 探测。"""
-    print("\n📌 运行设备")
+    print(t("DOCTOR_SECTION_DEVICE"))
     try:
         from .pipeline import gpu_health, resolve_device
 
@@ -132,7 +134,7 @@ def _check_device() -> None:
 
 def _check_engines() -> None:
     """📌 转录引擎 — 三个可选引擎的安装状态。"""
-    print("\n📌 转录引擎")
+    print(t("DOCTOR_SECTION_ENGINES"))
     engines = [
         ("whisper", "whisper（默认）", "pip install -r requirements.txt"),
         ("faster_whisper", "faster-whisper（更快）", "pip install faster-whisper"),
@@ -145,7 +147,7 @@ def _check_engines() -> None:
 
 def _check_model_cache() -> None:
     """📌 模型缓存 — 已下载哪些转录模型。"""
-    print("\n📌 模型缓存")
+    print(t("DOCTOR_SECTION_MODELS"))
     cache_dir = _model_cache_dir()
     models = _list_downloaded_models(cache_dir)
     if models:
@@ -165,7 +167,7 @@ def _check_model_weights() -> None:
     在本机抛 ``LocalEntryNotFoundError``，因为只缓存了 small / large-v3）。
     现在按引擎列出各档位的就绪情况，并给出预置指引。
     """
-    print("\n📌 权重预置（离线必需）")
+    print(t("DOCTOR_SECTION_WEIGHTS"))
     try:
         from .model_weights import check_weights, known_weight_pairs
     except Exception as exc:  # pragma: no cover - 模块缺失不应毁掉整个自检
@@ -196,12 +198,12 @@ def _check_model_weights() -> None:
             if st.ok:
                 continue
             # 逐档补一行「缺哪个」，指引只给一次（首个缺失项已带完整说明）
-            print(f"      · 缺 {st.engine}/{st.model} — {st.detail}")
+            print(t("DOCTOR_MISSING_WEIGHT", engine=st.engine, model=st.model, detail=st.detail))
 
 
 def _check_workspace(workspace: Optional[Path]) -> None:
     """📌 工作区 — 目录存在且可写(写探针实测)。"""
-    print("\n📌 工作区")
+    print(t("DOCTOR_SECTION_WORKSPACE"))
     ws = (
         Path(workspace)
         if workspace
@@ -219,7 +221,7 @@ def _check_workspace(workspace: Optional[Path]) -> None:
 
 def _check_cookies() -> None:
     """📌 Cookies — 微信公众号 / 抖音的可选登录凭据。"""
-    print("\n📌 Cookies（可选）")
+    print(t("DOCTOR_SECTION_COOKIES"))
     wechat_env = os.environ.get("MEDIASCRIBE_WECHAT_COOKIE", "").strip()
     wechat_local = [p for p in (Path("wechat_cookies.json"),) if p.exists()]
     _check(
@@ -243,7 +245,7 @@ def _check_cookies() -> None:
 
 def _check_terms() -> None:
     """📌 ASR 术语库 — learn 累积的条数(读不到按空处理, 不算失败)。"""
-    print("\n📌 ASR 术语库（可选）")
+    print(t("DOCTOR_SECTION_TERMS"))
     try:
         from .learn import _load_db  # type: ignore[attr-defined]
 
@@ -267,7 +269,7 @@ def run_doctor(workspace: Optional[Path] = None) -> int:
     退出码约定: ffmpeg 缺失返回 1, 其余情况一律 0 — doctor 的定位
     是"诊断报告", 非关键项缺失不应阻断脚本调用方。
     """
-    print("🩺 MediaScribe 环境自检")
+    print(t("DOCTOR_BANNER"))
     print("=" * 50)
 
     _check_python()
@@ -282,7 +284,7 @@ def run_doctor(workspace: Optional[Path] = None) -> int:
 
     print("\n" + "=" * 50)
     if critical_ok:
-        print("✅ 自检完成 — 关键依赖就绪")
+        print(t("DOCTOR_ALL_OK"))
         return 0
-    print("❌ 自检发现关键缺失（ffmpeg）— 请先修复再运行转录")
+    print(t("DOCTOR_CRITICAL_MISSING"))
     return 1

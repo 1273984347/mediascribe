@@ -1385,6 +1385,230 @@ Environment variables:
         "en": "learning records cleared",
         "zh": "已清空学习记录",
     }
+    LEARN_AUDIT_CLEAN = {
+        "en": "term library audit passed: no issues found",
+        "zh": "术语库自检通过: 未发现问题",
+    }
+    LEARN_AUDIT_HEADER = {
+        "en": "term library audit: {errors} error(s), {warnings} warning(s)",
+        "zh": "术语库自检: {errors} 个错误, {warnings} 个警告",
+    }
+    LEARN_AUDIT_FINDING = {
+        "en": "  [{sev}] {kind}: {detail}",
+        "zh": "  [{sev}] {kind}: {detail}",
+    }
+    LEARN_AUDIT_FIX_HINT = {
+        "en": (
+            "fix with `learn remove --wrong ... --right ...`, then re-run "
+            "`learn audit`; backfill only after errors reach zero"
+        ),
+        "zh": (
+            "用 `learn remove --wrong ... --right ...` 修掉后重跑 `learn audit`; error 清零再回填"
+        ),
+    }
+    HTTP_REDIRECT_LOOP = {
+        "en": "too many redirects (possible redirect loop): {url}",
+        "zh": "重定向次数过多（可能存在重定向环）: {url}",
+    }
+    HTTP_REDIRECT_NO_LOCATION = {
+        "en": "redirect response without a Location header: {url}",
+        "zh": "重定向响应缺少 Location 头: {url}",
+    }
+    HTTP_REDIRECT_OFF_DOMAIN = {
+        "en": ("credential-bearing request redirected outside the allowed domains; aborted: {url}"),
+        "zh": "携带凭据的请求被重定向到白名单之外，已中止: {url}",
+    }
+    CLEANUP_SOURCE_UNREACHABLE = {
+        "en": (
+            "🛑 cleanup aborted: source URL is no longer verifiably reachable "
+            "({url}). Once deleted, the media cannot be re-downloaded and "
+            "third-sample verification (verify) becomes permanently impossible. "
+            "Set MEDIASCRIBE_CLEANUP_FORCE=1 to skip this check (offline batch)."
+        ),
+        "zh": (
+            "🛑 已拒绝清理: 来源 URL 无法确认仍可回取 ({url})。"
+            "删除后媒体将无法重新下载, 第三采样复核 (verify) 将永久不可能。"
+            "离线批量场景确需强制清理: 设 MEDIASCRIBE_CLEANUP_FORCE=1。"
+        ),
+    }
+
+    # ==================== i18n 基线清偿 (2026-11-02, 45 处归零) ====================
+    FF_NOT_FOUND = {
+        "en": "FFmpeg not found — install it and make sure it is on PATH",
+        "zh": "未找到 FFmpeg，请先安装并添加到 PATH",
+    }
+    FF_EXTRACTING = {
+        "en": "extracting audio...",
+        "zh": "提取音频中...",
+    }
+    FF_EXTRACT_TIMEOUT = {
+        "en": "FFmpeg audio extraction timed out (>{timeout_desc}): {name}",
+        "zh": "FFmpeg 提取音频超时 (>{timeout_desc}): {name}",
+    }
+    FF_ERROR = {
+        "en": "FFmpeg error: {stderr}",
+        "zh": "FFmpeg 错误: {stderr}",
+    }
+    LLM_API_BASE_REQUIRED = {
+        "en": "LLM post-processing is enabled (enabled=True) but api_base is not configured. Set MEDIASCRIBE_LLM_API_BASE (e.g. https://api.deepseek.com / https://api.openai.com/v1), or pass Settings(llm_post_process={'api_base': ...}) explicitly.",
+        "zh": "LLM 后处理已启用（enabled=True），但未配置 api_base。请设置环境变量 MEDIASCRIBE_LLM_API_BASE（如 https://api.deepseek.com / https://api.openai.com/v1），或在 Settings(llm_post_process={'api_base': ...}) 中显式传入。",
+    }
+    LLM_OPENAI_MISSING = {
+        "en": "the openai package is not installed; run: pip install openai",
+        "zh": "openai 库未安装，请运行: pip install openai",
+    }
+    LLM_CALL_FAILED_UNKNOWN = {
+        "en": "LLM API call failed for an unknown reason",
+        "zh": "LLM API 调用失败，未知原因",
+    }
+    XC_AUDIO_REQUIRED = {
+        "en": "cross-check needs an audio file (text-only sources such as WeChat MP articles have none)",
+        "zh": "交叉校对需要音频文件(纯文本源如公众号文章无音频)",
+    }
+    XC_SAME_MODEL = {
+        "en": "cross-check model matches the main model ({model}); skipping",
+        "zh": "ℹ️ 对照模型与主稿模型相同({model}), 跳过交叉校对",
+    }
+    XC_RUNNING = {
+        "en": "🔍 cross-check: re-transcribing the same audio with {engine}...",
+        "zh": "🔍 交叉校对: 用 {engine} 重转同一条音频...",
+    }
+    XC_EMPTY_RESULT = {
+        "en": "cross-check transcription came back empty",
+        "zh": "对照模型转录结果为空",
+    }
+    XC_NOTE_NOISE = {
+        "en": " ({noise_count} function-word diffs counted only)",
+        "zh": "（虚词/语气词差异 {noise_count} 处只计数）",
+    }
+    XC_DONE = {
+        "en": "🔍 cross-check done: {count} content divergence(s){note} -> {name}",
+        "zh": "🔍 交叉校对完成: 实词分歧 {count} 处{note} -> {name}",
+    }
+    DL_NO_OUTPUT_FILE = {
+        "en": "the core downloader produced no file",
+        "zh": "核心下载器未产出文件",
+    }
+    DL_RETRYING = {
+        "en": "      ⚠️ retry #{attempt}... ({exc_type})",
+        "zh": "      ⚠️ 第 {attempt} 次重试... ({exc_type})",
+    }
+    DL_FINAL_FAILURE = {
+        "en": "      ❌ download failed for good: {err}",
+        "zh": "      ❌ 下载最终失败: {err}",
+    }
+    DL_FILE_MISSING = {
+        "en": "download failed: file not found {path}",
+        "zh": "下载失败: 找不到文件 {path}",
+    }
+    DY_URL_REQUIRED = {
+        "en": "a Douyin video URL is required",
+        "zh": "需要提供抖音视频 URL",
+    }
+    DY_FOREIGN_HOST = {
+        "en": "URL host is not a Douyin domain ({domains}); refused",
+        "zh": "URL 主机不是抖音系域名（{domains}），已拒绝处理",
+    }
+    DY_MEDIA_URL_UNAVAILABLE = {
+        "en": "could not resolve the real Douyin media URL; try obtaining it manually",
+        "zh": "无法获取抖音视频的真实媒体 URL，请尝试手动获取",
+    }
+    BILI_API_ERROR = {
+        "en": "Bilibili API {endpoint} returned code={code}: {message}",
+        "zh": "B站 API {endpoint} 返回 code={code}: {message}",
+    }
+    YTDLP_NOT_INSTALLED = {
+        "en": "yt-dlp is not installed; run: pip install yt-dlp",
+        "zh": "yt-dlp 未安装，请运行: pip install yt-dlp",
+    }
+    YTDLP_URL_REQUIRED = {
+        "en": "a URL or BV id is required",
+        "zh": "需要提供 URL 或 BV 号",
+    }
+    STAGE_EXTRACT_FAILED = {
+        "en": "audio extraction failed",
+        "zh": "音频提取失败",
+    }
+    STAGE_RESOURCE_PRESSURE = {
+        "en": "resource pressure during transcription ({reason}) — the result may be incomplete; transcription aborted. Lower the model tier or close other resource-heavy programs and retry.",
+        "zh": "转录期间资源过载（{reason}）——结果可能不完整，已放弃本次转录。请降低模型档位或关闭其它占用资源的程序后重试。",
+    }
+    STAGE_EMPTY_TRANSCRIPT = {
+        "en": "transcription result is empty",
+        "zh": "转录结果为空",
+    }
+    WHISPER_WEIGHTS_MISSING = {
+        "en": "weights for model {model!r} are not pre-staged: {exc}\n{hint}",
+        "zh": "模型 {model!r} 的权重未预置：{exc}\n{hint}",
+    }
+    WHISPER_TRANSCRIBING = {
+        "en": "transcribing...",
+        "zh": "转录中...",
+    }
+    WHISPER_LOADING = {
+        "en": "loading Whisper model: {model} (device: {device})",
+        "zh": "加载 Whisper 模型: {model} (设备: {device})",
+    }
+    FW_WEIGHTS_MISSING = {
+        "en": "weights for model {model!r} are not pre-staged and the online download failed: {exc}\n{hint}",
+        "zh": "模型 {model!r} 的权重未预置，且联网下载失败：{exc}\n{hint}",
+    }
+    FW_NOT_INSTALLED = {
+        "en": "faster-whisper is not installed; run: pip install faster-whisper",
+        "zh": "faster-whisper 未安装，请运行: pip install faster-whisper",
+    }
+    WEBSEC_TOKEN_UNCONFIGURED = {
+        "en": "MEDIASCRIBE_API_TOKEN is not configured; requests from non-local/private sources are rejected.",
+        "zh": "API token 未配置, 已拒绝非本机/内网来源的请求。请设置 MEDIASCRIBE_API_TOKEN。",
+    }
+    DOCTOR_SECTION_TOOLS = {
+        "en": "\n📌 AV tools",
+        "zh": "\n📌 音视频工具",
+    }
+    DOCTOR_SECTION_DEVICE = {
+        "en": "\n📌 runtime device",
+        "zh": "\n📌 运行设备",
+    }
+    DOCTOR_SECTION_ENGINES = {
+        "en": "\n📌 transcription engines",
+        "zh": "\n📌 转录引擎",
+    }
+    DOCTOR_SECTION_MODELS = {
+        "en": "\n📌 model cache",
+        "zh": "\n📌 模型缓存",
+    }
+    DOCTOR_SECTION_WEIGHTS = {
+        "en": "\n📌 pre-staged weights (offline-required)",
+        "zh": "\n📌 权重预置（离线必需）",
+    }
+    DOCTOR_SECTION_WORKSPACE = {
+        "en": "\n📌 workspace",
+        "zh": "\n📌 工作区",
+    }
+    DOCTOR_SECTION_COOKIES = {
+        "en": "\n📌 cookies (optional)",
+        "zh": "\n📌 Cookies（可选）",
+    }
+    DOCTOR_SECTION_TERMS = {
+        "en": "\n📌 ASR term library (optional)",
+        "zh": "\n📌 ASR 术语库（可选）",
+    }
+    DOCTOR_BANNER = {
+        "en": "🩺 MediaScribe environment check",
+        "zh": "🩺 MediaScribe 环境自检",
+    }
+    DOCTOR_ALL_OK = {
+        "en": "✅ check complete — all critical dependencies ready",
+        "zh": "✅ 自检完成 — 关键依赖就绪",
+    }
+    DOCTOR_CRITICAL_MISSING = {
+        "en": "❌ critical dependency missing (ffmpeg) — fix it before running transcription",
+        "zh": "❌ 自检发现关键缺失（ffmpeg）— 请先修复再运行转录",
+    }
+    DOCTOR_MISSING_WEIGHT = {
+        "en": "      · missing {engine}/{model} — {detail}",
+        "zh": "      · 缺 {engine}/{model} — {detail}",
+    }
 
     # ==================== WhisperX progress / Web models ====================
     WX_LOADING_MODEL = {
