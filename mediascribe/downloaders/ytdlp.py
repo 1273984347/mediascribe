@@ -224,6 +224,9 @@ class YtDlpDownloader(Downloader):
             logger.error("备用源失败: %s", fb_err)
             return None
         if result is not None:
+            # 2026-11-03 首航自测: 常规路径挂 PCDN 超时会吓到新用户 —
+            # 兜底救回时给一行明示, 说明刚才的错误已被自动恢复
+            print(t("BILI_FALLBACK_RESCUED", name=result.video_path.name))
             logger.info("备用源下载成功: %s", result.video_path.name)
             return result
         return None

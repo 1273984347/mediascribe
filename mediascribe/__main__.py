@@ -376,6 +376,12 @@ def _settings_from_args(args, file_cfg: dict) -> Settings:
         v = file_cfg.get(cfg_key)
         return fallback if v is None else v
 
+    # audio_only 三态 (2026-11-03): CLI 显式 > 配置文件 > None(交给
+    # Settings 的 env/默认解析 — 默认 True, 见 config.py 校准注释)
+    _cli_audio = bool(getattr(args, "audio_only", False))
+    _file_audio = file_cfg.get("audio_only")
+    _audio_only = True if _cli_audio else (bool(_file_audio) if _file_audio is not None else None)
+
     return Settings(
         workspace_root=_from_cli_or_cfg(args.workspace, "workspace", None) or None,
         model=_from_cli_or_cfg(getattr(args, "model", None), "model", "small"),
@@ -386,8 +392,8 @@ def _settings_from_args(args, file_cfg: dict) -> Settings:
         diarization=getattr(args, "diarization", False) or bool(file_cfg.get("diarization", False)),
         timestamps=bool(getattr(args, "timestamps", False))
         or bool(file_cfg.get("timestamps", False)),
-        audio_only=bool(getattr(args, "audio_only", False))
-        or bool(file_cfg.get("audio_only", False)),
+        # 三态: CLI 显式 > 配置文件 > None(交给 Settings 的 env/默认解析)
+        audio_only=_audio_only,
         cleanup_media=bool(getattr(args, "cleanup_media", False))
         or bool(file_cfg.get("cleanup_media", False)),
         zh_simplify=(

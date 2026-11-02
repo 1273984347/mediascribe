@@ -122,11 +122,22 @@ def _check_device() -> None:
                 ),
             )
         else:
+            # 2026-11-03 首航自测: 区分「没有 N 卡」与「有 N 卡但 torch 是
+            # CPU 版」— 后者给精确修复命令(PyPI 的 torch 默认不带 CUDA,
+            # pip install torch 装完即 CPU 版, 用户无从得知)
+            has_nvidia = shutil.which("nvidia-smi") is not None
+            if has_nvidia:
+                hint = (
+                    "检测到 NVIDIA 显卡但当前 torch 为 CPU 版 — 执行: "
+                    "pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124"
+                )
+            else:
+                hint = "NVIDIA 显卡安装 CUDA 版 PyTorch 可提速数倍"
             _check(
                 "GPU 加速",
                 False,
                 "不可用，将使用 CPU（可用但较慢）",
-                "NVIDIA 显卡安装 CUDA 版 PyTorch 可提速数倍",
+                hint,
             )
     except Exception as exc:  # pragma: no cover - 探测自身异常
         _check("设备探测", False, f"异常: {exc!r}")
@@ -178,14 +189,33 @@ def _check_model_weights() -> None:
     for engine, model in known_weight_pairs():
         by_engine.setdefault(engine, []).append(check_weights(engine, model))
 
+    # 2026-11-03 首航自测: 未安装的引擎不列权重(whisperx 没装却列 8 档
+    # missing 纯属噪音); 部分预置的缺失折叠成一行而非逐档刷屏
+    _ENGINE_MODULES = {
+        "whisper": "whisper",
+        "faster_whisper": "faster_whisper",
+        "whisperx": "whisperx",
+    }
     for engine, statuses in by_engine.items():
+        module = _ENGINE_MODULES.get(engine)
+        if module is not None and importlib.util.find_spec(module) is None:
+            print(t("DOCTOR_ENGINE_SKIP", engine=engine))
+            continue
         ready = [s.model for s in statuses if s.ok]
         missing = [s for s in statuses if not s.ok]
-        if ready:
+        if ready and not missing:
             _check(
                 f"{engine} 权重",
                 True,
                 f"已预置 {len(ready)}/{len(statuses)} 档: {', '.join(ready)}",
+            )
+        elif ready:
+            _check(
+                f"{engine} 权重",
+                True,
+                f"已预置 {len(ready)}/{len(statuses)} 档: {', '.join(ready)}",
+                f"缺 {len(missing)} 档: {', '.join(s.model for s in missing)}"
+                f"（应位于 {missing[0].location}）",
             )
         else:
             _check(
@@ -194,11 +224,6 @@ def _check_model_weights() -> None:
                 f"0/{len(statuses)} 档已预置（应位于 {missing[0].location}）",
                 missing[0].hint,
             )
-        for st in missing:
-            if st.ok:
-                continue
-            # 逐档补一行「缺哪个」，指引只给一次（首个缺失项已带完整说明）
-            print(t("DOCTOR_MISSING_WEIGHT", engine=st.engine, model=st.model, detail=st.detail))
 
 
 def _check_workspace(workspace: Optional[Path]) -> None:
