@@ -35,9 +35,8 @@ from .pipeline_stages import (
     Stage,
     _atomic_write_text,
     _smart_pick_downloader,
-    cleanup_intermediate_media,
+    cleanup_after_success,
     default_chain,
-    print_cleanup_review_hint,
 )
 from .runtime_guard import plan as plan_resources
 from .transcribers import (
@@ -834,18 +833,10 @@ class Pipeline:
         )
 
         _print_transcript_done(transcript_path, metadata_path)
-        # v3.4.3: 公众号视频文章不走 stage chain,清理在这里补齐
-        # (目录白名单保证只删托管目录内的文件)
+        # 公众号视频文章不走 stage chain — 清理走与链上同源的统一入口
+        # (2026-11-03 双轨收敛, 门控语义只在 pipeline_stages 定义一处)
         if getattr(self.settings, "cleanup_media", False):
-            print_cleanup_review_hint()
-            deleted = cleanup_intermediate_media(
-                self.settings,
-                audio_path,
-                video_path,
-                source_url=source.url,
-            )
-            if deleted:
-                print(t("CLI_CLEANUP_DONE", n=len(deleted)))
+            cleanup_after_success(self.settings, source.url, audio_path, video_path)
         return TranscriptResult(
             source=source,
             engine=self.transcriber.name,

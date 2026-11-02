@@ -416,16 +416,9 @@ def _execute_transcribe(pipeline: Pipeline, args, settings: Settings) -> int:
     _write_latest_pointer(settings, result, output=args.output)
     _run_cross_check(pipeline, result, cross_check_model)
     if deferred_cleanup:
-        from .pipeline_stages import cleanup_intermediate_media
+        from .pipeline_stages import cleanup_after_success
 
-        deleted = cleanup_intermediate_media(
-            settings,
-            result.audio_path,
-            result.video_path,
-            source_url=result.source.url,
-        )
-        if deleted:
-            print(t("CLI_CLEANUP_DONE", n=len(deleted)))
+        cleanup_after_success(settings, result.source.url, result.audio_path, result.video_path)
     _print_next_steps(result)
     return 0
 

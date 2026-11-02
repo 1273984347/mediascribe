@@ -913,6 +913,25 @@ def print_cleanup_review_hint() -> None:
     print(CLEANUP_REVIEW_HINT)
 
 
+def cleanup_after_success(
+    settings: Settings,
+    source_url: Optional[str],
+    *paths: Optional[Path],
+) -> List[Path]:
+    """转录成功后的统一清理入口 — 提示 + 可逆门控 + 汇总打印。
+
+    三个调用点共用 (2026-11-03 双轨收敛): stage 链的
+    :class:`CleanupStage` / 公众号视频文章路径 (pipeline.py, 不走链) /
+    ``--cross-check`` 延迟清理 (__main__.py)。门控语义改这里一处即可,
+    不再需要每加一个非链上路径就手工补一份清理三件套。
+    """
+    print_cleanup_review_hint()
+    deleted = cleanup_intermediate_media(settings, *paths, source_url=source_url)
+    if deleted:
+        print(t("CLI_CLEANUP_DONE", n=len(deleted)))
+    return deleted
+
+
 class CleanupStage(Stage):
     """转录成功后删除本任务的中间媒体(settings.cleanup_media=True 时)。
 
@@ -929,17 +948,9 @@ class CleanupStage(Stage):
         return bool(getattr(ctx.settings, "cleanup_media", False)) and ctx.result is not None
 
     def run(self, ctx: PipelineContext) -> PipelineContext:
-        print_cleanup_review_hint()
         source_ref = getattr(ctx, "source", None)
         source_url = source_ref.url if source_ref is not None else None
-        deleted = cleanup_intermediate_media(
-            ctx.settings,
-            ctx.audio_path,
-            ctx.video_path,
-            source_url=source_url,
-        )
-        if deleted:
-            print(t("CLI_CLEANUP_DONE", n=len(deleted)))
+        cleanup_after_success(ctx.settings, source_url, ctx.audio_path, ctx.video_path)
         return ctx
 
 
@@ -1011,6 +1022,7 @@ __all__ = [
     "CleanupStage",
     "cleanup_intermediate_media",
     "CLEANUP_REVIEW_HINT",
+    "cleanup_after_success",
     "print_cleanup_review_hint",
     "default_chain",
     "URL_KINDS",
