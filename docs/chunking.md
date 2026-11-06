@@ -1,5 +1,9 @@
 # Long videos
 
+<img src="../assets/compact/c4-timeline.jpg" alt="A long media strip cut into overlapping segments with chapter markers" width="420" />
+
+*A long recording cut into overlapping segments, then merged back into one transcript.*
+
 For audio longer than ~30 minutes, feeding the whole file into
 a Whisper model at once:
 

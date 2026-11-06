@@ -152,6 +152,7 @@ python -m mediascribe archive --user "<作者主页URL>" -n 20   # 批量归档
 | 改批处理编排 | `mediascribe/batch_cli.py` + `batch_config.py` | `tests/test_review_fixes.py` |
 | 改 CLI 输出 | `mediascribe/agent_output.py`（**schema 升版需谨慎**） | `tests/test_agent_output.py` |
 | 改文档站 | `docs/` + `mkdocs.yml` 的 nav | `mkdocs build --strict` |
+| 改 README 横幅 / 补素材图 | `docs/assets/banner-c*.jpg`（**风格 C 已定稿**：暖白纸感 + 细墨线 + 低饱和品牌蓝；21:9，主体压右侧、左侧 55% 留白给标题；图内零文字） | `mkdocs build --strict` |
 
 ---
 

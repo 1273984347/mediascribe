@@ -1,5 +1,9 @@
 # MediaScribe
 
+<img src="assets/compact/c1-video-to-text.jpg" alt="A video turning into clean Markdown transcript lines" width="520" />
+
+*A video becomes a clean Markdown transcript — no cloud service, no API key.*
+
 > Transcribe videos from 6 platforms (Bilibili, Douyin, YouTube, Xiaohongshu,
 > WeChat MP, TikTok) — plus local files — to Markdown using local Whisper models.
 
