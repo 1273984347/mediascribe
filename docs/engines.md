@@ -1,5 +1,9 @@
 # Engines
 
+<img src="../assets/compact/c2-waveform.jpg" alt="Audio waveform and spectrogram analysed by the ASR engines" width="620" />
+
+*Four ASR engines reading the same waveform — the fastest one that is installed wins.*
+
 MediaScribe supports four ASR engines, with automatic fallback.
 
 | Engine | Throughput | Accuracy | Installation |

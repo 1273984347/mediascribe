@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="docs/assets/banner-c1-video-to-text.jpg" alt="MediaScribe — offline video transcription / 本地视频转文字" width="100%" />
+</div>
+
 # MediaScribe
 
 > **Offline video transcription tool** - Convert videos to text using local AI models
@@ -144,6 +148,7 @@ mediascribe/
 │                         #   config, url_utils, batch_*, i18n, security, web/
 ├── tests/                # pytest suite
 ├── docs/                 # Documentation site source (MkDocs)
+│   └── assets/           # README banner images (style C, 21:9)
 ├── extension/            # Browser extension assets (used by mediascribe/web/app.py)
 ├── examples/plugins/     # Third-party plugin samples
 ├── scripts/              # Dev scripts by role: bench/ e2e/ pipeline/ tools/ launch/ gates/

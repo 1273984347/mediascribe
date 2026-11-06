@@ -1,5 +1,9 @@
 # Supported platforms
 
+<img src="../assets/compact/c3-multiplatform.jpg" alt="Sources from many platforms converging into one transcription pipeline" width="470" />
+
+*Six platform sources converging into a single transcription pipeline.*
+
 | Platform | Auto-detect | Login needed | Notes |
 |----------|-------------|--------------|-------|
 | Bilibili | `bilibili.com`, `b23.tv` | optional | BV-id and short links supported |
