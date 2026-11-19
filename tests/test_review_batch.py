@@ -786,12 +786,11 @@ class TestDiskGuard:
         app_obj = create_app(workspace=tmp_path)
         client = TestClient(app_obj)
         try:
-            with _patch(
-                "mediascribe.platform_compat.free_disk_mb", return_value=1
-            ), _patch("mediascribe.platform_compat.min_free_disk_mb", return_value=100):
-                r = client.post(
-                    "/api/jobs", json={"urls": ["https://example.com/x.mp4"]}
-                )
+            with (
+                _patch("mediascribe.platform_compat.free_disk_mb", return_value=1),
+                _patch("mediascribe.platform_compat.min_free_disk_mb", return_value=100),
+            ):
+                r = client.post("/api/jobs", json={"urls": ["https://example.com/x.mp4"]})
             assert r.status_code == 507, r.text
             assert "insufficient disk space" in r.json()["detail"]
         finally:
