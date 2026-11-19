@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from ..config import default_engine
+from ..config import _VALID_ENGINES, default_engine
 from ..i18n import t
 
 try:
@@ -26,9 +26,11 @@ if _PYDANTIC_AVAILABLE:
         urls: List[str] = Field(..., min_length=1, max_length=20)
         # P1-2(2026-11-20 评审): 默认引擎跟随安装探测(faster-whisper 优先),
         # 不再硬编码最慢的 torch whisper;显式传入仍优先。
+        # P2-9: pattern 由 config._VALID_ENGINES 构造 —— 名单单一真源,
+        # 一致性由 test_engine_consistency 的行为断言(逐引擎接受+未知拒绝)钉死
         engine: str = Field(
             default_factory=default_engine,
-            pattern="^(whisper|faster-whisper|whisperx|whisper-cpp)$",
+            pattern="^(" + "|".join(_VALID_ENGINES) + ")$",
         )
         model: str = Field(
             "small",

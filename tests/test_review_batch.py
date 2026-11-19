@@ -183,16 +183,6 @@ HTML_NESTED = """
 
 
 class TestTranscriberPoolConfig:
-    def setup_method(self):
-        from mediascribe import transcribe as tmod
-
-        tmod.TranscriberPool._instance = None
-
-    def teardown_method(self):
-        from mediascribe import transcribe as tmod
-
-        tmod.TranscriberPool._instance = None
-
     def test_config_maps_whisper_model_and_language(self):
         from mediascribe import transcribe as tmod
 
@@ -442,14 +432,12 @@ class TestBatchEngineField:
 
         from mediascribe import transcribe as tmod
 
-        tmod.TranscriberPool._instance = None
         cfg = SimpleNamespace(whisper_model="small", language="zh")
         with (
             mock.patch("mediascribe.Pipeline"),
             mock.patch("mediascribe.Settings") as SetCls,
         ):
             tmod.TranscriberPool(config=cfg)
-        tmod.TranscriberPool._instance = None
         SetCls.assert_called_once_with(model="small", engine=default_engine())
 
 

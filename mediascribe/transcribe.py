@@ -5,10 +5,18 @@ v3.2.0g (P1-7): ``TranscriberPool`` 接受 ``BatchConfig``（或任何带
 ``whisper_model`` / ``language`` 属性的对象），把用户的
 ``whisper_model`` / ``language`` 配置真正映射进核心 ``Settings`` /
 ``Pipeline.transcribe``；不再硬编码 ``Settings()`` + ``language="zh"``。
+
+P2-7(2026-11-20 架构评审): 去掉进程级单例与 ``sys.path.insert`` hack。
+
+* 单例把**首次调用**的 config 冻结,后续不同 config 被静默忽略
+  (改配置不生效的隐形坑);
+* 真正昂贵的资源(模型权重)本来就由各引擎 transcribers 的**模块级缓存**
+  复用(见 ``faster_whisper._MODEL_CACHE`` 等) —— 每次新建 Pool/Pipeline
+  只是轻量对象构造,不会重复加载模型;
+* 调用方(批处理主循环)按 run 创建一次持有即可。
 """
 
 import logging
-import sys
 from pathlib import Path
 from typing import Optional
 
@@ -16,24 +24,13 @@ logger = logging.getLogger(__name__)
 
 
 class TranscriberPool:
-    """转录器池 - 复用 Whisper 模型（避免重复加载）
+    """转录器池 - 包装一个按 config 构建的 Pipeline。
 
-    单例语义：首次创建时固定配置；之后重复调用 ``TranscriberPool(config)``
-    会返回既有实例并沿用首次的配置。
+    普通 Python 对象(无单例):每次 ``TranscriberPool(config)`` 都按传入
+    的 config 新建;同 run 内由调用方持有同一实例复用。
     """
 
-    _instance = None
-
-    def __new__(cls, config=None):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-
     def __init__(self, config=None):
-        if hasattr(self, "_initialized") and self._initialized:
-            return
-
-        sys.path.insert(0, str(Path(__file__).parent.parent))
         from mediascribe import Pipeline, Settings
         from mediascribe.config import default_engine
 
@@ -48,7 +45,6 @@ class TranscriberPool:
         self.settings = Settings(model=whisper_model, engine=engine)
         self._language = language
         self.pipeline = Pipeline(self.settings)
-        self._initialized = True
 
     def transcribe(self, audio_path: Path) -> Optional[Path]:
         """转录音频（语言来自初始化时传入的 config，默认 zh）"""
@@ -64,6 +60,8 @@ class TranscriberPool:
 
 
 def transcribe_audio(audio_path: Path, config=None) -> Optional[Path]:
-    """便捷函数 - 转录音频（config 透传给 TranscriberPool）"""
+    """便捷函数 - 转录音频（config 透传给 TranscriberPool）
+
+    模型权重复用由引擎模块级缓存承担,此处每次新建 Pool 只是小对象。"""
     pool = TranscriberPool(config=config)
     return pool.transcribe(audio_path)

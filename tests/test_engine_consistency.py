@@ -8,17 +8,19 @@
 1. ``mediascribe/config.py`` 的 ``_VALID_ENGINES``
 2. ``mediascribe/__main__.py`` 的 ``--engine`` choices
 3. ``mediascribe/web/models.py`` 的 ``TranscribeRequest.engine`` 正则
-   （2026-10-25 职责拆分前在 ``mediascribe/web/app.py``）
 4. ~~factory 的回退链~~（2026-10-29 已删：产品零调用，引擎决策单点收敛到 runtime_guard）
 
 只改了 1、2、4 ⇒ **Web UI 选 whisper-cpp 会被 422 拒绝**（第 3 处漏改）。
-这类「改了核心枚举忘了其它入口」的缺口，靠人记是记不住的 —— 本文件把它变成
-**可回归的断言**：任何一处漏改，CI 立刻红。
+
+P2-9(2026-11-20 评审)后的钉法升级:三处**接线**全部收敛到
+``config._VALID_ENGINES`` 单一真源(CLI ``choices=list(_VALID_ENGINES)``、
+Web pattern 由名单动态构造),本文件随之从「正则解析源码抠名单」改为
+**行为断言** —— Web 模型逐引擎接受 + 未知拒绝 + factory 可构造 +
+CLI 源码接线检查(只锁接线,不锁名单写法)。
 """
 
 from __future__ import annotations
 
-import argparse
 import re
 import sys
 import unittest
@@ -30,43 +32,62 @@ sys.path.insert(0, str(ROOT))
 from mediascribe.config import _VALID_ENGINES  # noqa: E402
 
 
-def _cli_engine_choices() -> set:
-    """从 ``mediascribe/__main__.py`` 里解析 ``--engine`` 的 choices。"""
-    source = (ROOT / "mediascribe" / "__main__.py").read_text(encoding="utf-8")
-    match = re.search(r'"--engine".*?choices=\[(.*?)\]', source, re.S)
-    assert match, "未能在 __main__.py 里定位 --engine 的 choices"
-    return set(re.findall(r'"([^"]+)"', match.group(1)))
+def _fastapi_missing() -> bool:
+    from importlib import util
 
-
-def _web_engine_pattern() -> set:
-    """从 ``mediascribe/web/models.py`` 里解析 engine 的 pydantic 正则。
-
-    2026-10-25 职责拆分后, pydantic 模型搬到了 ``mediascribe/web/models.py``
-    (``app.py`` 只是 re-export) ⇒ 正则的真正所在也换了地方。
-    """
-    source = (ROOT / "mediascribe" / "web" / "models.py").read_text(encoding="utf-8")
-    # P1-2(2026-11-20 评审)后默认值改为 default_factory(default_engine)
-    # —— 只锁 pattern 名单本身,不锁默认值写法。
-    match = re.search(r'engine: str = Field\(.*?pattern="\^?(.*?)\$"', source, re.S)
-    assert match, "未能在 web/models.py 里定位 engine 的 pattern"
-    raw = match.group(1).replace("(", "").replace(")", "")
-    return {part for part in raw.split("|") if part}
+    return util.find_spec("fastapi") is None
 
 
 class TestEngineNameConsistency(unittest.TestCase):
-    """四处引擎名单必须完全一致。"""
+    """名单单一真源 + 三处接线。"""
 
-    def test_cli_choices_match_config(self):
-        self.assertEqual(_cli_engine_choices(), set(_VALID_ENGINES))
+    def test_cli_choices_wired_to_config(self):
+        """CLI --engine choices 引用 config._VALID_ENGINES(锁接线,不锁写法)。"""
+        source = (ROOT / "mediascribe" / "__main__.py").read_text(encoding="utf-8")
+        match = re.search(r'"--engine".*?choices=(.*?),\n', source, re.S)
+        self.assertIsNotNone(match, "未能在 __main__.py 里定位 --engine 的 choices")
+        self.assertIn("_VALID_ENGINES", match.group(1), "CLI choices 必须接 config 真源")
 
-    def test_web_pattern_matches_config(self):
-        self.assertEqual(_web_engine_pattern(), set(_VALID_ENGINES))
+    def test_web_pattern_wired_to_config(self):
+        """Web pattern 由 _VALID_ENGINES 动态构造(锁接线)。"""
+        source = (ROOT / "mediascribe" / "web" / "models.py").read_text(encoding="utf-8")
+        self.assertIn("_VALID_ENGINES", source)
+        self.assertNotIn(
+            'pattern="^(whisper|',
+            source,
+            "Web pattern 不得手抄引擎名单 —— 必须由 _VALID_ENGINES 构造",
+        )
+
+    def test_web_model_accepts_every_valid_engine(self):
+        """行为断言:Web 模型逐引擎接受 —— 名单改了这里必须跟着过。"""
+        if _fastapi_missing():
+            self.skipTest("fastapi 未安装")
+        from mediascribe.web.app import TranscribeRequest
+
+        for engine in _VALID_ENGINES:
+            req = TranscribeRequest(urls=["https://example.com/a.mp4"], engine=engine)
+            self.assertEqual(req.engine, engine, engine)
+
+    def test_web_model_rejects_unknown_engine(self):
+        if _fastapi_missing():
+            self.skipTest("fastapi 未安装")
+        from pydantic import ValidationError
+
+        from mediascribe.web.app import TranscribeRequest
+
+        with self.assertRaises(ValidationError):
+            TranscribeRequest(urls=["https://example.com/a.mp4"], engine="nope")
 
     def test_whisper_cpp_registered_everywhere(self):
         """新增引擎时最容易漏的就是 Web UI —— 单独锁一条。"""
         self.assertIn("whisper-cpp", _VALID_ENGINES)
-        self.assertIn("whisper-cpp", _cli_engine_choices())
-        self.assertIn("whisper-cpp", _web_engine_pattern())
+        if not _fastapi_missing():
+            from mediascribe.web.app import TranscribeRequest
+
+            self.assertEqual(
+                TranscribeRequest(urls=["https://example.com/a.mp4"], engine="whisper-cpp").engine,
+                "whisper-cpp",
+            )
 
     def test_every_valid_engine_is_reachable(self):
         """每个合法引擎都必须能被 factory 构造。"""
@@ -103,8 +124,7 @@ class TestWebAcceptsWhisperCpp(unittest.TestCase):
     """Web 层必须真的接受 whisper-cpp（不是只在校验名单里）。"""
 
     def test_request_model_accepts_whisper_cpp(self):
-        pytest_fastapi = __import__("importlib").util.find_spec("fastapi")
-        if pytest_fastapi is None:
+        if _fastapi_missing():
             self.skipTest("fastapi 未安装")
         from mediascribe.web.app import TranscribeRequest
 
@@ -112,9 +132,7 @@ class TestWebAcceptsWhisperCpp(unittest.TestCase):
         self.assertEqual(req.engine, "whisper-cpp")
 
     def test_request_model_rejects_unknown_engine(self):
-        from importlib import util
-
-        if util.find_spec("fastapi") is None:
+        if _fastapi_missing():
             self.skipTest("fastapi 未安装")
         from pydantic import ValidationError
 

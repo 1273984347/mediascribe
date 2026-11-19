@@ -22,7 +22,7 @@ import sys
 from pathlib import Path, PurePath
 from typing import List, Optional
 
-from .config import Settings
+from .config import Settings, _VALID_ENGINES
 from .i18n import t
 from .pipeline import Pipeline
 from .pipeline_async import AsyncPipeline, _FailedResult
@@ -76,7 +76,7 @@ _common_transcribe_opts.add_argument(
     "--engine",
     "-e",
     default=argparse.SUPPRESS,
-    choices=["whisper", "whisperx", "faster-whisper", "whisper-cpp"],
+    choices=list(_VALID_ENGINES),
     help=(
         "转录引擎（默认: faster-whisper，未安装时自动回退 whisper）。\n"
         "  whisper-cpp: C++/GGML 引擎，CPU 档最省内存（实测 291 MiB），"
