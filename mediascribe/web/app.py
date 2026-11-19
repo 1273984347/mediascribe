@@ -385,8 +385,22 @@ def main(argv: Optional[List[str]] = None) -> int:
 #
 # 这里补上它。仅在被**导入**时创建（``__main__`` 路径由 main() 自己建
 # app），避免 ``python -m mediascribe.web.app`` 创建两个实例。
-if _FASTAPI_AVAILABLE and __name__ != "__main__":
-    app = create_app()
+# P2-2(2026-11-20 架构评审): 模块级 ``app`` 改惰性(PEP-562 ``__getattr__``)。
+# 此前 import 本模块就 ``create_app()`` —— 装配路由/读 env/建 vault 对象
+# 全部变成 import 副作用,env 时序被 import 时机锁死,测试还会双实例。
+# 现在 import 无副作用;首次访问 ``app`` 属性(uvicorn / ``from ... import app``)
+# 才装配,实例缓存在模块级。
+_MODULE_APP = None
+
+if _FASTAPI_AVAILABLE:
+
+    def __getattr__(name: str):  # noqa: D105 — PEP-562 module hook
+        global _MODULE_APP
+        if name == "app":
+            if _MODULE_APP is None:
+                _MODULE_APP = create_app()
+            return _MODULE_APP
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 # ``__main__`` 块必须放在**所有路由注册函数定义之后** —— 放在文件中部
