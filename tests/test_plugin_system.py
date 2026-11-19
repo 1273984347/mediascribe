@@ -43,16 +43,12 @@ class TestNoExamplePluginsByDefault(unittest.TestCase):
     def test_vimeo_not_registered(self):
         from mediascribe.plugins import list_downloaders
 
-        self.assertNotIn(
-            "vimeo", list_downloaders(), "示例插件被自动激活了(P2-3 契约被破坏)"
-        )
+        self.assertNotIn("vimeo", list_downloaders(), "示例插件被自动激活了(P2-3 契约被破坏)")
 
     def test_tcn_not_registered(self):
         from mediascribe.plugins import list_url_transformers
 
-        self.assertNotIn(
-            "tcn", list_url_transformers(), "示例插件被自动激活了(P2-3 契约被破坏)"
-        )
+        self.assertNotIn("tcn", list_url_transformers(), "示例插件被自动激活了(P2-3 契约被破坏)")
 
     def test_get_downloader_unknown_returns_none(self):
         from mediascribe.plugins import get_downloader
