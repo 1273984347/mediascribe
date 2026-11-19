@@ -461,6 +461,12 @@ Environment variables:
         "zh": "累计: {done}/{total} | 用时: {time}",
     }
 
+    # P1-5 (2026-11-20 架构评审): bot-wall 命中后的整批指数退避提示
+    WARN_BOT_WALL_BACKOFF = {
+        "en": "Rate-limit wall hit — pausing batch for {seconds}s before continuing",
+        "zh": "命中平台风控，整批暂停 {seconds}s 后继续",
+    }
+
     INFO_ALL_PROCESSED = {
         "en": "All videos have been processed already!",
         "zh": "所有视频都已处理过！",

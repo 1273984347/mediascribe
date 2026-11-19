@@ -70,6 +70,11 @@ class ProcessCache:
         record = self._cache_data["videos"].get(video_id)
         return bool(record and record.get("success"))
 
+    def is_permanently_failed(self, video_id: str) -> bool:
+        """检查视频是否已被标记为永久失败(P1-5: gone 类失败重试永久无效)"""
+        record = self._cache_data["videos"].get(video_id)
+        return bool(record and record.get("failure_class") == "gone")
+
     def get_processed(self, video_id: str) -> Optional[dict]:
         """获取已处理的记录"""
         return self._cache_data["videos"].get(video_id)
@@ -81,21 +86,47 @@ class ProcessCache:
         transcript_path: Optional[str] = None,
         audio_path: Optional[str] = None,
         success: bool = True,
+        failure_class: Optional[str] = None,
     ):
-        """标记为已处理（含失败记录；失败不算已处理，用于重试）"""
+        """标记为已处理（含失败记录；失败不算已处理，用于重试）
+
+        P1-5: ``failure_class`` 记录失败类别(transient/bot_wall/gone/fatal)。
+        ``gone`` 类(资源已删)在下一轮断点续传时直接跳过,不再每轮重试一次
+        永久占位。"""
         with self._lock:
             self._cache_data["videos"][video_id] = {
                 "url": video_url,
                 "transcript": transcript_path,
                 "audio": audio_path,
                 "success": success,
+                "failure_class": failure_class,
                 "processed_at": datetime.now().isoformat(),
             }
             self._save()
 
     def filter_unprocessed(self, videos: list) -> list:
-        """过滤出未处理（或上次失败待重试）的视频"""
-        return [v for v in videos if not self.is_processed(v["video_id"])]
+        """过滤出未处理（或上次失败待重试）的视频
+
+        P1-5: 上次失败类别为 ``gone`` 的视频(资源已删)不再进入本轮 ——
+        重试永久无效,跳过并在日志中说明。"""
+        result = []
+        skipped: list = []
+        for v in videos:
+            if self.is_processed(v["video_id"]):
+                continue
+            if self.is_permanently_failed(v["video_id"]):
+                skipped.append(v["video_id"])
+                continue
+            result.append(v)
+        if skipped:
+            from .batch_config import logger
+
+            logger.info(
+                "跳过 %d 个已失效(404/410)的视频,不再重试: %s",
+                len(skipped),
+                ", ".join(skipped[:5]) + ("..." if len(skipped) > 5 else ""),
+            )
+        return result
 
     def get_user_videos(self, user_url: str) -> list:
         """获取缓存的某用户的所有视频"""

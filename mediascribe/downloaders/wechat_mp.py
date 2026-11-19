@@ -48,6 +48,11 @@ from ..security import is_tencent_cdn_url
 from ..url_utils import host_matches
 from ._http_download import CHROME_UA, build_http_session, cred_get, stream_download
 from .base import Downloader
+from .download_errors import (
+    CATEGORY_BOT_WALL,
+    DownloadError,
+    raise_for_status_classified,
+)
 
 if TYPE_CHECKING:  # pragma: no cover
     from PIL import Image
@@ -261,14 +266,33 @@ class WechatMpDownloader(Downloader):
                 timeout=20,
                 redirect_guard=is_tencent_cdn_url,
             )
-            resp.raise_for_status()
+            raise_for_status_classified(resp)
             resp.encoding = resp.apparent_encoding or "utf-8"
             # requests 无类型存根（未装 types-requests），resp.text 运行时为 str
             text: str = resp.text
+            self._assert_not_risk_limited(text)
             return text
+        except DownloadError:
+            # P1-5: 风控分类错误必须穿透 —— 批处理按类别路由(退避),不吞
+            raise
         except Exception as e:
             logger.warning("拉取文章 HTML 失败: %s (%s)", url, e)
             return None
+
+    #: 微信 IP 风控错误码(docstring 自认的 1023/1024,2026-11-20 评审 P1-5
+    #: 前代码从不检测 —— 批量跑触发后表现为"文章内容抓不到"而非可诊断的风控)
+    _RISK_CODE_RE = re.compile(r'"errcode"\s*:\s*10(23|24)\b')
+
+    @staticmethod
+    def _assert_not_risk_limited(html: str) -> None:
+        """检测微信 IP 风控(errcode 1023/1024),命中即抛 bot_wall 分类错误。"""
+        m = WechatMpDownloader._RISK_CODE_RE.search(html)
+        if m:
+            raise DownloadError(
+                CATEGORY_BOT_WALL,
+                f"WeChat MP risk control triggered (errcode=10{m.group(1)}): "
+                "slow down or switch IP/network",
+            )
 
     def _extract_meta(self, html: str) -> dict:
         """从 meta 标签和 #js_name 提取元数据。"""
@@ -457,7 +481,9 @@ class WechatMpDownloader(Downloader):
                 timeout=20,
                 redirect_guard=is_tencent_cdn_url,
             )
-            resp.raise_for_status()
+            # P1-5: 分类版 raise_for_status —— 失败带类别(日志可诊断),
+            # 单图失败仍按原语义吞掉(OCR 可降级,不炸回填)
+            raise_for_status_classified(resp)
         except Exception as e:
             logger.warning("下载图片失败: %s (%s)", image_url, e)
             return None
