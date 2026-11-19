@@ -317,7 +317,11 @@ class TestCancelJob(unittest.TestCase):
             self.assertTrue(body["cancelled"])
 
     def test_cancel_calls_async_pipeline_cancel_when_registered(self):
-        """When an AsyncPipeline is registered for a job, cancel_job calls it."""
+        """When an AsyncPipeline is registered for a job, cancel_job calls cancel_one(url).
+
+        P0-2(2026-11-20 评审):契约从整批 ``cancel()`` 收窄为 per-URL
+        ``cancel_one(src)`` — 取消一个 job 不得连坐同批兄弟任务。
+        """
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             client, app_obj = _make_client(tmp)
@@ -332,21 +336,22 @@ class TestCancelJob(unittest.TestCase):
             with mock.patch("app._build_pipeline", return_value=fake):
                 r = client.post("/api/jobs", json={"urls": ["https://example.com/y"]})
             job_id = r.json()["jobs"][0]["job_id"]
-            # Register a fake AsyncPipeline with a cancel() counter.
-            cancel_calls = {"n": 0}
+            # Register a fake AsyncPipeline with a cancel_one() recorder.
+            cancel_one_calls: list = []
 
             class FakeAsync:
-                def cancel(self):
-                    cancel_calls["n"] += 1
+                def cancel_one(self, source):
+                    cancel_one_calls.append(source)
                     return 1
 
             app_obj.state.async_pipelines[job_id] = FakeAsync()
             cr = client.post(f"/api/jobs/{job_id}/cancel")
             self.assertEqual(cr.status_code, 200)
             self.assertEqual(
-                cancel_calls["n"],
-                1,
-                "cancel_job must invoke AsyncPipeline.cancel() when registered",
+                cancel_one_calls,
+                ["https://example.com/y"],
+                "cancel_job must invoke AsyncPipeline.cancel_one(url) with the "
+                "submitted URL (per-URL cancel, P0-2)",
             )
 
 

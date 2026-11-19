@@ -20,7 +20,10 @@ v3.2.0b Tier 1 — fully asynchronous pipeline.
    反而拖慢。
 4. **背压** — :attr:`AsyncPipeline.max_concurrent` 控制并发上限,
    默认 ``min(4, os.cpu_count() or 2)``,可被
-   ``MEDIASCRIBE_MAX_WORKERS`` 环境变量覆盖。
+   ``MEDIASCRIBE_BATCH_CONCURRENCY``(旧名 ``MEDIASCRIBE_MAX_WORKERS`` 作
+   兼容别名)环境变量覆盖。资源守恒职责已移交
+   :mod:`mediascribe.gpu_budget` 的进程级显存账本(P0-1),本并发上限
+   只是调度参数。
 5. **取消 (v3.2.0x P1-8 修订契约)** — ``pipeline.cancel()`` 对
    in-flight 任务 ``task.cancel()`` 并置位 ``cancel_event``。
    :class:`CancelledError` 在 ``_one`` 内被捕获并转成
@@ -58,10 +61,16 @@ from .pipeline_stages import PipelineCancelled
 
 
 def _default_max_concurrent() -> int:
-    """默认并发上限,优先级 ``MEDIASCRIBE_MAX_WORKERS`` > CPU 数。"""
-    env = os.environ.get("MEDIASCRIBE_MAX_WORKERS")
-    if env and env.isdigit() and int(env) > 0:
-        return int(env)
+    """默认并发上限,优先级 ``MEDIASCRIBE_BATCH_CONCURRENCY`` > 旧名
+    ``MEDIASCRIBE_MAX_WORKERS``(兼容别名) > CPU 数。
+
+    P1-6 拆名(2026-11-20 评审):旧名同时被 Web job executor 读作
+    "并发批次数",一名两义会相乘放大 GPU 占用;新名只表达本模块的
+    "单批内并发"。"""
+    for name in ("MEDIASCRIBE_BATCH_CONCURRENCY", "MEDIASCRIBE_MAX_WORKERS"):
+        env = os.environ.get(name, "")
+        if env.isdigit() and int(env) > 0:
+            return int(env)
     cpu = os.cpu_count() or 2
     return min(4, cpu)
 
@@ -261,6 +270,9 @@ class AsyncPipeline:
             vram_per_task_mb if vram_per_task_mb and vram_per_task_mb > 0 else _vram_per_task_mb()
         )
         self._tasks: List[asyncio.Task] = []
+        # P0-2: per-URL 取消句柄 — task → (source, 独立取消事件)。
+        # cancel_one(src) 用它只杀指定 URL;cancel() 仍整批取消(公共契约不变)。
+        self._task_ctl: Dict[asyncio.Task, Tuple[str, threading.Event]] = {}
         self._cancel_event = threading.Event()
 
     @property
@@ -339,7 +351,9 @@ class AsyncPipeline:
         sem = _shared_gpu_semaphore(str(health.get("device") or "cpu"), effective)
         runners = runners or {}
 
-        async def _one(src: str) -> Any:  # 失败槽位按契约放 _FailedResult, 见 docstring
+        async def _one(
+            src: str, evt: threading.Event
+        ) -> Any:  # 失败槽位按契约放 _FailedResult, 见 docstring
             try:
                 # sem 等待点也在 try 内 — task.cancel() 可能在排队等
                 # 信号量时打断,同样要按取消语义返回而非上抛 (P1-8)
@@ -348,25 +362,41 @@ class AsyncPipeline:
                         return _FailedResult(src, PipelineCancelled())
                     r = runners.get(src)
                     if r is not None:
+                        # runner 路径(如 Web)的协作取消由 job 标志驱动
+                        # (with_progress 在 stage 边界轮询),不在此注入事件
                         return await self.run(src, runner=r)
-                    return await self.run(src, **kwargs)
+                    # 默认路径:per-task 取消事件传入 Pipeline —
+                    # cancel_one(src) 能对运行中的任务做协作式取消(P0-2)。
+                    # 必须拷贝 kwargs:外层 kwargs 是所有任务共享的,
+                    # setdefault 会把第一个任务的 evt 钉死给全部任务。
+                    task_kwargs = dict(kwargs)
+                    task_kwargs["cancel_event"] = evt
+                    return await self.run(src, **task_kwargs)
             except asyncio.CancelledError:
                 # P1-8: task.cancel() 的 CancelledError(BaseException)
                 # 不穿透 _one — 捕获后按取消语义返回,保证
                 # asyncio.gather 不抛、输出仍按位置对齐。底层
                 # executor 线程无法中断,但 cancel_event 已透传到
                 # stage 层,阻塞操作之间会协作式退出。
+                evt.set()
                 return _FailedResult(src, PipelineCancelled())
             except Exception as exc:  # 隔离单个视频失败(含 PipelineCancelled)
                 return _FailedResult(src, exc)
 
-        tasks = [asyncio.create_task(_one(s)) for s in source_inputs]
+        tasks = []
+        for s in source_inputs:
+            evt = threading.Event()
+            t = asyncio.create_task(_one(s, evt))
+            tasks.append(t)
+            self._task_ctl[t] = (s, evt)
         self._tasks.extend(tasks)
         try:
             return list(await asyncio.gather(*tasks, return_exceptions=False))
         finally:
             # 清掉已完成的 task 引用,避免内存累积
             self._tasks = [t for t in self._tasks if not t.done()]
+            for t in [t for t in self._task_ctl if t.done()]:
+                self._task_ctl.pop(t, None)
 
     def cancel(self) -> int:
         """取消所有 in-flight 任务,返回被取消的 task 数。
@@ -382,6 +412,30 @@ class AsyncPipeline:
             if not t.done():
                 t.cancel()
                 n += 1
+        return n
+
+    def cancel_one(self, source: str) -> int:
+        """只取消指定 ``source`` 的任务,返回被取消的 task 数(P0-2)。
+
+        与 :meth:`cancel` 的区别:不置批级 ``_cancel_event``,兄弟任务
+        完全不受影响 —— Web 层 per-job 取消靠它保证 API 契约
+        (``POST /api/jobs/{id}/cancel`` 是单数语义)。
+
+        * **排队中**的任务(等 GPU 信号量):``task.cancel()`` 当场打断;
+        * **运行中**的默认路径任务:per-task 事件置位,stage 层协作退出;
+        * **运行中**的 runner 路径任务(如 Web):协作取消由调用方的
+          job 标志驱动(``registry.cancel`` → ``with_progress`` 轮询),
+          这里无需额外动作。
+
+        未匹配(任务已结束 / 不存在)返回 0,不报错。
+        """
+        n = 0
+        for t, (src, evt) in list(self._task_ctl.items()):
+            if src != source or t.done():
+                continue
+            evt.set()
+            t.cancel()
+            n += 1
         return n
 
     # ------------------------------------------------------------------

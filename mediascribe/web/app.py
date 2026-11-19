@@ -53,7 +53,13 @@ Security:
       ``mediascribe.wiki`` archives every finished transcript into
       ``<workspace>/vault/``, an Obsidian-compatible wiki),
       ``MEDIASCRIBE_WS_MAX_SESSION_SECONDS`` /
-      ``MEDIASCRIBE_WS_IDLE_TIMEOUT_SECONDS`` (WebSocket lifetime caps).
+      ``MEDIASCRIBE_WS_IDLE_TIMEOUT_SECONDS`` (WebSocket lifetime caps),
+      ``MEDIASCRIBE_JOB_EXECUTORS`` (concurrent batch count; legacy alias
+      ``MEDIASCRIBE_MAX_WORKERS``),
+      ``MEDIASCRIBE_BATCH_CONCURRENCY`` (per-batch in-flight URLs; legacy
+      alias ``MEDIASCRIBE_MAX_WORKERS``),
+      ``MEDIASCRIBE_VRAM_BUDGET_MB`` (process-wide VRAM budget for the
+      transcription gate; default = free-VRAM snapshot at first use).
 """
 
 from __future__ import annotations

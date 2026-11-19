@@ -63,6 +63,7 @@ from .downloaders import (
     YouTubeDownloader,
     YtDlpDownloader,
 )
+from .gpu_budget import get_vram_ledger
 from .i18n import t
 from .inputs import parse_source, safe_stem
 from .models import DownloadResult, SourceRef, TranscriptResult
@@ -479,20 +480,35 @@ class TranscribeStage(Stage):
         if not prompt:
             prompt = self._auto_prompt(ctx)
 
+        # ---- GPU 显存预算闸门(P0-1,2026-11-20 评审修复) ----
+        # CLI / batch / Web(同步+批量)/ MCP 四条入口最终都走本 stage,
+        # 在转录调用点统一过闸 ⇒ 资源守恒是进程级不变量,与入口无关。
+        # threading 原语实现,与 event loop 无关(AsyncPipeline 的
+        # asyncio.Semaphore 至此退化为纯调度参数)。等预算期间被取消
+        # (cancel_event 置位)→ 协作式退出。
+        ledger = get_vram_ledger()
+        slot_mb = ledger.slot_for(self._transcriber, ctx.settings)
+        acquired = ledger.acquire(slot_mb, cancel_event=ctx.cancel_event) if slot_mb else True
+        if not acquired:
+            raise PipelineCancelled()
         # ---- 转录期间的资源守卫 ----
         # 后台线程持续采样内存/显存/温度；越过紧急线时通知 + 请求取消。
         # Python 无法安全打断正在跑的 C 扩展调用，所以真正的强制终止交给外部，
         # 这里负责的是「及时告知」+「结束后不交付可能不完整的结果」。
-        with RuntimeMonitor(
-            cancel_event=ctx.cancel_event,
-            on_notice=ctx.resource_notices.append,
-        ) as monitor:
-            transcription = self._transcriber.transcribe(
-                ctx.audio_path,
-                prompt=prompt,
-                progress=True,
-                language=lang,
-            )
+        try:
+            with RuntimeMonitor(
+                cancel_event=ctx.cancel_event,
+                on_notice=ctx.resource_notices.append,
+            ) as monitor:
+                transcription = self._transcriber.transcribe(
+                    ctx.audio_path,
+                    prompt=prompt,
+                    progress=True,
+                    language=lang,
+                )
+        finally:
+            if slot_mb:
+                ledger.release(slot_mb)
         if monitor.pressured:
             raise ResourcePressureError(
                 t("STAGE_RESOURCE_PRESSURE", reason=monitor.pressure_reason)

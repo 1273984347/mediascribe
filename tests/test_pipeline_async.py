@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -573,6 +574,119 @@ class TestRunnerInjection(unittest.TestCase):
             # a0 / a2 走默认 transcribe
             self.assertIsInstance(results[0], TranscriptResult)
             self.assertIsInstance(results[2], TranscriptResult)
+
+
+# ---------------------------------------------------------------------------
+# P0-2(2026-11-20 评审): cancel_one per-URL 取消契约
+# ---------------------------------------------------------------------------
+class _StubHealthCache:
+    """跳过真实 GPU 探测 — 冷机器上 gpu_health() 要导入 torch(秒级)。
+
+    run_batch 建任务前会先做 VRAM 快照;不打桩的话任务创建被 torch
+    导入阻塞,per-URL 取消的时序断言全部失真。"""
+
+    def get(self):
+        return {"available": False, "device": "cpu"}
+
+
+async def _wait_tasks_created(ap: AsyncPipeline, count: int) -> None:
+    """等 run_batch 把任务建完(防御性轮询)。"""
+    for _ in range(400):
+        if len(ap._task_ctl) >= count:
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"run_batch did not create {count} tasks in time")
+
+
+class TestCancelOneContract(unittest.TestCase):
+    def setUp(self):
+        # 信号量单例跨测试残留首建 cap(重建只认首建值) — 每个用例重置,
+        # 否则批内并发语义随执行顺序漂移。
+        _reset_gpu_semaphores()
+
+    def test_cancel_one_spares_siblings(self):
+        """被 cancel_one 打断的任务得 _FailedResult(cancelled),兄弟任务照常完成。
+
+        两个 runner 都放慢:无论信号量 cap 是 1(b 排队)还是 >1(b 并行
+        在跑),取消时 b 都处于 in-flight,断言与调度细节解耦。"""
+        with tempfile.TemporaryDirectory() as td:
+            sync = Pipeline(settings=_fake_settings(Path(td)), transcriber=_fake_transcriber())
+
+            async def driver():
+                ap = AsyncPipeline(sync, max_concurrent=1)
+
+                def slow(name):
+                    def _r():
+                        time.sleep(0.5)
+                        return f"OK-{name}"
+
+                    return _r
+
+                fut = asyncio.create_task(
+                    ap.run_batch(["a", "b"], runners={"a": slow("a"), "b": slow("b")})
+                )
+                await _wait_tasks_created(ap, 2)
+                await asyncio.sleep(0.1)  # a 已进 runner 线程
+                n = ap.cancel_one("b")
+                return n, await fut
+
+            with mock.patch("mediascribe.pipeline_async._GPU_HEALTH_CACHE", _StubHealthCache()):
+                n, results = _run_coro(driver())
+            self.assertEqual(n, 1)
+            self.assertEqual(results[0], "OK-a")  # 兄弟任务不受影响
+            self.assertIsInstance(results[1], _FailedResult)
+            self.assertIsInstance(results[1].exc, PipelineCancelled)
+
+    def test_cancel_one_unknown_source_is_noop(self):
+        with tempfile.TemporaryDirectory() as td:
+            sync = Pipeline(settings=_fake_settings(Path(td)), transcriber=_fake_transcriber())
+
+            async def driver():
+                ap = AsyncPipeline(sync, max_concurrent=1)
+
+                def slow_runner():
+                    time.sleep(0.5)
+                    return "OK"
+
+                fut = asyncio.create_task(ap.run_batch(["a"], runners={"a": slow_runner}))
+                await _wait_tasks_created(ap, 1)
+                return ap.cancel_one("nope"), await fut
+
+            with mock.patch("mediascribe.pipeline_async._GPU_HEALTH_CACHE", _StubHealthCache()):
+                n, results = _run_coro(driver())
+            self.assertEqual(n, 0)
+            self.assertEqual(results, ["OK"])
+
+    def test_cancel_one_sets_per_task_event_for_default_path(self):
+        """默认路径(无 runner):cancel_one 置 per-task 事件并打断该任务。
+
+        事件必须逐任务独立 —— 共享 kwargs 的 setdefault 会把第一个任务的
+        事件钉死给全部任务(实现注释中钉过的坑)。"""
+        with tempfile.TemporaryDirectory() as td:
+            sync = Pipeline(settings=_fake_settings(Path(td)), transcriber=_fake_transcriber())
+
+            async def driver():
+                ap = AsyncPipeline(sync, max_concurrent=2)
+                seen_events = {}
+
+                async def fake_run(src, *, cancel_event=None, **kw):
+                    seen_events[src] = cancel_event
+                    await asyncio.sleep(5)
+                    return "OK"
+
+                ap.run = fake_run  # type: ignore[assignment]
+                fut = asyncio.create_task(ap.run_batch(["x", "y"]))
+                await _wait_tasks_created(ap, 2)
+                ap.cancel_one("x")
+                return seen_events, await fut
+
+            with mock.patch("mediascribe.pipeline_async._GPU_HEALTH_CACHE", _StubHealthCache()):
+                seen_events, results = _run_coro(driver())
+            self.assertIsInstance(results[0], _FailedResult)
+            self.assertEqual(results[1], "OK")
+            self.assertIsNotNone(seen_events.get("x"))
+            # x / y 各拿独立事件,而非批级共享事件
+            self.assertIsNot(seen_events.get("x"), seen_events.get("y"))
 
 
 if __name__ == "__main__":
