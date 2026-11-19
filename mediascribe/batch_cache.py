@@ -19,7 +19,7 @@ import json
 import logging
 import os
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -128,11 +128,21 @@ class ProcessCache:
             )
         return result
 
-    def get_user_videos(self, user_url: str) -> list:
-        """获取缓存的某用户的所有视频"""
+    def get_user_videos(self, user_url: str, *, ttl_hours: float = 24.0) -> list:
+        """获取缓存的某用户的所有视频(P2-5: 超 TTL 视为过期,重新抓取)
+
+        此前无 TTL —— 作者更新后旧列表一直用,新视频永远抓不到。"""
         # 仅作缓存键去重用，非安全敏感哈希（nosec 须与代码同行，见下）
         user_hash = hashlib.md5(user_url.encode()).hexdigest()[:12]  # nosec B324
         cached: dict = self._cache_data["users"].get(user_hash, {})
+        cached_at = cached.get("cached_at")
+        if ttl_hours > 0 and cached_at:
+            try:
+                age = datetime.now() - datetime.fromisoformat(str(cached_at))
+                if age > timedelta(hours=ttl_hours):
+                    return []  # 过期 → 调用方重新抓取
+            except ValueError:
+                return []
         videos: list = cached.get("videos", [])
         return videos
 

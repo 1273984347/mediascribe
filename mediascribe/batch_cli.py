@@ -227,7 +227,11 @@ def _collect_videos(args, cache, config, user_url, get_user_videos, t) -> List[D
 
     log.info(f"\n📋 {t('INFO_STEP2', count=config.max_videos)}")
 
-    cached_videos: List[Dict] = cache.get_user_videos(user_url) if not args.no_cache else []
+    # P2-5: 视频列表缓存带 TTL(默认 24h,DOUYIN_BATCH_LIST_TTL_HOURS 可调,0=旧行为)
+    list_ttl = float(getattr(config, "list_ttl_hours", 24) or 0)
+    cached_videos: List[Dict] = (
+        cache.get_user_videos(user_url, ttl_hours=list_ttl) if not args.no_cache else []
+    )
     if cached_videos:
         log.info(f"   📦 {t('INFO_STEP2_CACHED', count=len(cached_videos))}")
         return cached_videos[: config.max_videos]
@@ -244,6 +248,26 @@ def _collect_videos(args, cache, config, user_url, get_user_videos, t) -> List[D
     if videos:
         cache.save_user_videos(user_url, videos)
     return videos
+
+
+def _sweep_orphan_parts(
+    download_dir: Path, *, max_age_hours: float, log, i18n_t
+) -> int:
+    """P2-5(2026-11-20 评审): 清扫批跑启动时残留的 ``*.part`` 孤儿文件。
+
+    ``_http_download`` 的 finally 清理在 SIGKILL/断电时不运行,
+    ``_cleanup_downloads`` 只 glob ``*.mp4`` —— 半截文件此前永久泄漏。
+    只清超过 ``max_age_hours`` 的(新文件可能是并发 run 的,不动)。"""
+    cutoff = time.time() - max_age_hours * 3600
+    removed = 0
+    for p in sorted(download_dir.glob("*.part")):
+        try:
+            if p.stat().st_mtime < cutoff:
+                p.unlink()
+                removed += 1
+        except OSError:
+            continue
+    return removed
 
 
 def _cleanup_downloads(config, results: List[Dict], download_dir: Path, t) -> None:
@@ -491,6 +515,24 @@ def main(argv: Optional[List[str]] = None) -> int:
         output_dir = Path(config.output_dir)
         download_dir = output_dir / "downloads" / "user_videos"
         download_dir.mkdir(parents=True, exist_ok=True)
+
+        # P2-6(2026-11-20 评审): 磁盘空间守卫 —— 中间媒体可能很大,
+        # 剩余不足提前失败,避免跑一半盘满、产物半截
+        from mediascribe.platform_compat import free_disk_mb, min_free_disk_mb
+
+        free_mb = free_disk_mb(download_dir)
+        needed_mb = min_free_disk_mb()
+        if free_mb is not None and free_mb < needed_mb:
+            log.error(t("ERROR_DISK_SPACE", needed=needed_mb, free=free_mb))
+            return 1
+
+        # P2-5: 孤儿清扫 —— SIGKILL/断电漏下的 .part 半截文件,
+        # 超 24h 即清(新文件可能是并发 run 的,不动)
+        removed_parts = _sweep_orphan_parts(
+            download_dir, max_age_hours=24, log=log, i18n_t=t
+        )
+        if removed_parts:
+            log.info(t("INFO_ORPHAN_PARTS_SWEPT", count=removed_parts))
 
         # 进度跟踪（desc 经 i18n 注入，P2-15）
         tracker = ProgressTracker(total=len(videos), desc=t("INFO_PROGRESS_DESC"))

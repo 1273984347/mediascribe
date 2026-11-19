@@ -222,6 +222,21 @@ def _register_submit_jobs_route(app: "FastAPI", workspace: Path, pipeline_factor
             _validate_submitted_urls(urls, workspace)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        # P2-6(2026-11-20 评审): 磁盘空间守卫 —— 剩余不足 2×单文件下载上限
+        # 即拒绝(507 Insufficient Storage),避免批量任务跑到一半盘满
+        from mediascribe.platform_compat import free_disk_mb, min_free_disk_mb
+
+        free_mb = free_disk_mb(workspace)
+        needed_mb = min_free_disk_mb()
+        if free_mb is not None and free_mb < needed_mb:
+            raise HTTPException(
+                status_code=507,
+                detail=(
+                    f"insufficient disk space on workspace volume: "
+                    f"need ~{needed_mb}MB, free {free_mb}MB "
+                    f"(tune MEDIASCRIBE_MIN_FREE_MB to override)"
+                ),
+            )
         try:
             pipeline = pipeline_factory(req, workspace)
         except Exception as exc:

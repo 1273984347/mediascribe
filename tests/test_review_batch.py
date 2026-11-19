@@ -650,3 +650,151 @@ class TestBotWallBackoff:
         assert "失败类别: gone" in text
         assert "类别: bot_wall" in text
         assert "bot_wall×1" in text and "gone×1" in text
+
+
+# ---------------------------------------------------------------------------
+# P2-5(2026-11-20 架构评审): 孤儿 .part 清扫 + 视频列表缓存 TTL
+# ---------------------------------------------------------------------------
+class TestOrphanPartSweep:
+    def test_old_part_swept_fresh_kept(self, tmp_path):
+        import os
+        import time as _t
+
+        import mediascribe.batch_cli as v3
+
+        old_part = tmp_path / "v1.mp4.abc.part"
+        old_part.write_bytes(b"x")
+        fresh_part = tmp_path / "v2.mp4.def.part"
+        fresh_part.write_bytes(b"x")
+        # old 拨到 25h 前
+        old_ts = _t.time() - 25 * 3600
+        os.utime(old_part, (old_ts, old_ts))
+
+        removed = v3._sweep_orphan_parts(
+            tmp_path, max_age_hours=24, log=MagicMock(), i18n_t=lambda k, **kw: k
+        )
+        assert removed == 1
+        assert not old_part.exists()
+        assert fresh_part.exists()
+
+    def test_no_part_files_noop(self, tmp_path):
+        import mediascribe.batch_cli as v3
+
+        assert (
+            v3._sweep_orphan_parts(
+                tmp_path, max_age_hours=24, log=MagicMock(), i18n_t=lambda k, **kw: k
+            )
+            == 0
+        )
+
+
+class TestVideoListTtl:
+    def test_expired_list_returns_empty(self, tmp_path):
+        import json
+        from datetime import datetime, timedelta
+
+        from mediascribe.batch_cache import ProcessCache
+
+        cache = ProcessCache(cache_dir=tmp_path / "cache")
+        videos = [{"video_id": "v1", "url": "https://www.douyin.com/video/v1"}]
+        cache.save_user_videos("https://www.douyin.com/user/x", videos)
+        # 手动把 cached_at 拨老
+        cache._cache_data["users"][next(iter(cache._cache_data["users"]))]["cached_at"] = (
+            datetime.now() - timedelta(hours=48)
+        ).isoformat()
+        cache._save()
+        assert cache.get_user_videos("https://www.douyin.com/user/x", ttl_hours=24) == []
+        assert cache.get_user_videos("https://www.douyin.com/user/x", ttl_hours=72) == videos
+
+    def test_fresh_list_default_ttl_valid(self, tmp_path):
+        from mediascribe.batch_cache import ProcessCache
+
+        cache = ProcessCache(cache_dir=tmp_path / "cache")
+        videos = [{"video_id": "v1", "url": "u"}]
+        cache.save_user_videos("https://www.douyin.com/user/x", videos)
+        assert cache.get_user_videos("https://www.douyin.com/user/x") == videos
+
+    def test_ttl_zero_disables(self, tmp_path):
+        from datetime import datetime, timedelta
+
+        from mediascribe.batch_cache import ProcessCache
+
+        cache = ProcessCache(cache_dir=tmp_path / "cache")
+        cache.save_user_videos("https://www.douyin.com/user/x", [{"video_id": "v1"}])
+        cache._cache_data["users"][next(iter(cache._cache_data["users"]))]["cached_at"] = (
+            datetime.now() - timedelta(hours=999)
+        ).isoformat()
+        cache._save()
+        assert cache.get_user_videos("https://www.douyin.com/user/x", ttl_hours=0) != []
+
+    def test_batch_config_env_wiring(self):
+        from mediascribe.batch_config import BatchConfig
+
+        with patch.dict("os.environ", {"DOUYIN_BATCH_LIST_TTL_HOURS": "0"}, clear=False):
+            assert BatchConfig.from_env().list_ttl_hours == 0
+        assert BatchConfig().list_ttl_hours == 24
+
+
+# ---------------------------------------------------------------------------
+# P2-6(2026-11-20 架构评审): 磁盘空间守卫
+# ---------------------------------------------------------------------------
+class TestDiskGuard:
+    def test_min_free_default_is_2x_max_download(self, tmp_path):
+        from mediascribe.platform_compat import min_free_disk_mb
+
+        with patch.dict("os.environ", {}, clear=False):
+            import os as _os
+
+            _os.environ.pop("MEDIASCRIBE_MIN_FREE_MB", None)
+            _os.environ.pop("MEDIASCRIBE_MAX_DOWNLOAD_MB", None)
+            assert min_free_disk_mb() == 2 * 4096
+
+    def test_min_free_override(self):
+        from mediascribe.platform_compat import min_free_disk_mb
+
+        with patch.dict("os.environ", {"MEDIASCRIBE_MIN_FREE_MB": "500"}, clear=False):
+            assert min_free_disk_mb() == 500
+
+    def test_free_disk_mb_oserror_returns_none(self, tmp_path):
+        from mediascribe.platform_compat import free_disk_mb
+
+        with patch(
+            "mediascribe.platform_compat.shutil.disk_usage",
+            side_effect=OSError("no such volume"),
+        ):
+            assert free_disk_mb(tmp_path) is None
+
+    def test_free_disk_mb_real(self, tmp_path):
+        from mediascribe.platform_compat import free_disk_mb
+
+        value = free_disk_mb(tmp_path)
+        assert value is None or value > 0
+
+    def test_web_submit_507_when_disk_low(self, tmp_path):
+        """验收指标(P2-6): mock 磁盘低水位,提交路径返回明确错误码。"""
+        from unittest.mock import patch as _patch
+
+        try:
+            from fastapi.testclient import TestClient
+        except ImportError:  # pragma: no cover - optional dep
+            import pytest
+
+            pytest.skip("fastapi not installed")
+
+        from mediascribe.web.app import create_app
+
+        app_obj = create_app(workspace=tmp_path)
+        client = TestClient(app_obj)
+        try:
+            with _patch(
+                "mediascribe.platform_compat.free_disk_mb", return_value=1
+            ), _patch("mediascribe.platform_compat.min_free_disk_mb", return_value=100):
+                r = client.post(
+                    "/api/jobs", json={"urls": ["https://example.com/x.mp4"]}
+                )
+            assert r.status_code == 507, r.text
+            assert "insufficient disk space" in r.json()["detail"]
+        finally:
+            store = getattr(app_obj.state, "job_store", None)
+            if store is not None:
+                store.close()

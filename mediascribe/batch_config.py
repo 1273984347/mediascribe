@@ -35,6 +35,7 @@ _ENV_FIELDS = {
     "KEEP_AUDIO": ("keep_audio", bool),
     "LOG_LEVEL": ("log_level", str),
     "MAX_RETRIES": ("max_retries", int),
+    "LIST_TTL_HOURS": ("list_ttl_hours", int),
 }
 
 
@@ -77,6 +78,8 @@ class BatchConfig:
 
     # 高级配置
     max_wait_for_media: int = 15  # 等待媒体URL超时（秒）
+    # P2-5: 作者视频列表缓存 TTL(小时) —— 0 = 永不过期(旧行为)
+    list_ttl_hours: int = 24
 
     def to_dict(self) -> dict:
         return asdict(self)
