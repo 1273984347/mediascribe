@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from ..config import default_engine
 from ..i18n import t
 
 try:
@@ -23,7 +24,12 @@ if _PYDANTIC_AVAILABLE:
 
     class TranscribeRequest(BaseModel):
         urls: List[str] = Field(..., min_length=1, max_length=20)
-        engine: str = Field("whisper", pattern="^(whisper|faster-whisper|whisperx|whisper-cpp)$")
+        # P1-2(2026-11-20 评审): 默认引擎跟随安装探测(faster-whisper 优先),
+        # 不再硬编码最慢的 torch whisper;显式传入仍优先。
+        engine: str = Field(
+            default_factory=default_engine,
+            pattern="^(whisper|faster-whisper|whisperx|whisper-cpp)$",
+        )
         model: str = Field(
             "small",
             pattern="^(tiny|base|small|medium|large|large-v1|large-v2|large-v3|distil-large-v2|distil-large-v3)$",

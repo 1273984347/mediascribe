@@ -519,6 +519,7 @@ class TestCreateTranscriberResolvesDevice(unittest.TestCase):
         ):
             wt.return_value = "SENTINEL"
             s = _fake_settings(Path("/tmp"))
+            s.engine = "whisper"  # 显式钉引擎,不随安装探测漂移(P1-2)
             s.device = "cuda:0"
             Pipeline(settings=s, transcriber=None)._create_transcriber(s)
             self.assertEqual(wt.call_args.kwargs["device"], "cuda:0")
@@ -531,6 +532,7 @@ class TestCreateTranscriberResolvesDevice(unittest.TestCase):
         ):
             wt.return_value = "SENTINEL"
             s = _fake_settings(Path("/tmp"))
+            s.engine = "whisper"  # 显式钉引擎,不随安装探测漂移(P1-2)
             s.device = None
             Pipeline(settings=s, transcriber=None)._create_transcriber(s)
             self.assertEqual(wt.call_args.kwargs["device"], "cpu")

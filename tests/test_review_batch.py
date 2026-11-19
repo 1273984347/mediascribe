@@ -199,7 +199,9 @@ class TestTranscriberPoolConfig:
         cfg = SimpleNamespace(whisper_model="medium", language="en")
         with patch("mediascribe.Pipeline") as pipe_cls, patch("mediascribe.Settings") as set_cls:
             pool = tmod.TranscriberPool(config=cfg)
-            set_cls.assert_called_once_with(model="medium")
+            from mediascribe.config import default_engine
+
+            set_cls.assert_called_once_with(model="medium", engine=default_engine())
             pool.transcribe(Path("/tmp/a.wav"))
             args, kwargs = pipe_cls.return_value.transcribe.call_args
         assert kwargs.get("language") == "en"
@@ -210,7 +212,9 @@ class TestTranscriberPoolConfig:
 
         with patch("mediascribe.Pipeline") as pipe_cls, patch("mediascribe.Settings") as set_cls:
             pool = tmod.TranscriberPool()
-            set_cls.assert_called_once_with(model="small")
+            from mediascribe.config import default_engine
+
+            set_cls.assert_called_once_with(model="small", engine=default_engine())
             pool.transcribe(Path("/tmp/a.wav"))
             _, kwargs = pipe_cls.return_value.transcribe.call_args
         assert kwargs.get("language") == "zh"
@@ -415,3 +419,35 @@ class TestGetUserVideosScrollParams:
 # ---------------------------------------------------------------------------
 # P2-15: 汇总报告 ASCII 文件名
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# P1-1(2026-11-20 架构评审): 批处理线新增引擎维度
+# ---------------------------------------------------------------------------
+class TestBatchEngineField:
+    def test_engine_env_wiring(self):
+        from mediascribe.batch_config import BatchConfig
+
+        with patch.dict("os.environ", {"DOUYIN_BATCH_ENGINE": "faster-whisper"}, clear=False):
+            cfg = BatchConfig.from_env()
+        assert cfg.engine == "faster-whisper"
+
+    def test_engine_default_none_follows_probe(self):
+        from mediascribe.batch_config import BatchConfig
+        from mediascribe.config import default_engine
+
+        assert BatchConfig().engine is None
+        # TranscriberPool 侧: config.engine 缺省 → default_engine() 探测
+        from types import SimpleNamespace
+
+        from mediascribe import transcribe as tmod
+
+        tmod.TranscriberPool._instance = None
+        cfg = SimpleNamespace(whisper_model="small", language="zh")
+        with (
+            mock.patch("mediascribe.Pipeline"),
+            mock.patch("mediascribe.Settings") as SetCls,
+        ):
+            tmod.TranscriberPool(config=cfg)
+        tmod.TranscriberPool._instance = None
+        SetCls.assert_called_once_with(model="small", engine=default_engine())

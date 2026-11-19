@@ -164,3 +164,44 @@ class TestTranscribeAudio(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTranscriberPoolEngine(unittest.TestCase):
+    """P1-1(2026-11-20 架构评审): 批处理线引擎维度透传。"""
+
+    def setUp(self) -> None:
+        from mediascribe import transcribe
+
+        transcribe.TranscriberPool._instance = None
+
+    def tearDown(self) -> None:
+        from mediascribe import transcribe
+
+        transcribe.TranscriberPool._instance = None
+
+    def test_config_engine_passthrough(self):
+        from types import SimpleNamespace
+
+        from mediascribe.transcribe import TranscriberPool
+
+        cfg = SimpleNamespace(whisper_model="small", language="zh", engine="whisper")
+        with (
+            mock.patch("mediascribe.Pipeline"),
+            mock.patch("mediascribe.Settings") as SetCls,
+        ):
+            TranscriberPool(config=cfg)
+        SetCls.assert_called_once_with(model="small", engine="whisper")
+
+    def test_engine_defaults_to_install_probe(self):
+        from types import SimpleNamespace
+
+        from mediascribe.config import default_engine
+        from mediascribe.transcribe import TranscriberPool
+
+        cfg = SimpleNamespace(whisper_model="small", language="zh")  # 无 engine 属性
+        with (
+            mock.patch("mediascribe.Pipeline"),
+            mock.patch("mediascribe.Settings") as SetCls,
+        ):
+            TranscriberPool(config=cfg)
+        SetCls.assert_called_once_with(model="small", engine=default_engine())

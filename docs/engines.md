@@ -13,9 +13,17 @@ MediaScribe supports four ASR engines, with automatic fallback.
 | `whisperx` | ~5x | best, with alignment | `pip install whisperx` |
 | `whisper-cpp` | ~3x (CPU), lowest memory | good (multilingual) | external binary + GGML weights |
 
-The factory in `mediascribe/transcribers/factory.py` walks the
-fallback chain (`whisperx → faster-whisper → whisper → whisper-cpp` by default)
-and instantiates the first one that is installed.
+Engine **construction** lives in `mediascribe/transcribers/factory.py`
+(name → instance, no fallback chain — the memory-pressure fallback that
+once lived there was removed on 2026-10-29; engine *selection* under
+resource pressure lives in `mediascribe/runtime_guard.py`).
+
+!!! note "Default engine (P1-2, 2026-11-20 review)"
+    With no explicit `--engine`, every entry point (CLI / Web / MCP /
+    batch) defaults to `faster-whisper` when it is installed (~3.5×
+    faster than the torch `whisper` baseline at comparable quality) and
+    falls back to `whisper` otherwise. An explicit `--engine` CLI flag /
+    Web request field / `DOUYIN_BATCH_ENGINE` env always wins.
 
 !!! tip "Memory-pressure reordering"
     When the host's available memory drops below 4 GB and the device is
