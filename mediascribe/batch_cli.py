@@ -250,9 +250,7 @@ def _collect_videos(args, cache, config, user_url, get_user_videos, t) -> List[D
     return videos
 
 
-def _sweep_orphan_parts(
-    download_dir: Path, *, max_age_hours: float, log, i18n_t
-) -> int:
+def _sweep_orphan_parts(download_dir: Path, *, max_age_hours: float, log, i18n_t) -> int:
     """P2-5(2026-11-20 评审): 清扫批跑启动时残留的 ``*.part`` 孤儿文件。
 
     ``_http_download`` 的 finally 清理在 SIGKILL/断电时不运行,
@@ -528,9 +526,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         # P2-5: 孤儿清扫 —— SIGKILL/断电漏下的 .part 半截文件,
         # 超 24h 即清(新文件可能是并发 run 的,不动)
-        removed_parts = _sweep_orphan_parts(
-            download_dir, max_age_hours=24, log=log, i18n_t=t
-        )
+        removed_parts = _sweep_orphan_parts(download_dir, max_age_hours=24, log=log, i18n_t=t)
         if removed_parts:
             log.info(t("INFO_ORPHAN_PARTS_SWEPT", count=removed_parts))
 
