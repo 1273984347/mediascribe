@@ -22,7 +22,7 @@ import sys
 from pathlib import Path, PurePath
 from typing import List, Optional
 
-from .config import Settings, _VALID_ENGINES
+from .config import _VALID_ENGINES, Settings
 from .i18n import t
 from .pipeline import Pipeline
 from .pipeline_async import AsyncPipeline, _FailedResult
