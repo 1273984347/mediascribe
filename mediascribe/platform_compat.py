@@ -3,6 +3,7 @@ Cross-platform compatibility utilities
 跨平台兼容性工具
 """
 
+import os
 import platform
 import shutil
 import subprocess
@@ -207,3 +208,25 @@ def get_python_info() -> dict:
         "machine": platform.machine(),
         "ffmpeg_available": check_ffmpeg(),
     }
+
+
+def free_disk_mb(path: Path) -> Optional[int]:
+    """目录所在卷的剩余空间(MB);探测失败返回 ``None``(调用方不拦)。"""
+    try:
+        return int(shutil.disk_usage(str(Path(path))).free // (1024 * 1024))
+    except OSError:
+        return None
+
+
+def min_free_disk_mb() -> int:
+    """批量下载前的最低剩余空间要求(MB)。
+
+    优先级:``MEDIASCRIBE_MIN_FREE_MB`` 显式覆盖 > 2×单文件下载上限
+    (MEDIASCRIBE_MAX_DOWNLOAD_MB,默认 4096 → 默认要求 8192MB)。
+    P2-6(2026-11-20 架构评审): 盘满跑到一半产物半截,提前失败更便宜。"""
+    raw = os.environ.get("MEDIASCRIBE_MIN_FREE_MB", "").strip()
+    if raw.isdigit() and int(raw) > 0:
+        return int(raw)
+    raw_max = os.environ.get("MEDIASCRIBE_MAX_DOWNLOAD_MB", "").strip()
+    max_mb = int(raw_max) if raw_max.isdigit() and int(raw_max) > 0 else 4096
+    return 2 * max_mb

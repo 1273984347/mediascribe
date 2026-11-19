@@ -5,6 +5,8 @@ Internationalization (i18n) - English/Chinese bilingual support
 
 import locale
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Optional
 
 
@@ -465,6 +467,20 @@ Environment variables:
     WARN_BOT_WALL_BACKOFF = {
         "en": "Rate-limit wall hit — pausing batch for {seconds}s before continuing",
         "zh": "命中平台风控，整批暂停 {seconds}s 后继续",
+    }
+
+    # P2-5 (2026-11-20 架构评审): 孤儿 .part 清扫
+    INFO_ORPHAN_PARTS_SWEPT = {
+        "en": "Swept {count} orphaned .part file(s) left by killed runs",
+        "zh": "清扫 {count} 个上次中断遗留的 .part 半截文件",
+    }
+
+    # P2-6 (2026-11-20 架构评审): 磁盘空间守卫
+    ERROR_DISK_SPACE = {
+        "en": "Insufficient disk space: need ~{needed}MB free, only {free}MB left. "
+        "Free up space or tune MEDIASCRIBE_MIN_FREE_MB",
+        "zh": "磁盘空间不足：需约 {needed}MB 剩余，当前仅 {free}MB。"
+        "请清理磁盘或调低 MEDIASCRIBE_MIN_FREE_MB",
     }
 
     INFO_ALL_PROCESSED = {
@@ -1781,20 +1797,31 @@ Environment variables:
 
 
 # Global i18n state
+#
+# P2-8(2026-11-20 架构评审): 语言态两层化 ——
+# * ``_current_lang`` 进程默认: ``set_language`` / ``init_language`` 写这里,
+#   CLI 启动期切换照旧全进程生效(worker 线程可见 —— 线程不继承 ContextVar,
+#   必须落在普通全局上);
+# * ``_lang_override`` ContextVar 逐上下文覆盖(performance.py 同款先例):
+#   长任务运行中用 :func:`scoped_language` 切语言只影响当前上下文/任务,
+#   不污染 in-flight 任务的文案。
 _current_lang: str = "en"
+_lang_override: ContextVar = ContextVar("mediascribe_lang_override", default=None)
 
 
 def set_language(lang: str):
-    """Set the current language"""
+    """Set the current language (process default; affects all threads)"""
     global _current_lang
     if lang not in ("en", "zh"):
         raise ValueError(f"Unsupported language: {lang}")
     _current_lang = lang
+    # 清当前上下文的覆盖 —— 显式 set_language 的优先级高于遗留 override
+    _lang_override.set(None)
 
 
 def get_language() -> str:
-    """Get the current language"""
-    return _current_lang
+    """Get the effective language (context override > process default)"""
+    return _lang_override.get() or _current_lang
 
 
 def init_language(lang: Optional[str] = None):
@@ -1804,6 +1831,21 @@ def init_language(lang: Optional[str] = None):
         set_language(lang)
     else:
         _current_lang = detect_language()
+
+
+@contextmanager
+def scoped_language(lang: str):
+    """上下文内覆盖语言(P2-8) — 进入设覆盖、退出恢复原值。
+
+    用途: 并发场景下各自任务用各自语言的文案(如 Web 长任务),
+    切换只对**新任务**生效,不影响 in-flight 任务。"""
+    if lang not in ("en", "zh"):
+        raise ValueError(f"Unsupported language: {lang}")
+    token = _lang_override.set(lang)
+    try:
+        yield
+    finally:
+        _lang_override.reset(token)
 
 
 def t(key: str, **kwargs) -> str:
@@ -1822,7 +1864,8 @@ def t(key: str, **kwargs) -> str:
         # Fallback: return the key
         return f"[{key}]"
 
-    msg: str = msg_dict.get(_current_lang, msg_dict.get("en", f"[{key}]"))
+    lang = _lang_override.get() or _current_lang
+    msg: str = msg_dict.get(lang, msg_dict.get("en", f"[{key}]"))
     if kwargs:
         try:
             return msg.format(**kwargs)
