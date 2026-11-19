@@ -72,15 +72,10 @@ dependencies = [
     "pyyaml>=6.0",
 ]
 
-# Third-party plugins can be discovered via entry_points; see
-# docs/plugins.md.  Built-in extensions are listed in [project.entry-points].
-[project.entry-points."mediascribe.downloaders"]
-vimeo = "examples.plugins.vimeo_downloader:VimeoDownloader"
-
-[project.entry-points."mediascribe.transcribers"]
-
-[project.entry-points."mediascribe.url_transformers"]
-tcn = "examples.plugins.tcn_transformer:transform"
+# Third-party plugins are discovered via entry_points; see docs/plugins.md.
+# P2-3(2026-11-20 架构评审): 本包不再注册任何 entry-points ——
+# examples/ 下的插件是**参考实现**,不随安装自动激活;第三方在自己的
+# 包里声明 [project.entry-points."mediascribe.*"] 即可被发现。
 
 [project.optional-dependencies]
 # Higher-accuracy ASR engines (optional, user chooses)

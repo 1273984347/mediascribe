@@ -93,11 +93,19 @@ print(plugins.list_url_transformers())
 
 `plugins.clear_cache()` is provided for tests.
 
-## Example plugin shipped with the project
+## Example plugins (reference code only)
 
-See `examples/plugins/`:
+`examples/plugins/` ships two **reference implementations**:
 
-* `vimeo_downloader.py` — a stub downloader registered in
-  `pyproject.toml` so the plugin-system tests can exercise the
-  end-to-end flow.
+* `vimeo_downloader.py` — a stub downloader.
 * `tcn_transformer.py` — a `t.cn` short-link resolver.
+
+They are **NOT registered by default** (2026-11-20 review P2-3:
+sample code should not sit on the production discovery path).  To
+activate one, copy it into your own package and declare the
+entry-point yourself:
+
+```toml
+[project.entry-points."mediascribe.downloaders"]
+vimeo = "my_pkg.vimeo_downloader:VimeoDownloader"
+```
