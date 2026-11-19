@@ -122,6 +122,14 @@ def build_app(
         # P2-9: 停机时叫停所有 WS bridge drain 线程。
         for bridge in list(getattr(app.state, "ws_bridges", {}).values()):
             bridge.close()
+        # P1-3: 停机时收 SQLite 任务表连接(Windows 上不关会让文件句柄
+        # 挂住 workspace 目录的删除/移动)。
+        job_store = getattr(app.state, "job_store", None)
+        if job_store is not None:
+            try:
+                job_store.close()
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("job store close 异常: %r", exc)
 
     app = FastAPI(
         title="MediaScribe Web UI",
@@ -212,6 +220,16 @@ def build_app(
     if workspace is None:
         env_ws = os.environ.get("MEDIASCRIBE_WORKSPACE", "").strip()
         workspace = Path(env_ws) if env_ws else Path.cwd() / "web-workspace"
+
+    # P1-3(2026-11-20 评审): SQLite 任务表 — 任务态不再 100% 进程内存。
+    # 启动时把上次进程遗留的 unfinished 任务标记为 lost(重启可观测);
+    # /api/jobs 合并历史;/api/jobs/{id}/result 未命中内存时回源本表 +
+    # out_path 文件 —— 重启与 1h purge 之后成果仍可取回。
+    from mediascribe.web.job_store import JobStore
+
+    job_store = JobStore(workspace / "jobs.sqlite3")
+    job_store.recover_unfinished()
+    app.state.job_store = job_store
 
     # Karpathy 式知识库 vault (mediascribe.wiki) — 每次任务成功后
     # 把转写稿归档进 <workspace>/vault/; MEDIASCRIBE_WIKI=0 停用。

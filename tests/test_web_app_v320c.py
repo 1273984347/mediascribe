@@ -155,6 +155,23 @@ def _make_client(tmp: Path):
     return client, client_app
 
 
+def _wait_store_terminal(app_obj, job_ids, timeout: float = 5.0) -> None:
+    """等 SQLite 任务表落终态(P1-3)。
+
+    内存态 ``finished`` 翻位后,worker 还有 results_store 写回 + SQLite
+    终态写;只有 store 行到终态,临时目录清理才不会与 worker 的文件句柄
+    赛跑(Windows 上是 ``WinError 32``)。"""
+    deadline = time.time() + timeout
+    pending = list(job_ids)
+    while pending and time.time() < deadline:
+        pending = [
+            j for j in pending if not ((app_obj.state.job_store.get(j) or {}).get("finished"))
+        ]
+        if pending:
+            time.sleep(0.05)
+    assert not pending, f"jobs not terminal in job store: {pending}"
+
+
 # ---------------------------------------------------------------------------
 # Task 3a — /api/health shape (cached + version bump)
 # ---------------------------------------------------------------------------
@@ -192,7 +209,7 @@ class TestSubmitJobs(unittest.TestCase):
     def test_submit_returns_job_ids_with_ws_and_result_paths(self):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
-            client, _ = _make_client(tmp)
+            client, app_obj = _make_client(tmp)
             fake = _fake_pipeline()
             with mock.patch("app._build_pipeline", return_value=fake):
                 r = client.post(
@@ -209,6 +226,7 @@ class TestSubmitJobs(unittest.TestCase):
                 self.assertTrue(job["ws"].startswith("/ws/progress/"))
                 self.assertTrue(job["result"].startswith("/api/jobs/"))
                 self.assertIn(job["job_id"], job["ws"])
+            _wait_store_terminal(app_obj, [j["job_id"] for j in data["jobs"]])
 
     def test_empty_urls_rejected(self):
         with tempfile.TemporaryDirectory() as td:
@@ -221,7 +239,7 @@ class TestSubmitJobs(unittest.TestCase):
     def test_duplicate_urls_deduped_preserving_order(self):
         """P2-6: 重复 URL 只建一个 job(避免孤儿 job / 并发写同一 out_path)。"""
         with tempfile.TemporaryDirectory() as td:
-            client, _ = _make_client(Path(td))
+            client, app_obj = _make_client(Path(td))
             fake = _fake_pipeline()
             with mock.patch("app._build_pipeline", return_value=fake):
                 r = client.post(
@@ -244,6 +262,7 @@ class TestSubmitJobs(unittest.TestCase):
             # 计数字段让客户端感知发生了去重。
             self.assertEqual(data["requested"], 3)
             self.assertEqual(data["unique"], 2)
+            _wait_store_terminal(app_obj, [j["job_id"] for j in data["jobs"]])
 
     def test_result_returns_markdown_after_finish(self):
         """After the background runner completes, /result returns the markdown."""
@@ -274,6 +293,7 @@ class TestSubmitJobs(unittest.TestCase):
             # does not write one, so this is expected to be "" but the
             # call itself must succeed.
             self.assertIn("markdown", data)
+            _wait_store_terminal(app_obj, [job_id])
 
     def test_result_404_for_unknown_job(self):
         with tempfile.TemporaryDirectory() as td:

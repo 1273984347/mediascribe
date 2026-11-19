@@ -438,7 +438,8 @@ class TestLocalPathSource(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             ws = Path(td) / "ws"
             ws.mkdir()
-            client = TestClient(create_app(workspace=ws))
+            app_obj = create_app(workspace=ws)
+            client = TestClient(app_obj)
             inside = ws / "clip.mp4"
             inside.write_bytes(b"x")
             fake = mock.MagicMock(name="Pipeline")
@@ -450,6 +451,18 @@ class TestLocalPathSource(unittest.TestCase):
                 r = client.post("/api/jobs", json={"urls": [str(inside)]})
             self.assertEqual(r.status_code, 200, r.text)
             self.assertEqual(len(r.json()["jobs"]), 1)
+            # 等 SQLite 任务表落终态,避免 worker 文件句柄与临时目录清理赛跑
+            deadline = time.time() + 5.0
+            pending = [j["job_id"] for j in r.json()["jobs"]]
+            while pending and time.time() < deadline:
+                pending = [
+                    j
+                    for j in pending
+                    if not ((app_obj.state.job_store.get(j) or {}).get("finished"))
+                ]
+                if pending:
+                    time.sleep(0.05)
+            assert not pending, f"jobs not terminal in job store: {pending}"
 
     def test_is_local_path_source_classification(self):
         self.assertTrue(_is_local_path_source("/etc/passwd"))

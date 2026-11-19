@@ -23,6 +23,7 @@ def _store_job_result(
     results_lock: "threading.Lock",
     registry: Any,
     vault: Any = None,
+    store: Any = None,
 ) -> None:
     """执行 ``runner()`` 并把结果安全写入 ``results_store``。
 
@@ -79,6 +80,20 @@ def _store_job_result(
                 "url": url,
                 "wiki": wiki_info,
             }
+        # P1-3(2026-11-20 评审): 终态写 SQLite 任务表 — 成果(out_path/
+        # engine/title)在重启与 1h purge 后仍可取回。放在 results_lock 外,
+        # SQLite 有自己的锁。
+        if store is not None:
+            try:
+                store.mark_terminal(
+                    job_id,
+                    finished=True,
+                    out_path=str(out_path),
+                    engine=engine,
+                    title=title,
+                )
+            except Exception:  # pragma: no cover - defensive
+                logger.warning("job store terminal write failed (job=%s)", job_id, exc_info=True)
     except Exception as exc:  # pragma: no cover - defensive
         # ``with_progress`` already marks the job as failed via
         # ``job.fail(...)``; we just record the failure here so the
@@ -97,6 +112,11 @@ def _store_job_result(
                 "url": url,
                 "error": f"{exc.__class__.__name__}: {exc}",
             }
+        if store is not None:
+            try:
+                store.mark_terminal(job_id, finished=True, error=f"{exc.__class__.__name__}: {exc}")
+            except Exception:  # pragma: no cover - defensive
+                logger.warning("job store error write failed (job=%s)", job_id, exc_info=True)
 
 
 def _run_job_safely(
@@ -108,6 +128,7 @@ def _run_job_safely(
     results_lock: "threading.Lock",
     registry: Any,
     vault: Any = None,
+    store: Any = None,
 ) -> None:
     """遗留单任务提交路径的薄封装 — 委托 :func:`_store_job_result`。
 
@@ -115,7 +136,15 @@ def _run_job_safely(
     此处保留以兼容单 URL 直接 ``ThreadPoolExecutor.submit`` 的调用方。
     """
     _store_job_result(
-        runner, job_id, out_path, url, results_store, results_lock, registry, vault=vault
+        runner,
+        job_id,
+        out_path,
+        url,
+        results_store,
+        results_lock,
+        registry,
+        vault=vault,
+        store=store,
     )
 
 
@@ -129,6 +158,7 @@ def _run_batch_job(
     registry: Any = None,
     job_ids_by_src: Dict[str, str] | None = None,
     job_sources: Dict[str, str] | None = None,
+    store: Any = None,
 ) -> None:
     """整批提交路径:在独立线程跑 ``AsyncPipeline.run_batch``。
 
@@ -172,5 +202,20 @@ def _run_batch_job(
         exc = getattr(r, "exc", None)
         if isinstance(exc, PipelineCancelled):
             job.cancel()
+            if store is not None:
+                try:
+                    store.mark_terminal(victim_jid, finished=True, cancelled=True)
+                except Exception:  # pragma: no cover - defensive
+                    logger.warning(
+                        "job store cancel write failed (job=%s)", victim_jid, exc_info=True
+                    )
         else:
-            job.fail(f"{type(exc).__name__}: {exc}")
+            msg = f"{type(exc).__name__}: {exc}"
+            job.fail(msg)
+            if store is not None:
+                try:
+                    store.mark_terminal(victim_jid, finished=True, error=msg)
+                except Exception:  # pragma: no cover - defensive
+                    logger.warning(
+                        "job store fail write failed (job=%s)", victim_jid, exc_info=True
+                    )

@@ -95,6 +95,12 @@ def _register_job_control_routes(app: "FastAPI") -> None:
                 ap.cancel_one(src)
             except Exception as exc:  # pragma: no cover - defensive
                 logger.debug("AsyncPipeline.cancel_one 异常: %r", exc)
+        store = getattr(app.state, "job_store", None)
+        if store is not None:
+            try:
+                store.mark_terminal(job_id, finished=True, cancelled=True)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.debug("JobStore.mark_terminal(cancel) 异常: %r", exc)
         return {"job_id": job_id, "cancelled": True}
 
     @app.get("/api/jobs/{job_id}", dependencies=[_depends(_require_api_token)])
@@ -126,23 +132,50 @@ def _register_job_control_routes(app: "FastAPI") -> None:
         # 不用 created_at 排序: Windows 时钟分辨率约 15ms, 同一批提交的
         # 多个 job 时间戳会相同 ⇒ 排序结果不确定。
         jobs = list(reversed(registry.list()))
-        return {
-            "jobs": [
-                {
-                    "job_id": job.job_id,
-                    "url": job.url,
-                    "stage": job.stage,
-                    "stage_index": job.stage_index,
-                    "stage_current": job.stage_current,
-                    "stage_total": job.stage_total,
-                    "finished": job.finished,
-                    "cancelled": job.cancelled,
-                    "error": job.error,
-                    "created_at": job.created_at,
-                }
-                for job in jobs
-            ]
-        }
+        entries = [
+            {
+                "job_id": job.job_id,
+                "url": job.url,
+                "stage": job.stage,
+                "stage_index": job.stage_index,
+                "stage_current": job.stage_current,
+                "stage_total": job.stage_total,
+                "finished": job.finished,
+                "cancelled": job.cancelled,
+                "error": job.error,
+                "created_at": job.created_at,
+            }
+            for job in jobs
+        ]
+        # P1-3(2026-11-20 评审): 合并 SQLite 历史 — 重启后内存注册表为空,
+        # 历史任务(含上次进程遗留、已标 lost 的)从任务表补出,UI 刷新后
+        # 卡片不再蒸发。live 态优先,store 里同 job_id 的旧行跳过。
+        store = getattr(app.state, "job_store", None)
+        if store is not None:
+            try:
+                history_rows = store.list()
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("job store list failed: %r", exc)
+                history_rows = []
+            live_ids = {e["job_id"] for e in entries}
+            for row in history_rows:
+                if row["job_id"] in live_ids:
+                    continue
+                entries.append(
+                    {
+                        "job_id": row["job_id"],
+                        "url": row["url"],
+                        "stage": row.get("stage"),
+                        "stage_index": None,
+                        "stage_current": None,
+                        "stage_total": None,
+                        "finished": bool(row.get("finished")),
+                        "cancelled": bool(row.get("cancelled")),
+                        "error": row.get("error"),
+                        "created_at": row.get("created_at"),
+                    }
+                )
+        return {"jobs": entries}
 
 
 def _register_submit_jobs_route(app: "FastAPI", workspace: Path, pipeline_factory) -> None:
@@ -206,6 +239,9 @@ def _register_submit_jobs_route(app: "FastAPI", workspace: Path, pipeline_factor
         runners: Dict[str, Callable[[], Any]] = {}
         jobs_out: List[Dict[str, Any]] = []
         job_ids: List[str] = []
+        # P1-3(2026-11-20 评审): SQLite 任务表 — 提交即登记,终态由
+        # _store_job_result / _run_batch_job 写回;重启后成果仍可取回。
+        job_store = getattr(app.state, "job_store", None)
         # P0-2: url→job_id 与 job_id→url 双向映射 — 前者给 _run_batch_job
         # 做 _FailedResult→registry 终态映射(消灭僵尸任务),后者给
         # cancel_job 定位 per-URL 取消目标。
@@ -216,6 +252,11 @@ def _register_submit_jobs_route(app: "FastAPI", workspace: Path, pipeline_factor
             job_ids_by_src[url] = job.job_id
             sources_by_jid[job.job_id] = url
             out_path = out_dir / f"{int(time.time())}_{uuid.uuid4().hex[:8]}.md"
+            if job_store is not None:
+                try:
+                    job_store.upsert(job.job_id, url, out_path=str(out_path))
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.warning("job store upsert failed (job=%s): %r", job.job_id, exc)
             wp = with_progress(pipeline, job, url, out_path=out_path)
             runners[url] = functools.partial(
                 _store_job_result,
@@ -227,6 +268,7 @@ def _register_submit_jobs_route(app: "FastAPI", workspace: Path, pipeline_factor
                 app.state.jobs_state_lock,
                 registry,
                 vault=app.state.wiki_vault,
+                store=job_store,
             )
             jobs_out.append(
                 {
@@ -255,6 +297,7 @@ def _register_submit_jobs_route(app: "FastAPI", workspace: Path, pipeline_factor
             registry=registry,
             job_ids_by_src=job_ids_by_src,
             job_sources=job_sources,
+            store=job_store,
         )
         return {
             "jobs": jobs_out,
@@ -264,6 +307,42 @@ def _register_submit_jobs_route(app: "FastAPI", workspace: Path, pipeline_factor
             # 所以**提交响应**就是最直接的告知时机，比事后读 metadata 更及时。
             "notices": list(getattr(pipeline, "_resource_notices", [])),
         }
+
+
+def _result_from_store(app: "FastAPI", job_id: str) -> Dict[str, Any]:
+    """P1-3: 内存注册表未命中时的回源路径(重启 / 1h purge 之后仍可取回)。
+
+    从 SQLite 任务表读 out_path,文件还在就直接读出 markdown ——
+    此前这两条路径会让 result 端点 404,成果明明已落盘却无人指路。
+    """
+    store = getattr(app.state, "job_store", None)
+    row = None
+    if store is not None:
+        try:
+            row = store.get(job_id)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("job store get failed (job=%s): %r", job_id, exc)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"unknown job: {job_id}")
+    markdown = None
+    out_path = row.get("out_path")
+    if out_path:
+        p = Path(out_path)
+        if p.exists():
+            markdown = p.read_text(encoding="utf-8", errors="replace")
+    return {
+        "job_id": job_id,
+        "finished": bool(row.get("finished")),
+        "cancelled": bool(row.get("cancelled")),
+        "error": row.get("error"),
+        "markdown": markdown,
+        "engine": row.get("engine"),
+        "title": row.get("title"),
+        "wiki": None,
+        "stage": row.get("stage"),
+        "stage_current": None,
+        "stage_total": None,
+    }
 
 
 def _register_job_result_route(app: "FastAPI") -> None:
@@ -277,11 +356,14 @@ def _register_job_result_route(app: "FastAPI") -> None:
         state.  After completion, returns ``markdown`` (string) and
         optional ``engine`` / ``title``.  Cancelled jobs return
         ``cancelled=True`` with ``markdown=None``.
+
+        P1-3(2026-11-20 评审): 内存未命中时回源 SQLite 任务表 + out_path
+        文件 —— 服务重启或 1h purge 后成果仍可取回。
         """
         registry = _job_registry(app)
         job = registry.get(job_id)
         if job is None:
-            raise HTTPException(status_code=404, detail=f"unknown job: {job_id}")
+            return _result_from_store(app, job_id)
         # v3.2.0c-fix (P3-2): hold the lock while reading so a
         # concurrent /api/health purge cannot pop the entry mid-read.
         with app.state.jobs_state_lock:
