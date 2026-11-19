@@ -23,9 +23,22 @@ from __future__ import annotations
 
 import os
 import threading
-from typing import Any, Optional
+from typing import Any, Callable, Dict, Optional
 
-__all__ = ["VramLedger", "get_vram_ledger", "reset_vram_ledger"]
+__all__ = [
+    "VramLedger",
+    "get_vram_ledger",
+    "reset_vram_ledger",
+    "budget_total_mb",
+    "estimate_model_mb",
+    "ensure_resident_capacity",
+    "register_family_clear",
+    "register_resident",
+    "unregister_resident",
+    "unregister_family",
+    "resident_total_mb",
+    "reset_resident_registry",
+]
 
 _DEFAULT_ESTIMATE_MB = 2000
 
@@ -77,6 +90,130 @@ def _estimate_task_vram_mb(transcriber: Any, settings: Any) -> int:
     return _estimate_vram(engine, model, device) or _DEFAULT_ESTIMATE_MB
 
 
+def estimate_model_mb(engine: str, model: str, device: str) -> int:
+    """按 (engine, model, device) 查实测表估算模型显存(MB),未知组合给保守默认。"""
+    from .runtime_guard import _estimate_vram
+
+    return _estimate_vram(engine, model, device) or _DEFAULT_ESTIMATE_MB
+
+
+# ---------------------------------------------------------------------------
+# 预算探测缓存 — 账本(P0-1)与驻留注册表(P1-4)共用,进程内只探测一次
+# ---------------------------------------------------------------------------
+_BUDGET_TOTAL_MB: Optional[int] = None
+_BUDGET_PROBED = False
+_BUDGET_CACHE_LOCK = threading.Lock()
+
+
+def budget_total_mb() -> Optional[int]:
+    """显存总预算(MB);``None`` = 非 CUDA / 探测失败(fail-open)。
+
+    首次调用探测一次并缓存;``reset_vram_ledger`` 可强制重探。
+    """
+    global _BUDGET_TOTAL_MB, _BUDGET_PROBED
+    with _BUDGET_CACHE_LOCK:
+        if not _BUDGET_PROBED:
+            _BUDGET_PROBED = True
+            _BUDGET_TOTAL_MB = _probe_budget_mb()
+        return _BUDGET_TOTAL_MB
+
+
+# ---------------------------------------------------------------------------
+# P1-4(2026-11-20 架构评审): 驻留模型注册表 — 跨引擎缓存族显存预算
+# ---------------------------------------------------------------------------
+# whisper / faster-whisper / whisperx 三族的模块级模型缓存此前互不感知
+# (各族各自 LRU cap 2,whisperx 还有无上限的 align/diarize 缓存):
+# 用户在 Web UI 轮换引擎/档位时,三族缓存可同时驻留,8GB 卡交替用
+# large + small 即可叠爆显存。本注册表把"各家族当前驻留模型的估计显存"
+# 集中记账;装新模型前超预算 → 先清**其它**家族缓存(本族由引擎自己的
+# LRU cap 收敛)。
+#
+# 死锁规避(重要):引擎在自家 ``_MODEL_CACHE_LOCK`` **内**调用
+# :func:`ensure_resident_capacity`;若本模块持注册表锁再去调用其它引擎的
+# 清缓存钩子(它要拿对方引擎锁),与"其它线程: 对方引擎锁 → 注册表锁"
+# 构成环 —— 所以钩子调用必须发生在注册表锁**之外**。
+_RESIDENT_LOCK = threading.Lock()
+_RESIDENT: Dict[Any, int] = {}
+_FAMILY_CLEAR_HOOKS: Dict[str, Callable[[], None]] = {}
+
+
+def register_family_clear(family: str, clear_fn: Callable[[], None]) -> None:
+    """登记某引擎家族的清缓存钩子(幂等;引擎在首次装模型时调用)。"""
+    with _RESIDENT_LOCK:
+        _FAMILY_CLEAR_HOOKS.setdefault(family, clear_fn)
+
+
+def register_resident(family: str, key: Any, mb: int) -> None:
+    """登记一个已加载的驻留模型(引擎缓存未命中、加载成功后调用)。"""
+    with _RESIDENT_LOCK:
+        _RESIDENT[(family, key)] = max(0, int(mb))
+
+
+def unregister_resident(family: str, key: Any) -> None:
+    """反注册(引擎 LRU 淘汰时调用)。"""
+    with _RESIDENT_LOCK:
+        _RESIDENT.pop((family, key), None)
+
+
+def unregister_family(family: str) -> None:
+    """反注册整个家族(引擎 ``clear_model_cache`` 内调用,保持账实一致)。"""
+    with _RESIDENT_LOCK:
+        for k in [k for k in _RESIDENT if k[0] == family]:
+            _RESIDENT.pop(k, None)
+
+
+def resident_total_mb() -> int:
+    """当前所有家族驻留模型的估计显存之和(MB)。"""
+    with _RESIDENT_LOCK:
+        return sum(_RESIDENT.values())
+
+
+def clear_other_families(family: str) -> int:
+    """清掉除 ``family`` 外所有有钩子的引擎缓存,返回调用的钩子数。
+
+    钩子(引擎 ``clear_model_cache``)自行清缓存并 :func:`unregister_family`,
+    调用发生在注册表锁之外(见上方死锁规避说明)。
+    """
+    with _RESIDENT_LOCK:
+        others = [(name, fn) for name, fn in _FAMILY_CLEAR_HOOKS.items() if name != family]
+    called = 0
+    for _name, fn in others:
+        try:
+            fn()
+            called += 1
+        except Exception:  # pragma: no cover - defensive
+            continue
+    return called
+
+
+def ensure_resident_capacity(family: str, needed_mb: int) -> bool:
+    """跨引擎驻留预算闸:装新模型前确保驻留估计之和 + 新模型 ≤ 预算。
+
+    * 预算不可用(非 CUDA / 探测失败)→ ``True``(fail-open);
+    * 超预算 → 先清**其它**家族缓存再复查;
+    * 清完仍不够(新模型本身比预算还大)→ ``False``,调用方照常加载
+      (fail-open,运行期由任务级 :class:`VramLedger` 兜底)。
+    """
+    budget = budget_total_mb()
+    if not budget:
+        return True
+    need = min(max(0, int(needed_mb)), budget)
+    with _RESIDENT_LOCK:
+        if sum(_RESIDENT.values()) + need <= budget:
+            return True
+    clear_other_families(family)
+    with _RESIDENT_LOCK:
+        fits = sum(_RESIDENT.values()) + need <= budget
+    return bool(fits)
+
+
+def reset_resident_registry() -> None:
+    """清空注册表与家族钩子(测试钩子)。"""
+    with _RESIDENT_LOCK:
+        _RESIDENT.clear()
+        _FAMILY_CLEAR_HOOKS.clear()
+
+
 class VramLedger:
     """进程级显存账本:acquire/release,``threading`` 原语、loop 无关。
 
@@ -100,11 +237,11 @@ class VramLedger:
         self._available_mb: int = 0
 
     def _ensure_budget(self) -> Optional[int]:
-        """惰性初始化:预算只拍一次快照,之后由 acquire/release 自行记账。"""
+        """惰性初始化:预算只拍一次快照(进程级缓存),之后由 acquire/release 自行记账。"""
         with self._cond:
             if not self._initialized:
                 self._initialized = True
-                self._total_mb = _probe_budget_mb()
+                self._total_mb = budget_total_mb()
                 self._available_mb = self._total_mb or 0
             return self._total_mb
 
@@ -166,7 +303,10 @@ def get_vram_ledger() -> VramLedger:
 
 
 def reset_vram_ledger() -> None:
-    """清空单例(测试钩子 — 预算快照在首次使用时才拍,reset 后可重拍)。"""
-    global _LEDGER
+    """清空单例与预算缓存(测试钩子 — reset 后首次使用会重新探测)。"""
+    global _LEDGER, _BUDGET_PROBED, _BUDGET_TOTAL_MB
     with _LEDGER_LOCK:
         _LEDGER = None
+    with _BUDGET_CACHE_LOCK:
+        _BUDGET_PROBED = False
+        _BUDGET_TOTAL_MB = None

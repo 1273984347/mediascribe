@@ -26,6 +26,14 @@ from typing import Any, Iterator, Optional, Tuple
 
 import torch
 
+from ..gpu_budget import (
+    ensure_resident_capacity,
+    estimate_model_mb,
+    register_family_clear,
+    register_resident,
+    unregister_family,
+    unregister_resident,
+)
 from ..i18n import t
 from ..model_weights import missing_hint
 from ..zh_normalize import simplified_initial_prompt
@@ -102,6 +110,11 @@ def _get_cached_model(whisper_module: Any, model_name: str, device: str) -> Any:
         if cached is not None:
             _MODEL_CACHE.move_to_end(key)
             return cached
+        # P1-4(2026-11-20 评审): 装新模型前走跨引擎驻留预算闸 —— 超预算
+        # 先清**其它**引擎家族缓存;本族空间由 LRU cap 自行收敛。
+        register_family_clear("whisper", clear_model_cache)
+        estimate_mb = estimate_model_mb("whisper", model_name, device)
+        ensure_resident_capacity("whisper", estimate_mb)
         with _whisper_load_patch():
             try:
                 model = whisper_module.load_model(model_name, device=device)
@@ -117,17 +130,31 @@ def _get_cached_model(whisper_module: Any, model_name: str, device: str) -> Any:
                         hint=missing_hint("whisper", model_name),
                     )
                 ) from exc
+        register_resident("whisper", key, estimate_mb)
         _MODEL_CACHE[key] = model
         while len(_MODEL_CACHE) > _MODEL_CACHE_MAX:
             _evicted_key, evicted_model = _MODEL_CACHE.popitem(last=False)
             del evicted_model
+            unregister_resident("whisper", _evicted_key)
+        _release_torch_cache()
         return model
+
+
+def _release_torch_cache() -> None:
+    """淘汰/清缓存后尽力释放 torch CUDA 缓存(P1-4: 淘汰≠显存即时回落)。"""
+    try:
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:  # pragma: no cover - defensive
+        pass
 
 
 def clear_model_cache() -> None:
     """清空模型缓存，释放显存。测试与显存紧张时用。"""
     with _MODEL_CACHE_LOCK:
         _MODEL_CACHE.clear()
+    unregister_family("whisper")
+    _release_torch_cache()
 
 
 class WhisperTranscriber(Transcriber):

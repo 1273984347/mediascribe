@@ -17,6 +17,14 @@ from typing import Any, Dict, Optional, Tuple
 
 import torch
 
+from ..gpu_budget import (
+    ensure_resident_capacity,
+    estimate_model_mb,
+    register_family_clear,
+    register_resident,
+    unregister_family,
+    unregister_resident,
+)
 from ..i18n import t
 from ..zh_normalize import simplified_initial_prompt
 from .base import Transcriber
@@ -51,16 +59,26 @@ def _get_cached_model(whisperx: Any, model_name: str, device: str, language: Opt
         if cached is not None:
             _MODEL_CACHE.move_to_end(key)
             return cached
+        # P1-4(2026-11-20 评审): 装新模型前走跨引擎驻留预算闸 —— 超预算
+        # 先清**其它**引擎家族缓存;本族(含无上限的 align/diarize)由
+        # clear_model_cache 整体收敛。
+        register_family_clear("whisperx", clear_model_cache)
+        estimate_mb = estimate_model_mb("whisperx", model_name, device)
+        ensure_resident_capacity("whisperx", estimate_mb)
         model = whisperx.load_model(
             model_name,
             device,
             compute_type=compute_type,
             language=language,
         )
+        register_resident("whisperx", ("main", key), estimate_mb)
         _MODEL_CACHE[key] = model
         while len(_MODEL_CACHE) > _MODEL_CACHE_MAX:
             _evicted_key, evicted_model = _MODEL_CACHE.popitem(last=False)
             del evicted_model
+            unregister_resident("whisperx", ("main", _evicted_key))
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         return model
 
 
@@ -81,6 +99,10 @@ def _get_cached_align_model(whisperx: Any, language_code: str, device: str) -> T
         align_model, meta = whisperx.load_align_model(
             language_code=language_code,
             device=device,
+        )
+        # P1-4: align 模型入跨引擎驻留账(此前该缓存无上限、不入账)
+        register_resident(
+            "whisperx", ("align", key), estimate_model_mb("whisperx", "small", device)
         )
         _ALIGN_MODEL_CACHE[key] = (align_model, meta)
         return align_model, meta
@@ -104,6 +126,10 @@ def _get_cached_diarize_pipeline(whisperx: Any, token: str, device: str) -> Any:
         if cached2 is not None:
             return cached2
         pipeline = whisperx.DiarizationPipeline(token=token, device=device)
+        # P1-4: diarize 管线入跨引擎驻留账(此前该缓存无上限、不入账)
+        register_resident(
+            "whisperx", ("diarize", key), estimate_model_mb("whisperx", "medium", device)
+        )
         _DIARIZE_CACHE[key] = pipeline
         return pipeline
 
@@ -114,6 +140,7 @@ def clear_model_cache() -> None:
         _MODEL_CACHE.clear()
         _ALIGN_MODEL_CACHE.clear()
         _DIARIZE_CACHE.clear()
+    unregister_family("whisperx")
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()

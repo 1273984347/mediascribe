@@ -26,6 +26,14 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
+from ..gpu_budget import (
+    ensure_resident_capacity,
+    estimate_model_mb,
+    register_family_clear,
+    register_resident,
+    unregister_family,
+    unregister_resident,
+)
 from ..i18n import t
 from ..model_weights import missing_hint
 from ..zh_normalize import simplified_initial_prompt
@@ -171,6 +179,10 @@ def _get_cached_model(model_name: str, device: str, compute_type: str) -> Any:
     线程安全：多 Web 请求并发加载同一模型时只有一个会真正 ``__init__``。
     命中即 ``move_to_end`` 刷新 LRU 顺位；超过容量时弹出最久未用的
     实例并删除引用，交由 GC 释放显存。
+
+    P1-4(2026-11-20 评审): 装新模型前走跨引擎驻留预算闸 —— 若各家族
+    驻留模型估计之和加本模型将超预算,先清**其它**引擎家族的缓存
+    (whisper/whisperx 轮换场景不再叠爆 8GB 卡)。
     """
     key = (model_name, device, compute_type)
     with _MODEL_CACHE_LOCK:
@@ -182,6 +194,11 @@ def _get_cached_model(model_name: str, device: str, compute_type: str) -> Any:
             from faster_whisper import WhisperModel  # noqa: F401 -- 探测依赖, 报错给友好提示
         except ImportError as e:
             raise RuntimeError(t("FW_NOT_INSTALLED")) from e
+        # P1-4: 注册本家族清缓存钩子(幂等),再过跨家族驻留预算闸。
+        # ensure 在本锁内调用 —— 它只在锁外调**其它**家族的钩子(死锁规避)。
+        register_family_clear("faster-whisper", clear_model_cache)
+        estimate_mb = estimate_model_mb("faster-whisper", model_name, device)
+        ensure_resident_capacity("faster-whisper", estimate_mb)
         logger.info(
             "加载 faster-whisper 模型: %s (device=%s, compute_type=%s)",
             model_name,
@@ -189,10 +206,12 @@ def _get_cached_model(model_name: str, device: str, compute_type: str) -> Any:
             compute_type,
         )
         model = _load_whisper_model(model_name, device, compute_type)
+        register_resident("faster-whisper", key, estimate_mb)
         _MODEL_CACHE[key] = model
         while len(_MODEL_CACHE) > _MODEL_CACHE_MAX:
             _evicted_key, evicted_model = _MODEL_CACHE.popitem(last=False)
             del evicted_model
+            unregister_resident("faster-whisper", _evicted_key)
         return model
 
 
@@ -200,6 +219,7 @@ def clear_model_cache() -> None:
     """清空模型缓存，释放显存。测试与显存紧张时用。"""
     with _MODEL_CACHE_LOCK:
         _MODEL_CACHE.clear()
+    unregister_family("faster-whisper")
 
 
 class FasterWhisperTranscriber(Transcriber):
