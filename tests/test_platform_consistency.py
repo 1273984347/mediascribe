@@ -206,8 +206,6 @@ class TestWechatCredentialGating(unittest.TestCase):
         self.assertEqual(dl._extract_video_url(good_html), "https://mpvideo.qpic.cn/x.mp4")
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestBatchPlatformChoicesConsistency(unittest.TestCase):
@@ -233,3 +231,7 @@ class TestBatchPlatformChoicesConsistency(unittest.TestCase):
             if name == "wechat_mp":
                 url = "https://mp.weixin.qq.com/s?x"
             self.assertEqual(match_platform(url), name)
+
+
+if __name__ == "__main__":
+    unittest.main()

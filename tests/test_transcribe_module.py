@@ -11,21 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 
-class TestTranscriberPoolSingleton(unittest.TestCase):
-    """TranscriberPool must be a singleton with lazy, idempotent init."""
+class TestTranscriberPoolInstances(unittest.TestCase):
+    """P2-7(2026-11-20 评审): 去单例 —— 每次构造独立实例,config 不再被冻结。"""
 
-    def setUp(self) -> None:
-        # Reset singleton so each test gets a fresh pool
-        from mediascribe import transcribe
-
-        transcribe.TranscriberPool._instance = None
-
-    def tearDown(self) -> None:
-        from mediascribe import transcribe
-
-        transcribe.TranscriberPool._instance = None
-
-    def test_singleton_same_instance(self):
+    def test_instances_are_independent(self):
         from mediascribe.transcribe import TranscriberPool
 
         with (
@@ -33,14 +22,17 @@ class TestTranscriberPoolSingleton(unittest.TestCase):
             mock.patch("mediascribe.Settings") as SetCls,
         ):
             SetCls.return_value = mock.MagicMock(name="Settings")
-            PipeCls.return_value = mock.MagicMock(name="Pipeline")
+            PipeCls.side_effect = lambda *a, **k: mock.MagicMock(name="pipe")
             a = TranscriberPool()
             b = TranscriberPool()
-        self.assertIs(a, b)
-        # Pipeline constructed only once
-        PipeCls.assert_called_once()
+        self.assertIsNot(a, b)
+        self.assertIsNot(a.pipeline, b.pipeline)
+        self.assertEqual(PipeCls.call_count, 2)
 
-    def test_init_is_idempotent(self):
+    def test_config_changes_take_effect(self):
+        """单例时代被冻结的坑:第二次调用换 config 必须生效。"""
+        from types import SimpleNamespace
+
         from mediascribe.transcribe import TranscriberPool
 
         with (
@@ -49,26 +41,11 @@ class TestTranscriberPoolSingleton(unittest.TestCase):
         ):
             SetCls.return_value = mock.MagicMock(name="Settings")
             PipeCls.return_value = mock.MagicMock(name="Pipeline")
-            pool = TranscriberPool()
-            pool.pipeline = mock.MagicMock(name="pipeline_override")
-            # second call should NOT reinit pipeline
-            again = TranscriberPool()
-        self.assertIs(pool, again)
-        # pipeline reference preserved
-        self.assertIs(again.pipeline, pool.pipeline)
-        # Pipeline() called only once
-        PipeCls.assert_called_once()
+            TranscriberPool(config=SimpleNamespace(whisper_model="small", language="zh"))
+            TranscriberPool(config=SimpleNamespace(whisper_model="large-v3", language="en"))
+        models = [c.kwargs.get("model") for c in SetCls.call_args_list]
+        self.assertEqual(models, ["small", "large-v3"])
 
-    def test_singleton_via_new_skips_init(self):
-        from mediascribe import transcribe
-
-        # Pre-set an instance; new() should return it without calling __init__
-        sentinel = object()
-        transcribe.TranscriberPool._instance = sentinel
-        with mock.patch("mediascribe.Pipeline") as PipeCls:
-            result = transcribe.TranscriberPool()
-        self.assertIs(result, sentinel)
-        PipeCls.assert_not_called()
 
 
 class TestTranscriberPoolTranscribe(unittest.TestCase):
@@ -77,12 +54,6 @@ class TestTranscriberPoolTranscribe(unittest.TestCase):
     def setUp(self) -> None:
         from mediascribe import transcribe
 
-        transcribe.TranscriberPool._instance = None
-
-    def tearDown(self) -> None:
-        from mediascribe import transcribe
-
-        transcribe.TranscriberPool._instance = None
 
     def _make_pool(self, pipeline_mock):
         from mediascribe.transcribe import TranscriberPool
@@ -132,12 +103,6 @@ class TestTranscribeAudio(unittest.TestCase):
     def setUp(self) -> None:
         from mediascribe import transcribe
 
-        transcribe.TranscriberPool._instance = None
-
-    def tearDown(self) -> None:
-        from mediascribe import transcribe
-
-        transcribe.TranscriberPool._instance = None
 
     def test_transcribe_audio_uses_pool(self):
         from mediascribe import transcribe
@@ -172,12 +137,6 @@ class TestTranscriberPoolEngine(unittest.TestCase):
     def setUp(self) -> None:
         from mediascribe import transcribe
 
-        transcribe.TranscriberPool._instance = None
-
-    def tearDown(self) -> None:
-        from mediascribe import transcribe
-
-        transcribe.TranscriberPool._instance = None
 
     def test_config_engine_passthrough(self):
         from types import SimpleNamespace

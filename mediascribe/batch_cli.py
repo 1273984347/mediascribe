@@ -44,6 +44,8 @@ _LANG_PRE_PARSER.add_argument("--lang", default=None, choices=["en", "zh"])
 
 
 def build_parser(i18n_t) -> argparse.ArgumentParser:
+    from mediascribe.url_utils import _PLATFORM_FINGERPRINTS
+
     """Build argument parser with i18n-aware help text.
 
     全部批量转录 CLI 选项都集中在此注册, ``main`` 只负责解析与编排。
@@ -89,7 +91,9 @@ def build_parser(i18n_t) -> argparse.ArgumentParser:
         metavar="NAME",
         action="append",
         default=None,
-        choices=["bilibili", "douyin", "youtube", "xiaohongshu", "wechat_mp", "tiktok"],
+        # P2-9(2026-11-20 评审): choices 接真源 —— 不再手抄副本,
+        # 与 url_utils 指纹表的一致性由 test_platform_consistency 行为断言钉死
+        choices=[name for name, _ in _PLATFORM_FINGERPRINTS],
         help=t("CLI_HELP_PLATFORM"),
     )
     return parser
