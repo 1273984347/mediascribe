@@ -30,6 +30,7 @@ _ENV_FIELDS = {
     "WORKERS": ("workers", int),
     "LANGUAGE": ("language", str),
     "MODEL": ("whisper_model", str),
+    "ENGINE": ("engine", str),
     "OUTPUT_DIR": ("output_dir", str),
     "KEEP_AUDIO": ("keep_audio", bool),
     "LOG_LEVEL": ("log_level", str),
@@ -58,6 +59,10 @@ class BatchConfig:
     # 转录配置
     language: str = "zh"
     whisper_model: str = "small"
+    # P1-1(2026-11-20 架构评审): 批处理线新增引擎维度。None = 跟随
+    # default_engine() 安装探测(faster-whisper 优先,未装回退 whisper);
+    # 显式 "whisper"/"faster-whisper"/"whisperx"/"whisper-cpp" 强制指定。
+    engine: Optional[str] = None
 
     # 输出配置
     output_dir: str = "output"

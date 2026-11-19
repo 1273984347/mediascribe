@@ -49,3 +49,27 @@ class TestConfig:
         assert d["k1"] == "v1" and d["k2"] == "v2"
         # Missing file → empty dict
         assert _load_cookie_file(tmp_path / "missing.txt") == {}
+
+
+class TestDefaultEngine:
+    """P1-2(2026-11-20 架构评审): 默认引擎安装探测(faster-whisper 优先)。"""
+
+    def test_settings_default_engine_follows_probe(self, tmp_path):
+        from mediascribe.config import Settings, default_engine
+
+        s = Settings(workspace_root=tmp_path)
+        assert s.engine == default_engine()
+
+    def test_settings_explicit_engine_wins(self, tmp_path):
+        from mediascribe.config import Settings
+
+        s = Settings(workspace_root=tmp_path, engine="whisper")
+        assert s.engine == "whisper"
+
+    def test_default_engine_matches_install_state(self):
+        from importlib.util import find_spec
+
+        from mediascribe.config import default_engine
+
+        expected = "faster-whisper" if find_spec("faster_whisper") else "whisper"
+        assert default_engine() == expected

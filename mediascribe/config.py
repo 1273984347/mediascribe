@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import os
+from importlib.util import find_spec
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -32,6 +33,23 @@ _VALID_MODELS = frozenset(
 )
 
 
+def default_engine() -> str:
+    """默认 ASR 引擎（P1-2，2026-11-20 架构评审）：装了 faster-whisper 就用它。
+
+    openai-whisper（torch 全精度）是四引擎中最慢的路径，把它当全局默认
+    会让 CLI / Web / MCP / batch 四条入口全部慢 2-4×。改为安装探测：
+    ``faster-whisper`` 可导入即默认之，否则回退 ``whisper``。
+    显式传入的 engine 参数永远优先。用 ``find_spec`` 只查元数据、
+    不真正导入包（ctranslate2 导入是秒级）。
+    """
+    try:
+        if find_spec("faster_whisper") is not None:
+            return "faster-whisper"
+    except (ImportError, ValueError):  # pragma: no cover - defensive
+        pass
+    return "whisper"
+
+
 class Settings:
     """应用程序配置"""
 
@@ -40,7 +58,7 @@ class Settings:
         workspace_root: Optional[Path] = None,
         model: str = "small",
         device: Optional[str] = None,
-        engine: str = "whisper",
+        engine: Optional[str] = None,
         language: Optional[str] = None,
         hf_token: Optional[str] = None,
         diarization: bool = False,
@@ -62,9 +80,15 @@ class Settings:
             env_workspace = os.environ.get("MEDIASCRIBE_WORKSPACE", "").strip()
             self.workspace_root = Path(env_workspace) if env_workspace else Path.cwd() / "output"
 
+        # P1-2（2026-11-20 评审）：engine 缺省不再硬编码 "whisper"（四引擎中
+        # 最慢的 torch 路径），改为安装探测 —— faster-whisper 已装即默认之。
+        # 显式传入的 engine 永远优先。
+        resolved_engine = engine if engine else default_engine()
         # 引擎 / 模型尽早校验：非法值立即 ValueError，避免转录中途才失败
-        if engine not in _VALID_ENGINES:
-            raise ValueError(f"Unknown engine {engine!r}. Allowed: {', '.join(_VALID_ENGINES)}.")
+        if resolved_engine not in _VALID_ENGINES:
+            raise ValueError(
+                f"Unknown engine {resolved_engine!r}. Allowed: {', '.join(_VALID_ENGINES)}."
+            )
         # "auto" = 按音频时长自动选模型（v3.4.0，CLI --model auto），
         # 由 Pipeline._AutoModelTranscriber 拿到真实音频时长后惰性解析。
         if model != "auto" and model not in _VALID_MODELS:
@@ -84,7 +108,7 @@ class Settings:
 
         # 模型配置（已通过上方 _VALID_ENGINES / _VALID_MODELS 校验）
         self.model = model
-        self.engine = engine
+        self.engine = resolved_engine
         # device 默认 auto-resolve (CUDA > Metal > ROCm > CPU)
         self.device = device if device else os.environ.get("MEDIASCRIBE_DEVICE", "auto")
         self.language = language

@@ -430,7 +430,11 @@ def _tool_transcribe_video(args: Dict[str, Any]) -> Dict[str, Any]:
     # what the CLI uses.  Build a minimal Settings that honours the args
     # the caller passed through, falling back to safe defaults.
     model = args.get("whisper_model") or args.get("model") or "small"
-    engine = args.get("engine") or "whisper"
+    # P1-2(2026-11-20 评审): 默认引擎跟随安装探测(faster-whisper 优先),
+    # 不再硬编码最慢的 torch whisper;MCP 调用方显式传 engine 仍优先。
+    from mediascribe.config import default_engine
+
+    engine = args.get("engine") or default_engine()
     language = args.get("language")
     settings = Settings(
         workspace_root=Path(args.get("output_dir", "output")).resolve(),

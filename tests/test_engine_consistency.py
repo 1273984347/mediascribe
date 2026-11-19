@@ -45,7 +45,9 @@ def _web_engine_pattern() -> set:
     (``app.py`` 只是 re-export) ⇒ 正则的真正所在也换了地方。
     """
     source = (ROOT / "mediascribe" / "web" / "models.py").read_text(encoding="utf-8")
-    match = re.search(r'engine: str = Field\("whisper", pattern="\^?(.*?)\$"\)', source)
+    # P1-2(2026-11-20 评审)后默认值改为 default_factory(default_engine)
+    # —— 只锁 pattern 名单本身,不锁默认值写法。
+    match = re.search(r'engine: str = Field\(.*?pattern="\^?(.*?)\$"', source, re.S)
     assert match, "未能在 web/models.py 里定位 engine 的 pattern"
     raw = match.group(1).replace("(", "").replace(")", "")
     return {part for part in raw.split("|") if part}

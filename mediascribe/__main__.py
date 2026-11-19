@@ -78,7 +78,7 @@ _common_transcribe_opts.add_argument(
     default=argparse.SUPPRESS,
     choices=["whisper", "whisperx", "faster-whisper", "whisper-cpp"],
     help=(
-        "转录引擎（默认: whisper；faster-whisper 同质量更快）。\n"
+        "转录引擎（默认: faster-whisper，未安装时自动回退 whisper）。\n"
         "  whisper-cpp: C++/GGML 引擎，CPU 档最省内存（实测 291 MiB），"
         "适合无 GPU / 小内存机器；需预置二进制与 GGML 权重。"
     ),
@@ -386,7 +386,8 @@ def _settings_from_args(args, file_cfg: dict) -> Settings:
         workspace_root=_from_cli_or_cfg(args.workspace, "workspace", None) or None,
         model=_from_cli_or_cfg(getattr(args, "model", None), "model", "small"),
         device=_from_cli_or_cfg(getattr(args, "device", None), "device", None),
-        engine=_from_cli_or_cfg(getattr(args, "engine", None), "engine", "whisper"),
+        # P1-2: None → Settings 内做安装探测(faster-whisper 优先)
+        engine=_from_cli_or_cfg(getattr(args, "engine", None), "engine", None),
         language=_from_cli_or_cfg(getattr(args, "language", None), "language", None),
         hf_token=_from_cli_or_cfg(getattr(args, "hf_token", None), "hf_token", None),
         diarization=getattr(args, "diarization", False) or bool(file_cfg.get("diarization", False)),

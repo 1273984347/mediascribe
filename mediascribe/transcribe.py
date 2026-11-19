@@ -35,12 +35,17 @@ class TranscriberPool:
 
         sys.path.insert(0, str(Path(__file__).parent.parent))
         from mediascribe import Pipeline, Settings
+        from mediascribe.config import default_engine
 
         # BatchConfig → Settings 映射（缺省保持原行为：small + zh）
         whisper_model = getattr(config, "whisper_model", None) or "small"
         language = getattr(config, "language", None) or "zh"
+        # P1-1(2026-11-20 架构评审): 批处理线此前被硬绑 engine="whisper"
+        # (torch 全精度,比 faster-whisper 慢 2-4×),BatchConfig 根本没有
+        # engine 维度 —— config.engine 显式优先,缺省跟随安装探测。
+        engine = getattr(config, "engine", None) or default_engine()
 
-        self.settings = Settings(model=whisper_model)
+        self.settings = Settings(model=whisper_model, engine=engine)
         self._language = language
         self.pipeline = Pipeline(self.settings)
         self._initialized = True
