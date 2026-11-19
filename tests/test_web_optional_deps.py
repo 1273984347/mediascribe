@@ -43,6 +43,7 @@ MODULES = [
     "mediascribe.web.ratelimit",
     "mediascribe.web.gpu_health",
     "mediascribe.web.job_runner",
+    "mediascribe.web.job_store",
     "mediascribe.web.ws_bridge",
     "mediascribe.web.models",
     "mediascribe.web.pipeline_bridge",

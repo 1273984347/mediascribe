@@ -57,6 +57,14 @@ def _register_health_routes(app: "FastAPI") -> None:
             # reclamation with zero operator signal — log so the
             # dashboard can alert on recurring warnings.
             logger.warning("/api/health purge failed: %r", exc)
+        # P1-3(2026-11-20 评审): SQLite 任务表按保留窗口(默认 7 天)清理
+        # 终态行 —— 历史寿命远长于内存态的 1h,且不占进程内存。
+        store = getattr(app.state, "job_store", None)
+        if store is not None:
+            try:
+                store.purge_older_than()
+            except Exception as exc:
+                logger.warning("/api/health job-store purge failed: %r", exc)
         # v3.2.0c Tier 2: GPU probe is cached for 1 s — the dashboard
         # polls every few seconds, and each ``torch.cuda.*`` probe
         # costs ~30 ms.
