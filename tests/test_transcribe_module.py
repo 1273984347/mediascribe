@@ -47,13 +47,11 @@ class TestTranscriberPoolInstances(unittest.TestCase):
         self.assertEqual(models, ["small", "large-v3"])
 
 
-
 class TestTranscriberPoolTranscribe(unittest.TestCase):
     """Tests for TranscriberPool.transcribe()."""
 
     def setUp(self) -> None:
         from mediascribe import transcribe
-
 
     def _make_pool(self, pipeline_mock):
         from mediascribe.transcribe import TranscriberPool
@@ -103,7 +101,6 @@ class TestTranscribeAudio(unittest.TestCase):
     def setUp(self) -> None:
         from mediascribe import transcribe
 
-
     def test_transcribe_audio_uses_pool(self):
         from mediascribe import transcribe
 
@@ -136,7 +133,6 @@ class TestTranscriberPoolEngine(unittest.TestCase):
 
     def setUp(self) -> None:
         from mediascribe import transcribe
-
 
     def test_config_engine_passthrough(self):
         from types import SimpleNamespace

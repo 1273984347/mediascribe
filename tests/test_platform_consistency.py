@@ -206,8 +206,6 @@ class TestWechatCredentialGating(unittest.TestCase):
         self.assertEqual(dl._extract_video_url(good_html), "https://mpvideo.qpic.cn/x.mp4")
 
 
-
-
 class TestBatchPlatformChoicesConsistency(unittest.TestCase):
     """batch CLI 的 --platform choices 必须与指纹表一致（此前是手抄副本）。"""
 
