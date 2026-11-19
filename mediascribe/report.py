@@ -63,6 +63,10 @@ def generate_summary_report(
         content_parts.append(f"{i}. {status_icon} `{r['video_id']}` - [{video_url}]({video_url})")
         if r.get("status") != "success":
             content_parts.append(f"   - 失败阶段: {r.get('stage', 'unknown')}")
+            # P1-5: 失败类别(transient/bot_wall/gone/fatal) — gone 类已
+            # 由断点续传缓存跳过,bot_wall 会在下一轮重试中退避
+            if r.get("failure_class"):
+                content_parts.append(f"   - 失败类别: {r.get('failure_class')}")
         else:
             if r.get("transcript"):
                 content_parts.append(f"   - 转录文件: `{Path(r['transcript']).name}`")
@@ -90,10 +94,22 @@ def generate_summary_report(
             video_url = r.get("url") or f"https://www.douyin.com/video/{r['video_id']}"
             stage = r.get("stage", "unknown")
             error = r.get("error")
+            failure_class = r.get("failure_class")
             line = f"- `{r.get('video_id', '?')}` — 失败阶段: {stage} — [链接]({video_url})"
+            if failure_class:
+                line += f" — 类别: {failure_class}"
             content_parts.append(line)
             if error:
                 content_parts.append(f"  - 错误: {error}")
+        # P1-5: 按类别的失败计数 — 风控/已删/网络一眼分清
+        class_counts: dict = {}
+        for r in failed_results:
+            fc = r.get("failure_class")
+            if fc:
+                class_counts[fc] = class_counts.get(fc, 0) + 1
+        if class_counts:
+            counts_line = ", ".join(f"{k}×{v}" for k, v in sorted(class_counts.items()))
+            content_parts.append(f"\n**失败类别分布**: {counts_line}")
         content_parts.extend(
             [
                 "",

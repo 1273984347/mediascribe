@@ -451,3 +451,214 @@ class TestBatchEngineField:
             tmod.TranscriberPool(config=cfg)
         tmod.TranscriberPool._instance = None
         SetCls.assert_called_once_with(model="small", engine=default_engine())
+
+
+# ---------------------------------------------------------------------------
+# P1-5(2026-11-20 架构评审): 下载失败分类路由
+# ---------------------------------------------------------------------------
+class TestDownloadFailureRouting:
+    def _run(self, tmp_path, download_fn):
+        import mediascribe.batch_cli as v3
+
+        cfg = SimpleNamespace(headless=True, max_retries=1, max_wait_for_media=1)
+        return v3.process_single_video_safe(
+            video={"video_id": "123", "url": "https://www.douyin.com/video/123"},
+            index=1,
+            total=1,
+            download_dir=tmp_path,
+            config=cfg,
+            get_media_url_fn=lambda *a, **k: "https://v26.douyinvod.com/media-audio/x.mp4",
+            download_media_fn=download_fn,
+            transcribe_fn=lambda p: None,
+            log=MagicMock(),
+        )
+
+    def test_gone_download_error_classified(self, tmp_path):
+        from mediascribe.downloaders.download_errors import (
+            CATEGORY_GONE,
+            DownloadError,
+        )
+
+        def boom(url, path, max_retries=3):
+            raise DownloadError(CATEGORY_GONE, "404 not found", status=404)
+
+        result = self._run(tmp_path, boom)
+        assert result["status"] == "failed"
+        assert result["stage"] == "download"
+        assert result["failure_class"] == "gone"
+
+    def test_bot_wall_download_error_classified(self, tmp_path):
+        from mediascribe.downloaders.download_errors import (
+            CATEGORY_BOT_WALL,
+            DownloadError,
+        )
+
+        def boom(url, path, max_retries=3):
+            raise DownloadError(CATEGORY_BOT_WALL, "403", status=403)
+
+        result = self._run(tmp_path, boom)
+        assert result["failure_class"] == "bot_wall"
+
+    def test_timeout_classified_transient(self, tmp_path):
+        import requests as _rq
+
+        def boom(url, path, max_retries=3):
+            raise _rq.Timeout("timed out")
+
+        result = self._run(tmp_path, boom)
+        assert result["failure_class"] == "transient"
+
+    def test_legacy_falsy_return_has_no_class(self, tmp_path):
+        """旧契约:下载函数返回 False(无异常)→ 无类别,下轮照旧重试。"""
+        result = self._run(tmp_path, lambda url, path, max_retries=3: False)
+        assert "failure_class" not in result  # 无类别 → 下轮照旧重试
+
+
+class TestGoneVideosSkippedOnResume:
+    def test_mark_gone_then_filter_skips(self, tmp_path):
+        from mediascribe.batch_cache import ProcessCache
+
+        cache = ProcessCache(cache_dir=tmp_path / "cache")
+        video = {"video_id": "gone1", "url": "https://www.douyin.com/video/gone1"}
+        cache.mark_processed(
+            video_id="gone1",
+            video_url=video["url"],
+            success=False,
+            failure_class="gone",
+        )
+        assert not cache.is_processed("gone1")  # 失败不算已处理
+        assert cache.is_permanently_failed("gone1")
+        assert cache.filter_unprocessed([video]) == []  # 断点续传直接跳过
+
+    def test_transient_failure_still_retried(self, tmp_path):
+        from mediascribe.batch_cache import ProcessCache
+
+        cache = ProcessCache(cache_dir=tmp_path / "cache")
+        video = {"video_id": "t1", "url": "https://www.douyin.com/video/t1"}
+        cache.mark_processed(
+            video_id="t1",
+            video_url=video["url"],
+            success=False,
+            failure_class="transient",
+        )
+        assert cache.filter_unprocessed([video]) == [video]
+
+    def test_success_clears_gone_mark(self, tmp_path):
+        from mediascribe.batch_cache import ProcessCache
+
+        cache = ProcessCache(cache_dir=tmp_path / "cache")
+        video = {"video_id": "s1", "url": "https://www.douyin.com/video/s1"}
+        cache.mark_processed(
+            video_id="s1", video_url=video["url"], success=False, failure_class="gone"
+        )
+        cache.mark_processed(video_id="s1", video_url=video["url"], success=True)
+        assert cache.filter_unprocessed([video]) == []
+
+
+class TestBotWallBackoff:
+    def test_record_bot_wall_sleeps_exponentially(self, tmp_path, monkeypatch):
+        import mediascribe.batch_cli as v3
+        from mediascribe.batch_cache import ProcessCache
+
+        cache = ProcessCache(cache_dir=tmp_path / "cache")
+        sleeps: list = []
+        monkeypatch.setattr(v3.time, "sleep", lambda sec: sleeps.append(sec))
+        recorder = v3._ResultRecorder(
+            tracker=MagicMock(), cache=cache, log=MagicMock(), t=lambda key, **kw: key
+        )
+
+        def failed(fc):
+            return {
+                "video_id": "v",
+                "url": "https://www.douyin.com/video/v",
+                "status": "failed",
+                "stage": "download",
+                "failure_class": fc,
+            }
+
+        recorder.record(failed("bot_wall"), 1.0, "w")
+        recorder.record(failed("bot_wall"), 1.0, "w")
+        recorder.record(failed("bot_wall"), 1.0, "w")
+        # 指数退避: 2, 4, 8(streak 从 1 起)
+        assert sleeps == [2.0, 4.0, 8.0]
+
+    def test_success_resets_streak(self, tmp_path, monkeypatch):
+        import mediascribe.batch_cli as v3
+        from mediascribe.batch_cache import ProcessCache
+
+        cache = ProcessCache(cache_dir=tmp_path / "cache")
+        sleeps: list = []
+        monkeypatch.setattr(v3.time, "sleep", lambda sec: sleeps.append(sec))
+        recorder = v3._ResultRecorder(
+            tracker=MagicMock(), cache=cache, log=MagicMock(), t=lambda key, **kw: key
+        )
+
+        recorder.record(
+            {
+                "video_id": "v",
+                "url": "u",
+                "status": "failed",
+                "stage": "download",
+                "failure_class": "bot_wall",
+            },
+            1.0,
+            "w",
+        )
+        recorder.record(
+            {
+                "video_id": "v2",
+                "url": "u2",
+                "status": "success",
+                "transcript": "t",
+                "audio": "a",
+            },
+            1.0,
+            "w",
+        )
+        recorder.record(
+            {
+                "video_id": "v3",
+                "url": "u3",
+                "status": "failed",
+                "stage": "download",
+                "failure_class": "bot_wall",
+            },
+            1.0,
+            "w",
+        )
+        assert sleeps == [2.0, 2.0], "成功后 streak 归零,退避回到第一档"
+
+    def test_report_counts_failure_classes(self, tmp_path):
+        from mediascribe.report import generate_summary_report
+
+        results = [
+            {
+                "video_id": "a",
+                "url": "https://www.douyin.com/video/a",
+                "status": "failed",
+                "stage": "download",
+                "failure_class": "gone",
+            },
+            {
+                "video_id": "b",
+                "url": "https://www.douyin.com/video/b",
+                "status": "failed",
+                "stage": "download",
+                "failure_class": "bot_wall",
+            },
+            {
+                "video_id": "c",
+                "url": "https://www.douyin.com/video/c",
+                "status": "failed",
+                "stage": "exception",
+            },
+        ]
+        report_path = generate_summary_report(
+            user_url="https://www.douyin.com/user/x",
+            results=results,
+            output_dir=tmp_path,
+        )
+        text = report_path.read_text(encoding="utf-8")
+        assert "失败类别: gone" in text
+        assert "类别: bot_wall" in text
+        assert "bot_wall×1" in text and "gone×1" in text

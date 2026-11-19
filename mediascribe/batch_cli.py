@@ -321,9 +321,14 @@ class _ResultRecorder:
         self.agent_out = agent_out
         self.workers = workers
         self._lock = threading.Lock()
+        self._bot_wall_streak = 0  # P1-5: 连续风控命中次数 → 指数退避
 
     def record(self, result: Dict, task_time: float, worker_name: str) -> None:
-        """登记单条结果: 进度/缓存/JSON 输出 + 运行小计日志。"""
+        """登记单条结果: 进度/缓存/JSON 输出 + 运行小计日志。
+
+        P1-5(2026-11-20 评审): ``failure_class == "bot_wall"`` 时整批
+        指数退避暂停一拍(1s→2s→…→60s 封顶) —— 重试无益,放慢节奏才是
+        对风控的正解。"""
         from mediascribe.progress import format_duration
 
         with self._lock:
@@ -345,14 +350,27 @@ class _ResultRecorder:
                     }
                 )
 
-            # 保存到缓存
+            # 保存到缓存(含失败类别 —— gone 类下轮断点续传直接跳过)
             self.cache.mark_processed(
                 video_id=result["video_id"],
                 video_url=result.get("url", ""),
                 transcript_path=result.get("transcript"),
                 audio_path=result.get("audio"),
                 success=result["status"] == "success",
+                failure_class=result.get("failure_class"),
             )
+            if result.get("failure_class") == "bot_wall":
+                self._bot_wall_streak += 1
+                backoff = min(60.0, 2.0**self._bot_wall_streak)
+            else:
+                self._bot_wall_streak = 0
+                backoff = 0.0
+            # 锁外退避:风控命中 = 该平台整体被限流,整批暂停一拍。
+            # 并发 worker 都要过这把锁拿记录,退避期间下一轮请求自然被推后。
+            if backoff > 0:
+                self.log.warning(self.t("WARN_BOT_WALL_BACKOFF", seconds=int(backoff)))
+        if backoff > 0:
+            time.sleep(backoff)
 
             print(self.tracker.render(f"{result.get('video_id', '')}"), end="", flush=True)
             print()  # 换行
@@ -641,7 +659,25 @@ def process_single_video_safe(
 
         # 2. 下载（落地文件名过安全清洗，防路径穿越/非法字符）
         audio_path = download_dir / sanitize_filename(f"{video_id}.mp4")
-        if not download_media_fn(media_url, audio_path, max_retries=config.max_retries):
+        try:
+            ok = download_media_fn(media_url, audio_path, max_retries=config.max_retries)
+        except Exception as exc:
+            # P1-5: 下载异常按类别路由 —— gone(已删)/bot_wall(风控)/
+            # transient(网络) 由缓存与报告分别处理,不再是无类型异常
+            from mediascribe.downloaders.download_errors import classify_exception
+
+            cls_err = classify_exception(exc)
+            log.error(i18n_t("ERROR_VIDEO_DOWNLOAD", index=index, total=total, id=video_id))
+            return {
+                "video_id": video_id,
+                "url": video_url,
+                "platform": platform,
+                "status": "failed",
+                "stage": "download",
+                "failure_class": cls_err.category,
+                "error": str(exc),
+            }
+        if not ok:
             log.error(i18n_t("ERROR_VIDEO_DOWNLOAD", index=index, total=total, id=video_id))
             return {
                 "video_id": video_id,

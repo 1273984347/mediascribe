@@ -14,14 +14,19 @@ P1-6 收敛说明：douyin / wechat_mp / xiaohongshu 三个下载器原本各自
 from __future__ import annotations
 
 import logging
+import os
+import threading
+import time
 import uuid
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Dict, Optional
+from urllib.parse import urlparse
 
 import requests
 from requests.adapters import HTTPAdapter
 
 from ..i18n import t
+from .download_errors import raise_for_status_classified
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +78,45 @@ _CRED_MAX_HOPS = 5
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 
+# ---------------------------------------------------------------------------
+# P1-5(2026-11-20 架构评审): 同主机礼貌节流
+# ---------------------------------------------------------------------------
+# 下载器此前无任何主动限速:批量 worker>1 时并发打满单平台,是微信
+# 1023/1024 等风控的直接诱因。按 host 记上次请求时间,同 host 两次
+# 外发请求至少间隔 ``MEDIASCRIBE_HOST_MIN_INTERVAL_S``(默认 0.5s,0 关闭)。
+# 跨平台互不影响。
+_THROTTLE_LOCK = threading.Lock()
+_LAST_REQUEST_TS: Dict[str, float] = {}
+_DEFAULT_HOST_MIN_INTERVAL_S = 0.5
+
+
+def _host_min_interval() -> float:
+    raw = os.environ.get("MEDIASCRIBE_HOST_MIN_INTERVAL_S", "").strip()
+    if not raw:
+        return _DEFAULT_HOST_MIN_INTERVAL_S
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        return _DEFAULT_HOST_MIN_INTERVAL_S
+
+
+def throttle_host(url: str) -> None:
+    """同主机请求节流:距上次请求不足间隔时阻塞补齐(测试可 monkeypatch time.sleep)。"""
+    interval = _host_min_interval()
+    if interval <= 0:
+        return
+    host = urlparse(url).hostname or ""
+    if not host:
+        return
+    now = time.monotonic()
+    with _THROTTLE_LOCK:
+        last = _LAST_REQUEST_TS.get(host, 0.0)
+        wait = last + interval - now
+        _LAST_REQUEST_TS[host] = max(now, last + interval)
+    if wait > 0:
+        time.sleep(wait)
+
+
 def cred_get(
     url: str,
     *,
@@ -95,9 +139,11 @@ def cred_get(
       ``redirect_guard(next_url)`` 不通过即抛错中止；
     - ``redirect_guard`` 为 ``None`` 时仍不携带跨跳 cookies，但只限跳数
       防环 (对纯公用资源无影响)。
+    - 每跳前做同主机节流 (P1-5)。
     """
     from urllib.parse import urljoin
 
+    throttle_host(url)
     resp = requests.get(
         url,
         headers=headers,
@@ -120,6 +166,7 @@ def cred_get(
         if redirect_guard is not None and not redirect_guard(next_url):
             raise RuntimeError(t("HTTP_REDIRECT_OFF_DOMAIN", url=next_url))
         url = next_url
+        throttle_host(url)
         resp = requests.get(
             url, headers=headers, timeout=timeout, stream=stream, allow_redirects=False
         )
@@ -159,8 +206,6 @@ def stream_download(
     dest_path.parent.mkdir(parents=True, exist_ok=True)
 
     if max_bytes is None:
-        import os
-
         try:
             max_bytes = int(os.environ.get("MEDIASCRIBE_MAX_DOWNLOAD_MB", "4096")) * 1024 * 1024
         except ValueError:
@@ -174,6 +219,7 @@ def stream_download(
     own_session = session is None
     sess = session if session is not None else build_http_session()
     try:
+        throttle_host(url)  # P1-5: 同主机节流
         if cookies is not None or redirect_guard is not None:
             # 凭据/守卫模式: 禁用自动重定向, 逐跳处理 (SEC-001)
             response = sess.get(
@@ -200,6 +246,7 @@ def stream_download(
                 if redirect_guard is not None and not redirect_guard(next_url):
                     raise RuntimeError(t("HTTP_REDIRECT_OFF_DOMAIN", url=next_url))
                 url = next_url
+                throttle_host(url)  # P1-5: 每跳同样节流
                 response = sess.get(
                     url,
                     headers=headers,
@@ -209,7 +256,7 @@ def stream_download(
                 )
         else:
             response = sess.get(url, headers=headers, stream=True, timeout=timeout)
-        response.raise_for_status()
+        raise_for_status_classified(response)  # P1-5: HTTPError 升格为分类错误
 
         total_size = expected_size or int(response.headers.get("content-length", 0))
         downloaded = 0
