@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import sqlite3
 import time
 import uuid
 from pathlib import Path
@@ -154,6 +155,8 @@ def _register_job_control_routes(app: "FastAPI") -> None:
         if store is not None:
             try:
                 history_rows = store.list()
+            except sqlite3.OperationalError:
+                logger.debug("job store gone before list")
             except Exception as exc:  # pragma: no cover - defensive
                 logger.warning("job store list failed: %r", exc)
                 history_rows = []
@@ -255,6 +258,8 @@ def _register_submit_jobs_route(app: "FastAPI", workspace: Path, pipeline_factor
             if job_store is not None:
                 try:
                     job_store.upsert(job.job_id, url, out_path=str(out_path))
+                except sqlite3.OperationalError:
+                    logger.debug("job store gone before upsert (job=%s)", job.job_id)
                 except Exception as exc:  # pragma: no cover - defensive
                     logger.warning("job store upsert failed (job=%s): %r", job.job_id, exc)
             wp = with_progress(pipeline, job, url, out_path=out_path)
@@ -320,6 +325,8 @@ def _result_from_store(app: "FastAPI", job_id: str) -> Dict[str, Any]:
     if store is not None:
         try:
             row = store.get(job_id)
+        except sqlite3.OperationalError:
+            logger.debug("job store gone before get (job=%s)", job_id)
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("job store get failed (job=%s): %r", job_id, exc)
     if row is None:

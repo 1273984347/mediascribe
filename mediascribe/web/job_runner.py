@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sqlite3
 import threading
 from pathlib import Path
 from typing import Any, Callable, Dict, List
@@ -92,6 +93,10 @@ def _store_job_result(
                     engine=engine,
                     title=title,
                 )
+            except sqlite3.OperationalError:
+                # 预期内:workspace 已被清理(测试/停机) → mode=rw 连接失败,
+                # best-effort 持久层安静放弃,不刷日志。
+                logger.debug("job store gone before terminal write (job=%s)", job_id)
             except Exception:  # pragma: no cover - defensive
                 logger.warning("job store terminal write failed (job=%s)", job_id, exc_info=True)
     except Exception as exc:  # pragma: no cover - defensive
@@ -115,6 +120,8 @@ def _store_job_result(
         if store is not None:
             try:
                 store.mark_terminal(job_id, finished=True, error=f"{exc.__class__.__name__}: {exc}")
+            except sqlite3.OperationalError:
+                logger.debug("job store gone before error write (job=%s)", job_id)
             except Exception:  # pragma: no cover - defensive
                 logger.warning("job store error write failed (job=%s)", job_id, exc_info=True)
 
@@ -205,6 +212,8 @@ def _run_batch_job(
             if store is not None:
                 try:
                     store.mark_terminal(victim_jid, finished=True, cancelled=True)
+                except sqlite3.OperationalError:
+                    logger.debug("job store gone before cancel write (job=%s)", victim_jid)
                 except Exception:  # pragma: no cover - defensive
                     logger.warning(
                         "job store cancel write failed (job=%s)", victim_jid, exc_info=True
@@ -215,6 +224,8 @@ def _run_batch_job(
             if store is not None:
                 try:
                     store.mark_terminal(victim_jid, finished=True, error=msg)
+                except sqlite3.OperationalError:
+                    logger.debug("job store gone before fail write (job=%s)", victim_jid)
                 except Exception:  # pragma: no cover - defensive
                     logger.warning(
                         "job store fail write failed (job=%s)", victim_jid, exc_info=True

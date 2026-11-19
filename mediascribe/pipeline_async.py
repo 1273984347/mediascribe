@@ -35,10 +35,12 @@ v3.2.0b Tier 1 — fully asynchronous pipeline.
    batch 启动时快照 :func:`mediascribe.pipeline.gpu_health`,按
    ``free_vram // vram_per_task`` 收紧并发,避免 CUDA OOM。
    非 CUDA 设备(CPU / metal)不受影响,直接用 ``max_concurrent``。
-7. **进程级 GPU 信号量 (v3.2.0x P1-7)** — GPU 并发信号量按 device
-   键做进程级单例:Web 层并发的多个 batch 不再各自建
-   ``Semaphore`` 导致 GPU 任务数翻倍 → CUDA OOM。
-   VRAM 快照收紧逻辑保留,信号量复用首次创建的上限值。
+7. **GPU 信号量 (v3.2.0x P1-7,2026-11-20 修订)** — GPU 并发信号量按
+   device 键共享:**同一 event loop 内**的并发批次不各自建
+   ``Semaphore``(否则 GPU 任务数随批次数翻倍)。loop 重建时以本次
+   ``effective`` 为上限重建;显存守恒的真实不变量由
+   :mod:`mediascribe.gpu_budget` 的进程级账本承担(覆盖 CLI/batch/
+   Web/MCP 四条入口),本信号量只是调度参数。
 
 测试
 ----
@@ -76,28 +78,31 @@ def _default_max_concurrent() -> int:
 
 
 # ---------------------------------------------------------------------------
-# v3.2.0x P1-7: 进程级 GPU 信号量单例
+# v3.2.0x P1-7: GPU 信号量(同 loop 内共享)
 # ---------------------------------------------------------------------------
 # 每个 AsyncPipeline 实例各自建 Semaphore 时,Web 层并发的每个批量
-# 请求都会独立放开 GPU 任务闸门,GPU 上同时在跑的任务数 = 各 batch
-# effective 之和 → CUDA OOM。改为按 device 键的进程级单例:
-# 首个 batch 创建后,后续 batch 复用同一信号量(取首次创建的上限值 —
-# 简单且正确:总量守恒,GPU 任务数不会超过首个 batch 的 effective)。
-# 创建在 threading.Lock 内完成,消除并发首建竞态。
+# 请求都会独立放开 GPU 任务闸门 → GPU 任务数随批次数翻倍。按 device 键
+# 共享信号量约束**同一 event loop 内**的并发批次。
 #
-# asyncio 原语在 Python 3.10+ 绑定首次使用的 event loop,进程内 loop
-# 被重建(如 Web 重启 / 新 asyncio.run)后旧信号量不可复用 — 此时以
-# 首次创建的上限值在新 loop 上重建,总量语义不变。
+# 2026-11-20 P0-1 修复后职责变更:显存守恒的真实不变量已由
+# :mod:`mediascribe.gpu_budget` 的进程级账本承担(threading 原语、loop
+# 无关、覆盖 CLI/batch/Web/MCP 四条入口),本信号量退化为纯调度参数:
+# 同 loop 内的并发批次仍共享闸门(避免同 loop 内批次数翻倍);loop 重建
+# (每个 Web 批次一个 ``asyncio.run``)时以**本次**的 ``effective`` 为上限
+# 重建 —— 此前沿用首建 cap,会把先前批次/测试的偶然 cap 泄漏给后续批次
+# (CI 实锤:先建 cap=4 的 cpu 信号量,后续 cap=2 的批次被迫用 4)。
+# 创建在 threading.Lock 内完成,消除并发首建竞态。
 _GPU_SEMAPHORES: Dict[str, Tuple[asyncio.Semaphore, int, "object"]] = {}
 _GPU_SEM_LOCK = threading.Lock()
 
 
 def _shared_gpu_semaphore(device: str, effective: int) -> asyncio.Semaphore:
-    """按 ``device`` 键返回进程级 GPU 信号量单例。
+    """按 ``device`` 键返回共享 GPU 信号量(同 loop 复用,换 loop 按本次 cap 重建)。
 
-    首次调用以 ``effective`` 为上限创建;之后同 device 的调用复用
-    首次创建的信号量(其 ``effective`` 被忽略 — 全局总量以首建值为
-    为准)。event loop 更换时用首建上限重建。
+    同一 event loop 内复用首次创建的实例;loop 更换时以**本次**传入的
+    ``effective`` 为上限重建(不再沿用首建 cap —— 首建值属于已死的 loop,
+    沿用它会把历史批次的调度上限泄漏给新批次;真实显存守恒由
+    :func:`mediascribe.gpu_budget` 账本保证)。
     """
     key = device or "cpu"
     loop = asyncio.get_running_loop()
@@ -107,8 +112,8 @@ def _shared_gpu_semaphore(device: str, effective: int) -> asyncio.Semaphore:
             sem, cap, bound_loop = entry
             if bound_loop is loop:
                 return sem
-            sem = asyncio.Semaphore(cap)
-            _GPU_SEMAPHORES[key] = (sem, cap, loop)
+            sem = asyncio.Semaphore(effective)
+            _GPU_SEMAPHORES[key] = (sem, effective, loop)
             return sem
         sem = asyncio.Semaphore(effective)
         _GPU_SEMAPHORES[key] = (sem, effective, loop)

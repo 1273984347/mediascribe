@@ -691,3 +691,37 @@ class TestCancelOneContract(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSemaphoreLoopRebuild(unittest.TestCase):
+    """2026-11-20 CI 实锤:loop 重建沿用首建 cap 会把历史批次的调度上限
+    泄漏给新批次(job_store 测试先建 cap=4,后续 cap=2 的批次被迫用 4)。
+    真实显存守恒在 gpu_budget 账本;信号量是调度参数,重建用本次 effective。"""
+
+    def setUp(self):
+        _reset_gpu_semaphores()
+
+    def tearDown(self):
+        _reset_gpu_semaphores()
+
+    def test_loop_rebuild_uses_current_effective(self):
+        def run_loop(cap: int):
+            async def main():
+                return _shared_gpu_semaphore("cpu-cap-test", cap)
+
+            return asyncio.run(main())
+
+        sem4 = run_loop(4)
+        self.assertEqual(sem4._value, 4)
+        sem2 = run_loop(2)
+        self.assertIsNot(sem2, sem4, "换 loop 必须重建信号量")
+        self.assertEqual(sem2._value, 2, "重建必须用本次 effective,不沿用首建 cap")
+
+    def test_same_loop_reuses_instance(self):
+        async def main():
+            a = _shared_gpu_semaphore("cpu-cap-test", 3)
+            b = _shared_gpu_semaphore("cpu-cap-test", 2)
+            return a, b
+
+        a, b = asyncio.run(main())
+        self.assertIs(a, b, "同 loop 内必须复用同一信号量")
