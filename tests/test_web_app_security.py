@@ -533,6 +533,88 @@ class TestRunBatchJobErrorHandling(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# P0-2(2026-11-20 评审)— _FailedResult 必须映射回 registry 终态,
+# 否则被 cancel 打断的排队任务永远停在 finished=False(僵尸任务:
+# /api/jobs 永远列出、UI 卡片悬挂、purge 只清 finished 永不清)。
+# ---------------------------------------------------------------------------
+class TestRunBatchJobZombieMapping(unittest.TestCase):
+    def test_cancelled_failed_result_marks_job_terminal(self):
+        import app as app_module
+
+        from mediascribe.pipeline_async import _FailedResult
+        from mediascribe.pipeline_stages import PipelineCancelled
+        from mediascribe.progress import ProgressRegistry
+
+        class FakeAP:
+            async def run_batch(self, urls, runners=None):
+                return [_FailedResult("u", PipelineCancelled())]
+
+        registry = ProgressRegistry()
+        job = registry.create("u")
+        app_module._run_batch_job(
+            FakeAP(),
+            ["u"],
+            {},
+            [job.job_id],
+            {},
+            registry=registry,
+            job_ids_by_src={"u": job.job_id},
+            job_sources={job.job_id: "u"},
+        )
+        self.assertTrue(job.finished, "cancelled queued job must reach terminal state")
+        self.assertTrue(job.cancelled)
+
+    def test_failure_failed_result_marks_job_failed(self):
+        import app as app_module
+
+        from mediascribe.pipeline_async import _FailedResult
+        from mediascribe.progress import ProgressRegistry
+
+        class FakeAP:
+            async def run_batch(self, urls, runners=None):
+                return [_FailedResult("u", ValueError("boom"))]
+
+        registry = ProgressRegistry()
+        job = registry.create("u")
+        app_module._run_batch_job(
+            FakeAP(),
+            ["u"],
+            {},
+            [job.job_id],
+            {},
+            registry=registry,
+            job_ids_by_src={"u": job.job_id},
+        )
+        self.assertTrue(job.finished)
+        self.assertIn("ValueError", job.error or "")
+
+    def test_already_finished_jobs_are_skipped(self):
+        import app as app_module
+
+        from mediascribe.pipeline_async import _FailedResult
+        from mediascribe.pipeline_stages import PipelineCancelled
+        from mediascribe.progress import ProgressRegistry
+
+        class FakeAP:
+            async def run_batch(self, urls, runners=None):
+                return [_FailedResult("u", PipelineCancelled())]
+
+        registry = ProgressRegistry()
+        job = registry.create("u")
+        job.fail("original error")  # runner 已置终态(幂等保护的目标场景)
+        app_module._run_batch_job(
+            FakeAP(),
+            ["u"],
+            {},
+            [job.job_id],
+            {},
+            registry=registry,
+            job_ids_by_src={"u": job.job_id},
+        )
+        self.assertEqual(job.error, "original error")
+
+
+# ---------------------------------------------------------------------------
 # P2-10 — INSTALL.md origin hardening
 # ---------------------------------------------------------------------------
 @unittest.skipUnless(_HAS_FASTAPI, "fastapi not installed")

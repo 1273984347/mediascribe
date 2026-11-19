@@ -125,17 +125,28 @@ def _run_batch_job(
     runners: Dict[str, Callable[[], Any]],
     job_ids: List[str],
     async_pipelines: Dict[str, Any],
+    *,
+    registry: Any = None,
+    job_ids_by_src: Dict[str, str] | None = None,
+    job_sources: Dict[str, str] | None = None,
 ) -> None:
     """整批提交路径:在独立线程跑 ``AsyncPipeline.run_batch``。
 
     * GPU 感知并发 + 单视频失败隔离 + 可取消(见 ``cancel_job`` / ws_progress)。
     * 每个 URL 的 ``runners[url]`` 是 ``with_progress`` + ``_store_job_result``
       封装的带进度 thunk。
-    * 批处理结束后清理 ``async_pipelines`` 中本批 job_id 注册(该字典即
-      ``app.state.async_pipelines``,由 submit_jobs 传入),避免注册表泄漏。
+    * 批处理结束后清理 ``async_pipelines`` / ``job_sources`` 中本批 job_id
+      注册(由 submit_jobs 传入),避免注册表泄漏。
+    * P0-2(2026-11-20 评审修复):批次结束后把 ``_FailedResult`` 映射回
+      registry **终态** —— 被 cancel 打断的**排队**任务此前永远停在
+      ``finished=False``(``/api/jobs`` 永远列出、UI 卡片悬挂、purge 只清
+      finished 永不清 → 僵尸任务 + 内存泄漏)。runner 已跑过的任务由
+      ``with_progress`` / ``_store_job_result`` 自己置终态,这里只补缺口;
+      ``job.finished`` 已 True 的一律跳过(幂等)。
     """
+    results: Any = None
     try:
-        asyncio.run(ap.run_batch(urls, runners=runners))
+        results = asyncio.run(ap.run_batch(urls, runners=runners))
     except Exception:
         # P2-7: 不再裸吞 BaseException — KeyboardInterrupt / SystemExit
         # 照常传播; 普通异常记入服务端日志(各 job 自身状态已反映结果)。
@@ -143,3 +154,23 @@ def _run_batch_job(
     finally:
         for jid in job_ids:
             async_pipelines.pop(jid, None)
+            if job_sources is not None:
+                job_sources.pop(jid, None)
+    if results is None or registry is None or not job_ids_by_src:
+        return
+    from mediascribe.pipeline_async import _FailedResult
+    from mediascribe.pipeline_stages import PipelineCancelled
+
+    for r in results:
+        if not isinstance(r, _FailedResult):
+            continue
+        src = getattr(r, "source", None) or ""
+        victim_jid = job_ids_by_src.get(src)
+        job = registry.get(victim_jid) if victim_jid else None
+        if job is None or getattr(job, "finished", False):
+            continue
+        exc = getattr(r, "exc", None)
+        if isinstance(exc, PipelineCancelled):
+            job.cancel()
+        else:
+            job.fail(f"{type(exc).__name__}: {exc}")

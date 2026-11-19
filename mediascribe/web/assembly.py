@@ -53,6 +53,24 @@ from mediascribe.web.ws_bridge import _JobEventBridge
 logger = logging.getLogger(__name__)
 
 
+def _positive_int_env(*names: str, default: int) -> int:
+    """按顺序取第一个非空且为正整数的 env;全无效时回退默认值。
+
+    供 P1-6 拆名后的 env 别名链使用(新名优先,旧名兼容)。
+    """
+    for name in names:
+        raw = os.environ.get(name, "").strip()
+        if not raw:
+            continue
+        try:
+            value = int(raw)
+        except ValueError:
+            continue
+        if value > 0:
+            return value
+    return default
+
+
 def build_app(
     *,
     workspace: Optional[Path],
@@ -142,14 +160,14 @@ def build_app(
     # The executor lives for the lifetime of the app; on shutdown the
     # pending tasks are abandoned (cooperative cancel inside
     # ``with_progress`` checks ``job.cancelled`` between stages).
-    # 并发度可通过环境变量覆盖（参考 AsyncPipeline._default_max_concurrent）。
+    # P1-6 拆名(2026-11-20 评审):本值语义 = **并发批次数**(每个批次
+    # 占一个线程,批内并发由 MEDIASCRIBE_BATCH_CONCURRENCY 控制)。
+    # 旧名 MEDIASCRIBE_MAX_WORKERS 作兼容别名;旧实现一名两义,调大它会
+    # 同时放大批次数与批内并发、相乘放大 GPU 占用。
     # 默认 2：转录是 GPU/IO 密集型，过多并发反而争抢显存。
-    try:
-        _max_workers = int(os.environ.get("MEDIASCRIBE_MAX_WORKERS", "2"))
-    except ValueError:
-        _max_workers = 2
-    if _max_workers <= 0:
-        _max_workers = 2
+    _max_workers = _positive_int_env(
+        "MEDIASCRIBE_JOB_EXECUTORS", "MEDIASCRIBE_MAX_WORKERS", default=2
+    )
     app.state.job_executor = ThreadPoolExecutor(
         max_workers=_max_workers, thread_name_prefix="v2t-job"
     )
@@ -182,6 +200,12 @@ def build_app(
     ws_bridges: Dict[str, _JobEventBridge] = {}
     app.state.ws_bridges = ws_bridges
     app.state.ws_bridge_lock = threading.Lock()
+    # P0-2(2026-11-20 评审): job_id → 提交 URL,cancel_job 用它定位
+    # AsyncPipeline.cancel_one(url) 的 per-URL 取消目标;批次结束由
+    # _run_batch_job 清理本批条目。(app.state 属性不能在赋值处写类型
+    # 标注 —— mypy 限制,局部变量声明后挂载。)
+    job_sources: Dict[str, str] = {}
+    app.state.job_sources = job_sources
 
     # 附加修复: Docker 镜像已设 ``MEDIASCRIBE_WORKSPACE=/workspace`` 且
     # compose 已挂卷, 但代码此前不读该变量, 导致容器内数据不落卷。

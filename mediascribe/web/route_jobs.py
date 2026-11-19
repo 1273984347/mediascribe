@@ -74,20 +74,27 @@ def _register_job_control_routes(app: "FastAPI") -> None:
     def cancel_job(job_id: str) -> Dict[str, Any]:
         """Cancel a running job (no-op if it doesn't exist).
 
-        v3.2.0c Tier 1 — also cancels any registered :class:`AsyncPipeline`
+        v3.2.0c Tier 1 — also cancels the registered :class:`AsyncPipeline`
         so in-flight ``asyncio.Task``s are torn down, not just the
         cooperative ``job.cancelled`` flag.
+
+        P0-2(2026-11-20 评审修复):取消粒度收窄为**单任务** — API 契约
+        (``POST /api/jobs/{id}/cancel`` 单数语义)此前被整批连坐破坏。
+        现在只 ``cancel_one`` 本 job 对应的 URL:排队任务当场打断,
+        运行中任务由 ``registry.cancel`` 置位的 job 标志在下一个 stage
+        边界协作退出;兄弟任务不受任何影响。
         """
         registry = _job_registry(app)
         cancelled = registry.cancel(job_id)
         if not cancelled:
             raise HTTPException(status_code=404, detail=f"unknown job: {job_id}")
         ap = app.state.async_pipelines.get(job_id)
-        if ap is not None and hasattr(ap, "cancel"):
+        if ap is not None and hasattr(ap, "cancel_one"):
             try:
-                ap.cancel()
+                src = getattr(app.state, "job_sources", {}).get(job_id, "")
+                ap.cancel_one(src)
             except Exception as exc:  # pragma: no cover - defensive
-                logger.debug("AsyncPipeline.cancel 异常: %r", exc)
+                logger.debug("AsyncPipeline.cancel_one 异常: %r", exc)
         return {"job_id": job_id, "cancelled": True}
 
     @app.get("/api/jobs/{job_id}", dependencies=[_depends(_require_api_token)])
@@ -199,8 +206,15 @@ def _register_submit_jobs_route(app: "FastAPI", workspace: Path, pipeline_factor
         runners: Dict[str, Callable[[], Any]] = {}
         jobs_out: List[Dict[str, Any]] = []
         job_ids: List[str] = []
+        # P0-2: url→job_id 与 job_id→url 双向映射 — 前者给 _run_batch_job
+        # 做 _FailedResult→registry 终态映射(消灭僵尸任务),后者给
+        # cancel_job 定位 per-URL 取消目标。
+        job_ids_by_src: Dict[str, str] = {}
+        sources_by_jid: Dict[str, str] = {}
         for url in urls:
             job = registry.create(url)
+            job_ids_by_src[url] = job.job_id
+            sources_by_jid[job.job_id] = url
             out_path = out_dir / f"{int(time.time())}_{uuid.uuid4().hex[:8]}.md"
             wp = with_progress(pipeline, job, url, out_path=out_path)
             runners[url] = functools.partial(
@@ -224,10 +238,13 @@ def _register_submit_jobs_route(app: "FastAPI", workspace: Path, pipeline_factor
                 }
             )
             job_ids.append(job.job_id)
-        # 注册 AP 到本批所有 job_id — cancel 任一 job 都能命中并中止整批
-        # 尚未启动的排队任务(已启动的仍由 registry.cancel 协作取消)。
+        # 注册 AP 到本批所有 job_id — cancel_job 按 job_id 找到 AP 后走
+        # cancel_one(url) 只取消该 job(P0-2);_run_batch_job 结束时清理
+        # 本批注册,避免注册表泄漏。
+        job_sources: Dict[str, str] = getattr(app.state, "job_sources", {})
         for jid in job_ids:
             app.state.async_pipelines[jid] = ap
+            job_sources[jid] = sources_by_jid[jid]
         app.state.job_executor.submit(
             _run_batch_job,
             ap,
@@ -235,6 +252,9 @@ def _register_submit_jobs_route(app: "FastAPI", workspace: Path, pipeline_factor
             runners,
             job_ids,
             app.state.async_pipelines,
+            registry=registry,
+            job_ids_by_src=job_ids_by_src,
+            job_sources=job_sources,
         )
         return {
             "jobs": jobs_out,
