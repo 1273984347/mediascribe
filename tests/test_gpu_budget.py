@@ -93,7 +93,7 @@ class TestProbeBudget(unittest.TestCase):
 class TestAcquireRelease(unittest.TestCase):
     def _ledger_with_budget(self, total):
         led = VramLedger()
-        patcher = mock.patch("mediascribe.gpu_budget._probe_budget_mb", return_value=total)
+        patcher = mock.patch("mediascribe.gpu_budget.budget_total_mb", return_value=total)
         patcher.start()
         self.addCleanup(patcher.stop)
         return led
@@ -147,12 +147,12 @@ class TestAcquireRelease(unittest.TestCase):
 class TestSlotFor(unittest.TestCase):
     def test_slot_zero_when_no_budget(self):
         led = VramLedger()
-        with mock.patch("mediascribe.gpu_budget._probe_budget_mb", return_value=None):
+        with mock.patch("mediascribe.gpu_budget.budget_total_mb", return_value=None):
             self.assertEqual(led.slot_for(_FakeTranscriber(), None), 0)
 
     def test_slot_uses_estimate_table(self):
         led = VramLedger()
-        with mock.patch("mediascribe.gpu_budget._probe_budget_mb", return_value=8192):
+        with mock.patch("mediascribe.gpu_budget.budget_total_mb", return_value=8192):
             # runtime_guard 实测表:faster-whisper large-v3 cuda = 2816
             mb = led.slot_for(_FakeTranscriber(model_name="large-v3", device="cuda"), None)
             self.assertEqual(mb, 2816)
@@ -175,3 +175,81 @@ class TestSingleton(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# P1-4(2026-11-20 架构评审): 驻留模型注册表 — 跨引擎缓存族显存预算
+# ---------------------------------------------------------------------------
+from mediascribe.gpu_budget import (  # noqa: E402
+    clear_other_families,
+    ensure_resident_capacity,
+    register_family_clear,
+    register_resident,
+    reset_resident_registry,
+    resident_total_mb,
+    unregister_family,
+    unregister_resident,
+)
+
+
+class TestResidentRegistry(unittest.TestCase):
+    def setUp(self):
+        reset_resident_registry()
+        patcher = mock.patch("mediascribe.gpu_budget.budget_total_mb", return_value=2000)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(reset_resident_registry)
+
+    def test_register_unregister_total(self):
+        register_resident("faster-whisper", ("small", "cuda", "int8_float16"), 614)
+        register_resident("whisper", ("small", "cuda"), 1965)
+        self.assertEqual(resident_total_mb(), 2579)
+        unregister_resident("faster-whisper", ("small", "cuda", "int8_float16"))
+        self.assertEqual(resident_total_mb(), 1965)
+        unregister_family("whisper")
+        self.assertEqual(resident_total_mb(), 0)
+
+    def test_ensure_fits_without_clearing(self):
+        cleared = []
+        register_resident("faster-whisper", ("k1",), 614)
+        register_family_clear("faster-whisper", lambda: cleared.append("fw"))
+        # 614 + 1000 ≤ 2000 → 不清任何家族
+        self.assertTrue(ensure_resident_capacity("faster-whisper", 1000))
+        self.assertEqual(cleared, [])
+
+    def test_ensure_clears_other_families(self):
+        cleared = []
+
+        def whisper_clear():
+            unregister_family("whisper")
+            cleared.append("whisper")
+
+        register_resident("whisper", ("small", "cuda"), 1965)
+        register_family_clear("whisper", whisper_clear)
+        # 1965 + 1000 > 2000 → 清 whisper 家族(fw 自族不动)
+        self.assertTrue(ensure_resident_capacity("faster-whisper", 1000))
+        self.assertEqual(cleared, ["whisper"])
+        self.assertEqual(resident_total_mb(), 0)
+
+    def test_ensure_never_clears_own_family(self):
+        cleared = []
+        register_resident("faster-whisper", ("k",), 1500)
+        register_family_clear("faster-whisper", lambda: cleared.append("fw"))
+        # 1500 + 1000 > 2000,无其它家族可清 → 返回 False(fail-open 由任务账本兜底),
+        # 本族钩子不得被调(引擎在本族缓存锁内调用,清本族会死锁)
+        self.assertFalse(ensure_resident_capacity("faster-whisper", 1000))
+        self.assertEqual(cleared, [])
+        self.assertEqual(resident_total_mb(), 1500)
+
+    def test_clear_other_families_swallows_hook_errors(self):
+        def broken():
+            raise RuntimeError("boom")
+
+        register_resident("whisper", ("k",), 100)
+        register_family_clear("whisper", broken)
+        self.assertEqual(clear_other_families("faster-whisper"), 0)
+
+    def test_fail_open_when_no_budget(self):
+        register_resident("faster-whisper", ("k",), 1500)
+        with mock.patch("mediascribe.gpu_budget.budget_total_mb", return_value=None):
+            self.assertTrue(ensure_resident_capacity("faster-whisper", 999999))
