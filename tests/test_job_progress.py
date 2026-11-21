@@ -327,7 +327,6 @@ class TestProgressRegistryHelpers:
         assert reg.purge(older_than_seconds=0) >= 1
 
 
-
 class TestWithProgressCancelEvent(unittest.TestCase):
     """R-1: cancel_event 在 stage 边界预检,并透传给 pipeline.transcribe。"""
 

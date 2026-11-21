@@ -95,7 +95,9 @@ class TestTsQuoteStripping:
 
         assert notes, "概念笔记应当生成"
         text = (vault.wiki_dir / notes[0]).read_text(encoding="utf-8")
-        item_lines = [ln for ln in text.splitlines() if ln.startswith("-") and not ln.startswith("---")]
+        item_lines = [
+            ln for ln in text.splitlines() if ln.startswith("-") and not ln.startswith("---")
+        ]
         assert len(item_lines) == 1, "单条提及必须占一行"
         assert "01:02 03" in item_lines[0]
         assert "第一行 第二行" in item_lines[0]
