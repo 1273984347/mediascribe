@@ -10,13 +10,16 @@ sys.path.insert(0, str(ROOT))
 
 class TestEasyOcrReaderCache(unittest.TestCase):
     """The easyocr Reader must be cached so subsequent calls don't
-    pay the ~3s load cost."""
+    pay the ~3s load cost.
+
+    P2-1(2026-11-20 评审): OCR 子系统拆到 ``downloaders.ocr`` ——
+    缓存机制测试跟着代码搬家;wechat_mp 的 re-export 兼容引用不变。"""
 
     def setUp(self):
-        from mediascribe.downloaders import wechat_mp
+        from mediascribe.downloaders import ocr
 
-        wechat_mp.clear_ocr_cache()
-        self.mod = wechat_mp
+        ocr.clear_ocr_cache()
+        self.mod = ocr
 
     def tearDown(self):
         self.mod.clear_ocr_cache()
