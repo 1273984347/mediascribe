@@ -147,7 +147,13 @@ class TestAcquireRelease(unittest.TestCase):
 
 
 class TestSlotFor(unittest.TestCase):
+    def tearDown(self):
+        # R-3 后 slot_for 会经 reprobe 触达模块级预算缓存 —— 每个用例
+        # 显式隔离,防止全量跑时 doctor/其它测试留下的真实探测值污染。
+        reset_vram_ledger()
+
     def test_slot_zero_when_no_budget(self):
+        reset_vram_ledger()
         led = VramLedger()
         with mock.patch("mediascribe.gpu_budget.budget_total_mb", return_value=None):
             self.assertEqual(led.slot_for(_FakeTranscriber(), None), 0)
