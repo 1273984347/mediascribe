@@ -60,8 +60,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      # P0-3(2026-11-22 CI 优化): pip → uv, 缓存由 setup-uv 托管
-      # (enable-cache; 原 setup-python 的 cache: pip 移除避免双重缓存)。
+      # P0-3(2026-11-22, 实测后保留): lint 只装 2 个工具, uv 走
+      # setup-uv@v5 —— 实测 65s→11-14s(4×)。重装 200 包的测试 job
+      # 则回退 pip(见 unit/integration: uv sync 热轮实测 379-451s,
+      # 反而慢于 pip 热缓存 82-183s, 怀疑 GH 缓存配额驱逐)。
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
@@ -103,14 +105,18 @@ jobs:
       MEDIASCRIBE_E2E: "0"
     steps:
       - uses: actions/checkout@v4
+      # 2026-11-22 定向回滚: 测试 job 装 ~200 包(torch+CUDA), pip 热缓存
+      # 实测 82-183s; uv sync 热轮实测 ubuntu 379-451s 且 "Post Install uv"
+      # 0s —— 疑似免费档 10GB 缓存配额驱逐导致 uv 缓存未恢复。pip+cache
+      # 是被 7/7 命中验证过的路径, 回退之; uv 仅保留在 lint job(实测 4×)。
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            requirements.txt
+            requirements-dev.txt
       - name: Install ffmpeg + ffprobe (Ubuntu, static build)
         # apt 源在 runner 上易卡死(2026-10-02 复盘: 挂满 10/20 分钟作业超时,
         # 是首推红灯最大来源)。改用 BtbN GitHub Release 静态构建, 走 GitHub
@@ -123,19 +129,15 @@ jobs:
           sudo find /tmp/ffx -type f -name ffmpeg -exec install -m 0755 {} /usr/local/bin/ffmpeg \;
           sudo find /tmp/ffx -type f -name ffprobe -exec install -m 0755 {} /usr/local/bin/ffprobe \;
           ffmpeg -version | head -1
-      - name: Install Python deps (uv sync --locked)
-        # P2-6(2026-11-22): uv.lock 锁定 207 包 —— 消除同 run 解析漂移
-        # (实测: unit 装 torch 2.15.0 / integration 装 2.8.0)。
-        # pytest-cov 由 dev extra 提供。uv 缓存(enable-cache)走硬链接,
-        # 安装步相对 pip 大幅缩短。
-        run: >-
-          uv sync --locked
-          --extra dev --extra ocr --extra web --extra faster-whisper --extra mcp
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,ocr,web,faster-whisper,mcp]"
       - name: Run unit tests (with coverage)
         # YAML 折叠标量(>)把多行折成一行 — Windows pwsh 不认 ``\`` 续行,
         # 之前尾随的 ``\`` 被当成独立参数(= 盘根目录)让 pytest 扫全盘。
         run: >-
-          uv run --no-sync pytest tests/
+          python -m pytest tests/
           --ignore=tests/test_e2e_real_urls.py
           -m "not integration and not network"
           --cov=mediascribe --cov-report=term-missing
@@ -195,14 +197,16 @@ jobs:
       MEDIASCRIBE_E2E: "1"
     steps:
       - uses: actions/checkout@v4
+      # 2026-11-22 定向回滚: 同 unit job —— 测试 job 用 pip+cache(实测
+      # 82-183s), uv 仅保留在 lint job。
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            requirements.txt
+            requirements-dev.txt
       - name: Install ffmpeg + ffprobe (Ubuntu, static build)
         # 同 unit job — apt 易卡死, 用 BtbN 静态构建
         if: runner.os == 'Linux'
@@ -228,7 +232,7 @@ jobs:
           Copy-Item (Get-ChildItem "$env:RUNNER_TEMP\ffx" -Recurse -Filter ffprobe.exe | Select-Object -First 1).FullName "$bin\ffprobe.exe"
           Add-Content $env:GITHUB_PATH $bin
           & "$bin\ffmpeg.exe" -version | Select-Object -First 1
-      - name: Install Python deps (uv sync --locked)
+      - name: Install Python deps
         # P0-1(2026-11-22 CI 优化): 去掉 whisperx extra —— 无任何测试 import
         # whisperx(transcribers/whisperx.py:181 函数内懒加载;
         # test_imports.py:46-49 有未装降级逻辑), 而它经
@@ -236,31 +240,28 @@ jobs:
         # 曾让 integration deps 比 unit 多 ~1m40s。回归由 nightly(下方
         # 条件步)与 tag/develop matrix 兜底(用户 2026-11-22 拍板)。
         if: github.event_name != 'schedule'
-        run: >-
-          uv sync --locked
-          --extra dev --extra ocr --extra web --extra faster-whisper --extra mcp
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,ocr,web,faster-whisper,mcp]"
       - name: Install Python deps (nightly, whisperx backstop)
         # 用户拍板(2026-11-22): whisperx 回归由 nightly/tag matrix 兜底。
-        # matrix job 装 whisperx; nightly cron 在此以 whisperx 全量 sync,
-        # 让夜间跨平台跑也覆盖 whisperx 引擎。
+        # matrix job 装 whisperx; nightly cron 在此补装增量, 让夜间
+        # 跨平台跑也覆盖 whisperx 引擎。
         if: github.event_name == 'schedule'
-        run: >-
-          uv sync --locked
-          --extra dev --extra ocr --extra web --extra whisperx --extra faster-whisper --extra mcp
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,ocr,web,whisperx,faster-whisper,mcp]"
       - name: Run integration tests (matrix-scoped selection)
         # 2026-11-22 CI 修复: Playwright chromium 四个步骤(cache/resolve/
         # install×2)整体移除 —— 证据链: integration 标记的 15 个 E2E 只调
         # parse_source 做纯 URL 解析(无下载无浏览器); browser.py 仅被
         # batch_cli 使用; unit 套件从不装 chromium 也持续全绿。
-        # (uv sync 后 playwright 在 .venv 而非系统 python, 原 resolve/
-        # install 步骤在 windows 上 ModuleNotFoundError 硬红 —— 移除比
-        # 修补 venv 兼容更彻底, 同时消灭 44606964411 实测的 5m08s 尾部)
         # 折叠标量 — Windows pwsh 不认 ``\`` 续行(见 unit job 说明)。
         # P0-2: 选择器来自 matrix(见上); ubuntu/py3.12 组合只跑 15 个
         # 真实 URL E2E(需要外网, 实测 runner 可出网——历史多轮绿);
         # windows py3.11 组合跑全量非 network 套件(Windows 回归守卫)。
         run: >-
-          uv run --no-sync pytest tests/
+          python -m pytest tests/
           ${{ matrix.pytest_args }}
           -v --tb=short --maxfail=3
 
@@ -291,14 +292,16 @@ jobs:
       MEDIASCRIBE_E2E: "0"
     steps:
       - uses: actions/checkout@v4
+      # 2026-11-22 定向回滚: 同 unit job —— 测试 job 用 pip+cache(实测
+      # 82-183s), uv 仅保留在 lint job。
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-dependency-glob: pyproject.toml
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            requirements.txt
+            requirements-dev.txt
       - name: Install ffmpeg + ffprobe (Ubuntu, static build)
         # 同 unit job — apt 易卡死, 用 BtbN 静态构建
         if: runner.os == 'Linux'
@@ -327,15 +330,15 @@ jobs:
           Copy-Item (Get-ChildItem "$env:RUNNER_TEMP\ffx" -Recurse -Filter ffprobe.exe | Select-Object -First 1).FullName "$bin\ffprobe.exe"
           Add-Content $env:GITHUB_PATH $bin
           & "$bin\ffmpeg.exe" -version | Select-Object -First 1
-      - name: Install Python deps (uv sync --locked, incl. whisperx backstop)
+      - name: Install Python deps (incl. whisperx backstop)
         # 发布门禁深矩阵: whisperx extra 在此装回(用户 2026-11-22 拍板
         # "whisperx 回归由 nightly/tag matrix 兜底")。
-        run: >-
-          uv sync --locked
-          --extra dev --extra ocr --extra web --extra whisperx --extra faster-whisper --extra mcp
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,ocr,web,whisperx,faster-whisper,mcp]"
       - name: Run unit tests
         run: >-
-          uv run --no-sync pytest tests/
+          python -m pytest tests/
           --ignore=tests/test_e2e_real_urls.py
           -m "not integration and not network"
           -v --tb=short --maxfail=3
