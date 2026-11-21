@@ -40,6 +40,12 @@ permissions:
   contents: read
   issues: write
 
+# P2-8(2026-11-22 CI 优化): bandit.yml 此前无并发组 —— 每次 push 都会
+# 排一个 ~30s 的 run。加组后同分支连推只跑最新(周 cron 不受影响)。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   bandit:
     name: bandit (ubuntu, py3.12)

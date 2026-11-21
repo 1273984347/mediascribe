@@ -30,10 +30,12 @@ jobs:
         python-version: '3.11'
         cache: 'pip'
     - name: Install deps
+      # P2-7(2026-11-22 CI 优化): 删掉 `pip install -e ".[dev]"` ——
+      # mkdocs.yml 只用 material/pymdownx(无 mkdocstrings), 文档构建
+      # 不需要安装 mediascribe 包及其 ~40 个核心依赖。
       run: |
         python -m pip install --upgrade pip
         pip install mkdocs mkdocs-material mkdocs-autorefs
-        pip install -e ".[dev]"
     - name: Build
       run: mkdocs build --strict
     - name: Upload artifact

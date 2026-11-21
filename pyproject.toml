@@ -62,7 +62,7 @@ dependencies = [
     "yt-dlp>=2023.12.30",
     "ffmpeg-python>=0.2.0",
     "requests>=2.31.0",
-    "playwright>=1.40.0",
+    "playwright>=1.40.0,<2",
     # 1.63 上界已解除(2026-10-03): 当时 py3.11 CI 失败的根因是
     # test_browser_module 的残留 print-mock + 环境 greenlet 解析,
     # 产品 API 面稳定; 残留 mock 已删, 1.63 本地实测通过。

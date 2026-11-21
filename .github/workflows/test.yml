@@ -6,6 +6,14 @@ on:
     tags: [ "v*" ]
   pull_request:
     branches: [ main, develop ]
+    # P1-4(2026-11-22): 仅 PR 路径做路径过滤。push 路径**有意不加**:
+    # paths-ignore 对 tag push 同样生效, 会把"纯 md 差异的 v* tag"的
+    # integration E2E 发布门禁整个跳过(风险>收益); 本仓库当前直推
+    # main 无 PR 流, 此项是 PR 流建立后的结构性防御。
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE'
   workflow_dispatch:
     inputs:
       run_integration:
@@ -14,7 +22,10 @@ on:
         default: false
   schedule:
     # Nightly integration run (UTC 02:00 = 10:00 CST)。
-    # 实测 GitHub 免费档排队会把启动推迟到 ~07:00 UTC, 属正常延迟。
+    # P3-9(2026-11-22 采样 5 个 schedule run): 免费档排队比早前注释写的
+    # "~07:00" 更严重 —— 实际启动 08:39-09:55 UTC(排队 6.5-8h), 属免费
+    # 额度资源竞争, 非 bug。nightly 期间 whisperx 由 integration job 的
+    # schedule 条件步装回(回归兜底, 见 integration job)。
     - cron: "0 2 * * *"
 
 # Cancel in-progress runs of the same branch; do NOT cancel for tags
@@ -40,23 +51,28 @@ jobs:
   # -------------------------------------------------------------------------
   lint:
     name: Lint (ruff)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+      # P2-8(2026-11-22 CI 优化): ubuntu-24.04 镜像无预装 py3.11,
+      # setup-python 要 1m00s; ubuntu-latest(26.04) 预装, 27-38s。
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: pip
-          cache-dependency-path: |
-            pyproject.toml
-            requirements-dev.txt
+      # P0-3(2026-11-22 CI 优化): pip → uv, 缓存由 setup-uv 托管
+      # (enable-cache; 原 setup-python 的 cache: pip 移除避免双重缓存)。
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
       - name: Install lint tools
         # 上游 ruff 0.17 起不再支持 `--statistics` + 非文本输出格式组合,
         # 保险起见锁到与本地开发一致的版本。mypy 与 dev extra 同参
         # (>=1.15,<3) — 2026-10-03 起为阻断门禁, 单独轻量安装避免
         # 拖整个 dev extra(torch 等)进来。
-        run: pip install "ruff==0.16.6" "mypy>=1.15,<3"
+        run: uv pip install --system "ruff==0.16.6" "mypy>=1.15,<3"
       - name: ruff check
         run: ruff check . --output-format=github
       - name: ruff format (check only)
@@ -78,10 +94,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # PR feedback path: fastest single combo.
-        # Add more combos here if you want broader coverage on PRs
-        # (at the cost of slower PR feedback).
-        python-version: ["3.11"]
+        # P0-2 补位(2026-11-22): integration 收窄后, py3.12 的 ubuntu 完整
+        # 套件覆盖此前由 integration job 顺带承担, 现移入 unit matrix。
+        python-version: ["3.11", "3.12"]
         os: [ubuntu-latest]
     env:
       # Force-skip the E2E decorator regardless of accidental env vars.
@@ -91,11 +106,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
-          cache-dependency-path: |
-            pyproject.toml
-            requirements.txt
-            requirements-dev.txt
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
       - name: Install ffmpeg + ffprobe (Ubuntu, static build)
         # apt 源在 runner 上易卡死(2026-10-02 复盘: 挂满 10/20 分钟作业超时,
         # 是首推红灯最大来源)。改用 BtbN GitHub Release 静态构建, 走 GitHub
@@ -108,17 +123,19 @@ jobs:
           sudo find /tmp/ffx -type f -name ffmpeg -exec install -m 0755 {} /usr/local/bin/ffmpeg \;
           sudo find /tmp/ffx -type f -name ffprobe -exec install -m 0755 {} /usr/local/bin/ffprobe \;
           ffmpeg -version | head -1
-      - name: Install Python deps
-        # pytest-cov: 原 coverage job 并入本 job(2026-11-21 CI 优化 —
-        # coverage 与 unit 测试选择完全相同,纯重复一整趟 install+测试)
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev,ocr,web,faster-whisper,mcp]" pytest-cov
+      - name: Install Python deps (uv sync --locked)
+        # P2-6(2026-11-22): uv.lock 锁定 207 包 —— 消除同 run 解析漂移
+        # (实测: unit 装 torch 2.15.0 / integration 装 2.8.0)。
+        # pytest-cov 由 dev extra 提供。uv 缓存(enable-cache)走硬链接,
+        # 安装步相对 pip 大幅缩短。
+        run: >-
+          uv sync --locked
+          --extra dev --extra ocr --extra web --extra faster-whisper --extra mcp
       - name: Run unit tests (with coverage)
         # YAML 折叠标量(>)把多行折成一行 — Windows pwsh 不认 ``\`` 续行,
         # 之前尾随的 ``\`` 被当成独立参数(= 盘根目录)让 pytest 扫全盘。
         run: >-
-          python -m pytest tests/
+          uv run --no-sync pytest tests/
           --ignore=tests/test_e2e_real_urls.py
           -m "not integration and not network"
           --cov=mediascribe --cov-report=term-missing
@@ -161,9 +178,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 3.9/3.10 已 EOL 剔除; whisperx 对最新版支持滞后, 只测 3.11/3.12。
-        python-version: ["3.11", "3.12"]
-        os: [ubuntu-latest, windows-latest]
+        # P0-2(2026-11-22 CI 优化): integration 只跑 integration 标记测试
+        # (15 个真实 URL E2E, tests/test_e2e_real_urls.py —— 注意它们是
+        # integration+network 双标记, 选择器必须用 `-m integration` 而非
+        # "integration and not network")。unit 套件(1612 用例)此前在 4 个
+        # job 里各重跑一遍, 现由 unit job(ubuntu py3.11+3.12)与 Windows
+        # py3.11 全量守卫覆盖。
+        # Windows py3.11 保留**全量** `-m "not network"`: 该平台历史踩坑
+        # 最多(路径/编码/pwsh 续行), per-push 保留一个 Windows 回归守卫。
+        include:
+          - { os: ubuntu-latest, python-version: "3.11", pytest_args: '-m integration' }
+          - { os: ubuntu-latest, python-version: "3.12", pytest_args: '-m integration' }
+          - { os: windows-latest, python-version: "3.11", pytest_args: '-m "not network"' }
+          - { os: windows-latest, python-version: "3.12", pytest_args: '-m integration' }
     env:
       MEDIASCRIBE_E2E: "1"
     steps:
@@ -171,11 +198,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
-          cache-dependency-path: |
-            pyproject.toml
-            requirements.txt
-            requirements-dev.txt
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
       - name: Install ffmpeg + ffprobe (Ubuntu, static build)
         # 同 unit job — apt 易卡死, 用 BtbN 静态构建
         if: runner.os == 'Linux'
@@ -201,10 +228,30 @@ jobs:
           Copy-Item (Get-ChildItem "$env:RUNNER_TEMP\ffx" -Recurse -Filter ffprobe.exe | Select-Object -First 1).FullName "$bin\ffprobe.exe"
           Add-Content $env:GITHUB_PATH $bin
           & "$bin\ffmpeg.exe" -version | Select-Object -First 1
-      - name: Install Python deps
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev,ocr,web,whisperx,faster-whisper,mcp]"
+      - name: Install Python deps (uv sync --locked)
+        # P0-1(2026-11-22 CI 优化): 去掉 whisperx extra —— 无任何测试 import
+        # whisperx(transcribers/whisperx.py:181 函数内懒加载;
+        # test_imports.py:46-49 有未装降级逻辑), 而它经
+        # pyannote→speechbrain→lightning 拉入 torch/CUDA 全链,
+        # 曾让 integration deps 比 unit 多 ~1m40s。回归由 nightly(下方
+        # 条件步)与 tag/develop matrix 兜底(用户 2026-11-22 拍板)。
+        if: github.event_name != 'schedule'
+        run: >-
+          uv sync --locked
+          --extra dev --extra ocr --extra web --extra faster-whisper --extra mcp
+      - name: Install Python deps (nightly, whisperx backstop)
+        # 用户拍板(2026-11-22): whisperx 回归由 nightly/tag matrix 兜底。
+        # matrix job 装 whisperx; nightly cron 在此以 whisperx 全量 sync,
+        # 让夜间跨平台跑也覆盖 whisperx 引擎。
+        if: github.event_name == 'schedule'
+        run: >-
+          uv sync --locked
+          --extra dev --extra ocr --extra web --extra whisperx --extra faster-whisper --extra mcp
+      - name: Resolve Playwright version (cache key)
+        # P1-5(2026-11-22 CI 优化): key 绑实际解析出的 playwright 版本,
+        # 替代 pyproject 哈希 —— 无关的 pyproject 改动不再作废浏览器缓存。
+        id: pwver
+        run: echo "version=$(python -c 'import playwright; print(playwright.__version__)')" >> "$GITHUB_OUTPUT"
       - name: Cache Playwright browsers
         # CI 优化(2026-11-21): 浏览器本体 ~150MB/平台,命中时 chromium 步骤
         # 只补校验;Linux 的 --with-deps 仍会跑 apt 系统依赖(较快)。
@@ -214,7 +261,7 @@ jobs:
             ~/.cache/ms-playwright
             ~/Library/Caches/ms-playwright
             ~\AppData\Local\ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('pyproject.toml') }}
+          key: ${{ runner.os }}-playwright-${{ steps.pwver.outputs.version }}
           restore-keys: |
             ${{ runner.os }}-playwright-
       - name: Install Playwright chromium (Linux)
@@ -223,17 +270,15 @@ jobs:
       - name: Install Playwright chromium (Windows/macOS)
         if: runner.os != 'Linux'
         run: python -m playwright install chromium
-      - name: Run unit + integration tests
+      - name: Run integration tests (matrix-scoped selection)
         # 折叠标量 — Windows pwsh 不认 ``\`` 续行(见 unit job 说明)。
+        # P0-2: 选择器来自 matrix(见上); ubuntu/py3.12 组合只跑 15 个
+        # 真实 URL E2E(需要外网, 实测 runner 可出网——历史多轮绿);
+        # windows py3.11 组合跑全量非 network 套件(Windows 回归守卫)。
         run: >-
-          python -m pytest tests/
-          -m "not network or integration"
+          uv run --no-sync pytest tests/
+          ${{ matrix.pytest_args }}
           -v --tb=short --maxfail=3
-
-        # NOTE: `network`-marked tests are intentionally excluded here
-        # because the integration runner does not have outbound network
-        # access in all CI environments. They can be opted in by
-        # adding the `network` marker locally with a separate workflow.
 
   # -------------------------------------------------------------------------
   # 4. matrix — full cross-platform, cross-version smoke (release-only)
@@ -265,11 +310,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
-          cache-dependency-path: |
-            pyproject.toml
-            requirements.txt
-            requirements-dev.txt
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
       - name: Install ffmpeg + ffprobe (Ubuntu, static build)
         # 同 unit job — apt 易卡死, 用 BtbN 静态构建
         if: runner.os == 'Linux'
@@ -298,13 +343,15 @@ jobs:
           Copy-Item (Get-ChildItem "$env:RUNNER_TEMP\ffx" -Recurse -Filter ffprobe.exe | Select-Object -First 1).FullName "$bin\ffprobe.exe"
           Add-Content $env:GITHUB_PATH $bin
           & "$bin\ffmpeg.exe" -version | Select-Object -First 1
-      - name: Install Python deps
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev,ocr,web,faster-whisper,mcp]"
+      - name: Install Python deps (uv sync --locked, incl. whisperx backstop)
+        # 发布门禁深矩阵: whisperx extra 在此装回(用户 2026-11-22 拍板
+        # "whisperx 回归由 nightly/tag matrix 兜底")。
+        run: >-
+          uv sync --locked
+          --extra dev --extra ocr --extra web --extra whisperx --extra faster-whisper --extra mcp
       - name: Run unit tests
         run: >-
-          python -m pytest tests/
+          uv run --no-sync pytest tests/
           --ignore=tests/test_e2e_real_urls.py
           -m "not integration and not network"
           -v --tb=short --maxfail=3

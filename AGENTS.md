@@ -110,6 +110,9 @@ python -m mediascribe archive --user "<作者主页URL>" -n 20   # 批量归档
 - **文件名安全**：一切用户可控文件名必须过 `mediascribe.security.sanitize_filename()`。
 - **平台常量**：不要在业务逻辑里硬编码平台名/域名，用 `mediascribe.security.TRUSTED_DOMAINS`。
 - **不要引入新顶层依赖**：同时更新 `pyproject.toml` 与 `requirements.txt`。
+- **改依赖必须重生成锁**：CI 用 `uv sync --locked` 校验（2026-11-22 起），
+  改了 `pyproject.toml` 的依赖/extras 而不重跑 `uv lock` 会直接让
+  `Install Python deps (uv sync --locked)` 步骤红灯。
 - **Python 语法**：≥ 3.11，可用 `X | Y` / `list[int]`，无需 `from __future__ import annotations`。
 
 ---
