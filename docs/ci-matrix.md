@@ -17,6 +17,19 @@ There is no standalone `coverage` job since 2026-11-21: it duplicated
 the `unit` selection exactly, so `pytest --cov` now runs **inside**
 `unit` (one install, one test pass).
 
+Dependencies install via **`uv sync --locked`** since 2026-11-22
+(`uv.lock` pins 207 packages — CI fails if the lock is stale versus
+`pyproject.toml`).  `integration` no longer runs the whole unit suite
+on every push: it runs only the 15 real-URL E2E tests (`-m integration`),
+except the **Windows py3.11 cell which keeps the full suite** as the
+per-push Windows regression guard.  WhisperX is installed only in the
+nightly (schedule) run and the tag/develop matrix — no test imports it
+directly.
+
+Measured wall times for main-push `Tests` runs (diagnosis report:
+`output/reports/ci-perf-diagnosis-2026-11-22.md`): 6m43s (pre-4811cff)
+→ 5m51s (dedup round) → ~3-4m expected with a warm uv cache.
+
 The `lint` and `unit` jobs are **gating**: a red light
 on any of them blocks merge.  `bandit.yml` runs a single-Ubuntu
 Bandit scan on paths touching production code (MEDIUM+ fails);
