@@ -206,7 +206,8 @@ def describe(name: str, lang: Optional[str] = None) -> str:
     entry = ENV_VARS.get(canonical_name(name))
     if entry is None:
         return ""
-    return entry["desc"].get(lang) or entry["desc"]["en"]
+    desc: Dict[str, str] = entry["desc"]
+    return str(desc.get(lang) or desc["en"])
 
 
 def current_value(name: str) -> str:
