@@ -734,3 +734,48 @@ class TestNoTokenPublicClientGuard(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestUnsafeBindGuard(unittest.TestCase):
+    """R-2(2026-11-21 架构评审): 非回环绑定必须带 token(或显式自担风险)。"""
+
+    def _run_main(self, argv, extra_env):
+        from unittest import mock as _m
+
+        from mediascribe.web import app as web_app
+
+        env = {"MEDIASCRIBE_API_TOKEN": "", "MEDIASCRIBE_ALLOW_UNSAFE_BIND": ""}
+        env.update(extra_env)
+        with _m.patch.dict(os.environ, env):
+            with _m.patch("uvicorn.run") as ur:  # 一律 mock —— 不真起服务
+                rc = web_app.main(argv)
+                return rc, ur
+
+    def test_non_loopback_without_token_rejected(self):
+        rc, _ = self._run_main(["--host", "0.0.0.0"], {})
+        self.assertEqual(rc, 1)
+
+    def test_non_loopback_with_token_passes_guard(self):
+        rc, ur = self._run_main(["--host", "0.0.0.0"], {"MEDIASCRIBE_API_TOKEN": "secret"})
+        self.assertEqual(rc, 0)
+        ur.assert_called_once()
+
+    def test_loopback_without_token_allowed(self):
+        rc, ur = self._run_main(["--host", "127.0.0.1"], {})
+        self.assertEqual(rc, 0)
+        ur.assert_called_once()
+
+    def test_unsafe_bind_override_allowed(self):
+        from unittest import mock as _m
+
+        from mediascribe.web import app as web_app
+
+        env = {
+            "MEDIASCRIBE_API_TOKEN": "",
+            "MEDIASCRIBE_ALLOW_UNSAFE_BIND": "1",
+        }
+        with _m.patch.dict(os.environ, env):
+            with _m.patch("uvicorn.run") as ur:
+                rc = web_app.main(["--host", "192.168.1.5"])
+        self.assertEqual(rc, 0)
+        ur.assert_called_once()

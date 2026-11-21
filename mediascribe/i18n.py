@@ -200,11 +200,11 @@ Examples:
   python -m mediascribe archive --config my_config.json
 
 Environment variables:
-  DOUYIN_BATCH_HEADLESS       Run browser in headless mode
-  DOUYIN_BATCH_MAX_VIDEOS     Maximum number of videos
-  DOUYIN_BATCH_WORKERS        Concurrency level
-  DOUYIN_BATCH_LANGUAGE       Transcription language
-  DOUYIN_BATCH_OUTPUT_DIR     Output directory
+  MEDIASCRIBE_BATCH_HEADLESS       Run browser in headless mode
+  MEDIASCRIBE_BATCH_MAX_VIDEOS     Maximum number of videos
+  MEDIASCRIBE_BATCH_WORKERS        Concurrency level
+  MEDIASCRIBE_BATCH_LANGUAGE       Transcription language
+  MEDIASCRIBE_BATCH_OUTPUT_DIR     Output directory
         """,
         "zh": """
 示例:
@@ -218,11 +218,11 @@ Environment variables:
   python -m mediascribe archive --config my_config.json
 
 环境变量:
-  DOUYIN_BATCH_HEADLESS       是否无头模式
-  DOUYIN_BATCH_MAX_VIDEOS     最大视频数
-  DOUYIN_BATCH_WORKERS        并发数
-  DOUYIN_BATCH_LANGUAGE       转录语言
-  DOUYIN_BATCH_OUTPUT_DIR     输出目录
+  MEDIASCRIBE_BATCH_HEADLESS       是否无头模式
+  MEDIASCRIBE_BATCH_MAX_VIDEOS     最大视频数
+  MEDIASCRIBE_BATCH_WORKERS        并发数
+  MEDIASCRIBE_BATCH_LANGUAGE       转录语言
+  MEDIASCRIBE_BATCH_OUTPUT_DIR     输出目录
         """,
     }
 
@@ -1626,6 +1626,31 @@ Environment variables:
             "is not throttled. It auto-retries when idle."
         ),
         "zh": ("显存账本闸门未启用（非 CUDA 或探测失败）；并发转录不受限流，进程空闲时会自动重探"),
+    }
+    DOCTOR_SECTION_ENV = {
+        "en": "\n📌 environment variables (MEDIASCRIBE_* registry)",
+        "zh": "\n📌 环境变量（MEDIASCRIBE_* 注册表）",
+    }
+    DOCTOR_ENV_TOKEN_HINT = {
+        "en": (
+            "MEDIASCRIBE_API_TOKEN is unset — the Web API runs unauthenticated. "
+            "Keep the server on loopback only; set the token before any wider exposure."
+        ),
+        "zh": (
+            "MEDIASCRIBE_API_TOKEN 未设置 —— Web API 处于无鉴权模式。"
+            "请保持仅回环访问；对外暴露前务必先设置该令牌。"
+        ),
+    }
+    WEB_UNSAFE_BIND_REJECTED = {
+        "en": (
+            "Refusing to bind non-loopback address {host} without authentication: "
+            "set MEDIASCRIBE_API_TOKEN, or set MEDIASCRIBE_ALLOW_UNSAFE_BIND=1 "
+            "to override at your own risk."
+        ),
+        "zh": (
+            "拒绝在非回环地址 {host} 上以无鉴权模式启动：请设置 MEDIASCRIBE_API_TOKEN，"
+            "或设 MEDIASCRIBE_ALLOW_UNSAFE_BIND=1 自担风险覆盖。"
+        ),
     }
     DOCTOR_SECTION_ENGINES = {
         "en": "\n📌 transcription engines",

@@ -1,8 +1,8 @@
 # AGENTS.md — MediaScribe 仓库指南（面向 AI Agent）
 
-> **MediaScribe** 是**完全离线**的视频转文字工具：从 B站 / 抖音 / YouTube / 小红书 /
-> 微信公众号 / 本地文件取视频，用本地 Whisper 系模型转成 Markdown。无云服务、无 API Key、
-> 数据不出本机。
+> **MediaScribe** 是**默认完全离线**的视频转文字工具：从 B站 / 抖音 / YouTube / 小红书 /
+> 微信公众号 / 本地文件取视频，用本地 Whisper 系模型转成 Markdown。默认路径无云服务、
+> 无 API Key、数据不出本机（LLM 后处理为显式 opt-in 外呼，默认关闭）。
 >
 > 本文件是 Agent 在本仓库的**权威指引**。`.github/copilot-instructions.md` 只是它的指针。
 

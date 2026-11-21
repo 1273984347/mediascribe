@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import sys
 import time
+import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -797,3 +798,48 @@ class TestDiskGuard:
             store = getattr(app_obj.state, "job_store", None)
             if store is not None:
                 store.close()
+
+
+class TestBatchEnvPrefixConvergence(unittest.TestCase):
+    """R-4(2026-11-21 架构评审): 前缀收敛与空串健壮性。"""
+
+    def test_mediascribe_prefix_is_primary(self):
+        import os
+        from unittest.mock import patch
+
+        from mediascribe.batch_config import BatchConfig
+
+        with patch.dict(os.environ, {"MEDIASCRIBE_BATCH_MAX_VIDEOS": "9"}, clear=False):
+            cfg = BatchConfig.from_env()
+        self.assertEqual(cfg.max_videos, 9)
+
+    def test_legacy_douyin_prefix_still_reads_with_warning(self):
+        import logging
+        import os
+        from unittest.mock import patch
+
+        from mediascribe.batch_config import BatchConfig
+
+        with patch.dict(
+            os.environ,
+            {"DOUYIN_BATCH_WORKERS": "2", "MEDIASCRIBE_BATCH_WORKERS": ""},
+            clear=False,
+        ):
+            with self.assertLogs("mediascribe.batch_config", level=logging.WARNING):
+                cfg = BatchConfig.from_env()
+        self.assertEqual(cfg.workers, 2)
+
+    def test_empty_env_value_treated_as_unset(self):
+        import os
+        from unittest.mock import patch
+
+        from mediascribe.batch_config import BatchConfig
+
+        with patch.dict(
+            os.environ,
+            {"MEDIASCRIBE_BATCH_WORKERS": "", "MEDIASCRIBE_BATCH_MAX_VIDEOS": ""},
+            clear=False,
+        ):
+            cfg = BatchConfig.from_env()
+        self.assertEqual(cfg.workers, BatchConfig().workers)
+        self.assertEqual(cfg.max_videos, BatchConfig().max_videos)

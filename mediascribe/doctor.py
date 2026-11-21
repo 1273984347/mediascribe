@@ -314,6 +314,28 @@ def _check_terms() -> None:
         _check("learn 术语", True, "无法读取（跳过）")
 
 
+def _check_env_config() -> None:
+    """R-4(2026-11-21 架构评审): env 变量汇总 —— 单一真源 env_registry。
+
+    只列**已设置**的变量(全部展开 50+ 行太吵),敏感变量一律打码;
+    附带 R-2 的无鉴权告警。
+    """
+    from .env_registry import ENV_VARS, current_value
+
+    print(t("DOCTOR_SECTION_ENV"))
+    set_any = False
+    for name in sorted(ENV_VARS):
+        val = current_value(name)
+        if val == "(unset)":
+            continue
+        set_any = True
+        _check(name, True, val)
+    if not set_any:
+        _check("MEDIASCRIBE_*", True, "(none set — all defaults)")
+    if not os.environ.get("MEDIASCRIBE_API_TOKEN", "").strip():
+        print(f"  {_WARN} {t('DOCTOR_ENV_TOKEN_HINT')}")
+
+
 def run_doctor(workspace: Optional[Path] = None) -> int:
     """执行环境自检并打印报告。返回进程退出码。
 
@@ -334,6 +356,7 @@ def run_doctor(workspace: Optional[Path] = None) -> int:
     _check_workspace(workspace)
     _check_cookies()
     _check_terms()
+    _check_env_config()
 
     print("\n" + "=" * 50)
     if critical_ok:

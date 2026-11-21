@@ -23,7 +23,8 @@ from typing import Optional
 
 logger = logging.getLogger("mediascribe.batch_config")
 
-# 环境变量后缀 → (字段名, 类型)。主前缀 DOUYIN_BATCH_*，兼容旧 DOYIN_BATCH_*。
+# 环境变量后缀 → (字段名, 类型)。主前缀 MEDIASCRIBE_BATCH_*（R-4 收敛），
+# 兼容旧品牌 DOUYIN_BATCH_* 与更早的拼写错误 DOYIN_BATCH_*（均弃用告警）。
 _ENV_FIELDS = {
     "HEADLESS": ("headless", bool),
     "MAX_VIDEOS": ("max_videos", int),
@@ -110,18 +111,29 @@ class BatchConfig:
     def from_env(cls) -> "BatchConfig":
         """从环境变量加载配置（覆盖默认）
 
-        主前缀 ``DOUYIN_BATCH_*``（与 --help 文档一致）；
-        旧前缀 ``DOYIN_BATCH_*`` 仍可读取，但会输出弃用警告。
+        R-4(2026-11-21 架构评审): 主前缀收敛为 ``MEDIASCRIBE_BATCH_*``；
+        历史品牌前缀 ``DOUYIN_BATCH_*`` 与更早的拼写错误 ``DOYIN_BATCH_*``
+        仍可读取，但输出弃用警告。
         """
         config = cls()
 
         for suffix, (attr, type_) in _ENV_FIELDS.items():
-            env_value = os.environ.get(f"DOUYIN_BATCH_{suffix}")
+            # 空串视同未设置(or None)—— 避免空值被 int()/bool() 解析炸掉。
+            env_value = os.environ.get(f"MEDIASCRIBE_BATCH_{suffix}") or None
             if env_value is None:
-                legacy_value = os.environ.get(f"DOYIN_BATCH_{suffix}")
+                legacy_value = os.environ.get(f"DOUYIN_BATCH_{suffix}") or None
                 if legacy_value is not None:
                     logger.warning(
-                        "环境变量 DOYIN_BATCH_%s 已弃用，请改用 DOUYIN_BATCH_%s",
+                        "环境变量 DOUYIN_BATCH_%s 已弃用，请改用 MEDIASCRIBE_BATCH_%s",
+                        suffix,
+                        suffix,
+                    )
+                    env_value = legacy_value
+            if env_value is None:
+                legacy_value = os.environ.get(f"DOYIN_BATCH_{suffix}") or None
+                if legacy_value is not None:
+                    logger.warning(
+                        "环境变量 DOYIN_BATCH_%s 已弃用，请改用 MEDIASCRIBE_BATCH_%s",
                         suffix,
                         suffix,
                     )

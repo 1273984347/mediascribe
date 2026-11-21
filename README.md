@@ -26,12 +26,12 @@
 
 ## English
 
-**MediaScribe** is a powerful offline video transcription tool that downloads videos from multiple platforms (Bilibili, Douyin, YouTube, Xiaohongshu, WeChat MP) and transcribes them using local AI models (Whisper, WhisperX, whisper.cpp). No cloud services, no API keys, no data leaves your machine.
+**MediaScribe** is a powerful offline video transcription tool that downloads videos from multiple platforms (Bilibili, Douyin, YouTube, Xiaohongshu, WeChat MP) and transcribes them using local AI models (Whisper, WhisperX, whisper.cpp). Fully offline by default — no cloud services, no API keys, no data leaves your machine. (Optional LLM post-processing sends transcript text to the OpenAI-compatible API you configure; it is off by default — see the `[llm]` extra.)
 
 ### ✨ Key Features
 
 - 🎬 **Multi-Platform Support** - Bilibili, Douyin, YouTube, Xiaohongshu, WeChat MP, local files
-- 🌍 **100% Offline** - Local AI models, no data uploaded
+- 🌍 **Offline by Default** - Local AI models, no data uploaded (LLM post-processing is an explicit opt-in, off by default)
 - 🚀 **No Cookies Required** - Smart URL extraction bypasses authentication
 - 🤖 **Multiple AI Engines** - Whisper, faster-whisper, WhisperX, whisper.cpp
 - 📝 **Markdown Output** - Structured transcripts with metadata
@@ -398,12 +398,12 @@ The library uses `pathlib` everywhere, normalises `~` and env-vars in user paths
 
 ## 中文
 
-**MediaScribe** 是一个强大的离线视频转文字工具，可以从多个平台（B站、抖音）下载视频，并使用本地 AI 模型（Whisper、WhisperX、whisper.cpp）进行转录。无需云服务、无需 API 密钥、数据不离开您的设备。
+**MediaScribe** 是一个强大的离线视频转文字工具，可以从多个平台（B站、抖音）下载视频，并使用本地 AI 模型（Whisper、WhisperX、whisper.cpp）进行转录。**默认完全离线**——无需云服务、无需 API 密钥、数据不离开您的设备。（可选的 LLM 后处理会把转录文本发往您自行配置的 OpenAI 兼容 API，默认关闭，见 `[llm]` extra。）
 
 ### ✨ 核心特性
 
 - 🎬 **多平台支持** - B站、抖音、YouTube、小红书、微信公众号、本地文件
-- 🌍 **100% 离线** - 本地 AI 模型，不上传数据
+- 🌍 **默认完全离线** - 本地 AI 模型，不上传数据（LLM 后处理为显式 opt-in，默认关闭）
 - 🚀 **无需 Cookies** - 智能 URL 提取绕过认证
 - 🤖 **多种 AI 引擎** - Whisper、faster-whisper、WhisperX、whisper.cpp
 - 📝 **Markdown 输出** - 结构化转录文档

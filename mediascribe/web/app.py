@@ -103,6 +103,7 @@ logger = logging.getLogger(__name__)
 # `import mediascribe.web.app`(包路径) 两条路径加载同一份 app.py,
 # 相对导入会让两条路径各拿一份子模块实例 → _RateLimiter 这类对象不一致。
 # ---------------------------------------------------------------------------
+from mediascribe.i18n import t
 from mediascribe.web.cors import (
     _DEFAULT_CORS_ORIGIN_REGEX,
     _default_cors_origins,
@@ -369,6 +370,21 @@ def main(argv: Optional[List[str]] = None) -> int:
         import uvicorn
     except ImportError:
         print("uvicorn not installed. Run: pip install mediascribe[web]")
+        return 1
+    # R-2(2026-11-21 架构评审): API 默认无鉴权,安全完全依赖"本机单用户"
+    # 部署假设 —— 把假设变成代码强制: 非 loopback 绑定必须显式配 token,
+    # 或 MEDIASCRIBE_ALLOW_UNSAFE_BIND=1 自担风险覆盖。
+    host = str(args.host or "").strip().lower()
+    loopback = {"127.0.0.1", "localhost", "::1", ""}
+    token = os.environ.get("MEDIASCRIBE_API_TOKEN", "").strip()
+    allow_unsafe = os.environ.get("MEDIASCRIBE_ALLOW_UNSAFE_BIND", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    if host not in loopback and not token and not allow_unsafe:
+        print(t("WEB_UNSAFE_BIND_REJECTED", host=args.host))
         return 1
     app = create_app(workspace=args.workspace)
     uvicorn.run(app, host=args.host, port=args.port, reload=args.reload)

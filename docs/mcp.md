@@ -13,6 +13,21 @@ python -m mediascribe.mcp_server
 Connect your MCP client (Claude Desktop, Cursor, Cline, etc.)
 to the stdio transport.
 
+!!! warning "stdio transport is serial"
+    The stdio main loop handles requests one at a time. A long-running
+    `transcribe_video` call (minutes for long videos) blocks every
+    subsequent request — including `ping` and `tools/list` — until it
+    finishes, and there is no protocol-level cancel. For batch or
+    long-video work, prefer the `batch_transcribe_creator` tool (it runs
+    a subprocess with its own timeout) or the CLI / Web UI directly.
+
+### Workspace resolution
+
+`transcribe_video` and `batch_transcribe_creator` resolve output paths
+the same way (2026-11-21): set `MEDIASCRIBE_WORKSPACE` to pin the root
+(batch outputs land in `<workspace>/output/`); without it, both resolve
+relative to the server's startup directory (default `./output`).
+
 ## Tools
 
 ### `validate_url`

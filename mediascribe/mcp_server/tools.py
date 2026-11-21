@@ -506,13 +506,13 @@ def _tool_batch_transcribe_creator(args: Dict[str, Any]) -> Dict[str, Any]:
     cmd.extend(["-n", str(max_videos)])
     # NOTE: the batch CLI has no ``--language`` flag.  Its ``--lang`` is the *UI*
     # language (i18n, en/zh), while the transcription language is configured via
-    # the ``DOUYIN_BATCH_LANGUAGE`` environment variable (see
-    # ``mediascribe.batch_config._ENV_FIELDS``).  Passing ``--language`` made
-    # argparse abort with "unrecognized arguments" (exit 2) and the tool
-    # returned a non-JSON error instead of a result.
+    # the ``MEDIASCRIBE_BATCH_LANGUAGE`` environment variable (R-4 prefix
+    # convergence; see ``mediascribe.batch_config._ENV_FIELDS``).  Passing
+    # ``--language`` made argparse abort with "unrecognized arguments" (exit 2)
+    # and the tool returned a non-JSON error instead of a result.
     child_env = dict(os.environ)
     if args.get("language"):
-        child_env["DOUYIN_BATCH_LANGUAGE"] = str(args["language"])
+        child_env["MEDIASCRIBE_BATCH_LANGUAGE"] = str(args["language"])
     if args.get("output_dir"):
         cmd.extend(["--output-dir", args["output_dir"]])
 

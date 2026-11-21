@@ -78,28 +78,32 @@ dependencies = [
 [project.optional-dependencies]
 # openai-whisper 引擎栈(20250625 起修复 torch>=2.6 默认 weights_only=True
 # 导致的 .pt 模型 UnpicklingError；旧 whisper + 新 torch 是必崩组合)
+# R-12(2026-11-21 架构评审): 重型引擎依赖钉大版本上界 —— 上游破坏史
+# 已发生一次(torch 2.6 weights_only),上界让 `pip install -U` 用户
+# 不再裸奔到下一个破坏性 major。
 whisper = [
     "openai-whisper>=20250625",
-    "torch>=2.0.0",
-    "torchaudio>=2.0.0",
+    "torch>=2.0.0,<3",
+    "torchaudio>=2.0.0,<3",
 ]
 # Higher-accuracy ASR engines (optional, user chooses)
 whisperx = [
-    "whisperx>=3.1.1",
-    "pyannote.audio>=3.0.0",
+    "whisperx>=3.1.1,<4",
+    "pyannote.audio>=3.0.0,<4",
 ]
 faster-whisper = [
-    "faster-whisper>=0.10.0",
+    "faster-whisper>=0.10.0,<2",
 ]
 # VAD (voice activity detection) for smart chunking
 vad = [
     "webrtcvad>=2.0.10",
 ]
 # OCR engines for WeChat MP image articles
+# paddleocr <3: 3.x 移除 use_angle_cls/show_log 参数(API 不兼容,见 ocr.py)
 ocr = [
-    "paddleocr>=2.5.0",
+    "paddleocr>=2.5.0,<3",
     "pytesseract>=0.3.10",
-    "easyocr>=1.6.2",
+    "easyocr>=1.6.2,<2",
 ]
 # MCP (Model Context Protocol) server support
 mcp = [

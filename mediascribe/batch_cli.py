@@ -227,7 +227,7 @@ def _collect_videos(args, cache, config, user_url, get_user_videos, t) -> List[D
 
     log.info(f"\n📋 {t('INFO_STEP2', count=config.max_videos)}")
 
-    # P2-5: 视频列表缓存带 TTL(默认 24h,DOUYIN_BATCH_LIST_TTL_HOURS 可调,0=旧行为)
+    # P2-5: 视频列表缓存带 TTL(默认 24h,MEDIASCRIBE_BATCH_LIST_TTL_HOURS 可调,0=旧行为)
     list_ttl = float(getattr(config, "list_ttl_hours", 24) or 0)
     cached_videos: List[Dict] = (
         cache.get_user_videos(user_url, ttl_hours=list_ttl) if not args.no_cache else []
