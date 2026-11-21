@@ -263,14 +263,6 @@ jobs:
           uv run --no-sync pytest tests/
           ${{ matrix.pytest_args }}
           -v --tb=short --maxfail=3
-        # 折叠标量 — Windows pwsh 不认 ``\`` 续行(见 unit job 说明)。
-        # P0-2: 选择器来自 matrix(见上); ubuntu/py3.12 组合只跑 15 个
-        # 真实 URL E2E(需要外网, 实测 runner 可出网——历史多轮绿);
-        # windows py3.11 组合跑全量非 network 套件(Windows 回归守卫)。
-        run: >-
-          uv run --no-sync pytest tests/
-          ${{ matrix.pytest_args }}
-          -v --tb=short --maxfail=3
 
   # -------------------------------------------------------------------------
   # 4. matrix — full cross-platform, cross-version smoke (release-only)
