@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from mediascribe import pinyin_search
+from mediascribe.atomic_io import atomic_write_text, exclusive_file_lock
 
 logger = logging.getLogger(__name__)
 
@@ -217,6 +218,13 @@ class WikiVault:
 
     LEDGER_DIRNAME = ".mediascribe"
     LEDGER_NAME = "index.json"
+    # R-6(2026-11-21 架构评审): 账本损坏时的现场保留与告示文件名。
+    # index.json.bak = 损坏副本(可人工找回); index.json.corrupt = 告示标记,
+    # 存在期间 HOME.md 顶部出告示,用户确认无需找回后删除即移除。
+    LEDGER_BACKUP_SUFFIX = ".bak"
+    LEDGER_CORRUPT_NOTICE = "index.json.corrupt"
+    # R-8: 跨进程互斥锁文件(CLI batch 与 Web 同时归档同一 vault)。
+    VAULT_LOCK_NAME = ".vault.lock"
 
     def __init__(self, root: Path | str, extractor: Optional[ConceptExtractor] = None):
         self.root = Path(root)
@@ -275,7 +283,7 @@ class WikiVault:
             except Exception as exc:  # pragma: no cover - defensive
                 logger.warning("wiki 概念提取异常(忽略): %r", exc)
 
-        with self._lock:
+        with self._lock, exclusive_file_lock(self.root / self.VAULT_LOCK_NAME):
             self.raw_dir.mkdir(parents=True, exist_ok=True)
             self.wiki_dir.mkdir(parents=True, exist_ok=True)
             self.ledger_dir.mkdir(parents=True, exist_ok=True)
@@ -391,7 +399,7 @@ class WikiVault:
             concept_links = " · ".join(f"[[概念 - {c['name']}]]" for c in concepts)
             body_lines.append(f"> 概念:{concept_links}")
         body_lines.extend(["", content.rstrip(), ""])
-        (self.raw_dir / candidate).write_text("\n".join(body_lines), encoding="utf-8")
+        atomic_write_text(self.raw_dir / candidate, "\n".join(body_lines), encoding="utf-8")
         return candidate
 
     def _scan_raw(self) -> List[Dict[str, str]]:
@@ -456,7 +464,7 @@ class WikiVault:
                 part for part in (r.get("platform"), r.get("created", "")[:10]) if part
             )
             lines.append(f"- [[{r['name']}]] — {meta_bits}")
-        (self.wiki_dir / note_name).write_text("\n".join(lines) + "\n", encoding="utf-8")
+        atomic_write_text(self.wiki_dir / note_name, "\n".join(lines) + "\n", encoding="utf-8")
         return note_name
 
     def _write_concept_notes(self) -> List[str]:
@@ -499,13 +507,15 @@ class WikiVault:
                 lines.append(f"## [[{raw_stem}]]")
                 lines.append("")
                 for m in ms:
-                    ts = m.get("ts") or ""
-                    quote = m.get("quote") or ""
+                    # R-15(2026-11-21 架构评审): LLM 返回的 ts/quote 过滤换行
+                    # 与折叠空白 —— 原样插入会破坏笔记行结构。
+                    ts = " ".join(str(m.get("ts") or "").split())
+                    quote = " ".join(str(m.get("quote") or "").split())
                     stamp = f" **[{ts}]**" if ts else ""
                     if quote:
                         lines.append(f"-{stamp} {quote}")
                 lines.append("")
-            (self.wiki_dir / note_name).write_text("\n".join(lines) + "\n", encoding="utf-8")
+            atomic_write_text(self.wiki_dir / note_name, "\n".join(lines) + "\n", encoding="utf-8")
             note_names.append(note_name)
         return sorted(note_names)
 
@@ -548,12 +558,30 @@ class WikiVault:
                 return data
             except (OSError, ValueError):
                 logger.warning("wiki 账本损坏, 以空账本重建")
+                # R-6(2026-11-21 架构评审): 不再静默归零 —— 损坏副本改名保留
+                # (.bak, 概念提及 ts/quote 无法再生), 并落告示标记让 HOME 出横幅。
+                try:
+                    bak = ledger_path.with_name(ledger_path.name + self.LEDGER_BACKUP_SUFFIX)
+                    os.replace(ledger_path, bak)
+                    atomic_write_text(
+                        self.ledger_dir / self.LEDGER_CORRUPT_NOTICE,
+                        (
+                            f"Wiki ledger corrupted and rebuilt empty at "
+                            f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}.\n"
+                            f"Previous copy kept as {bak.name}; recover manually if needed.\n"
+                            f"Delete this notice file to dismiss the HOME.md banner.\n"
+                        ),
+                        encoding="utf-8",
+                    )
+                except OSError:  # pragma: no cover - defensive
+                    pass
         return {"concepts": {}}
 
     def _save_ledger(self, ledger: Dict[str, Any]) -> None:
-        self.ledger_dir.mkdir(parents=True, exist_ok=True)
-        (self.ledger_dir / self.LEDGER_NAME).write_text(
-            json.dumps(ledger, ensure_ascii=False, indent=1), encoding="utf-8"
+        atomic_write_text(
+            self.ledger_dir / self.LEDGER_NAME,
+            json.dumps(ledger, ensure_ascii=False, indent=1),
+            encoding="utf-8",
         )
 
     def delete_note(self, rel_path: str) -> str:
@@ -579,7 +607,7 @@ class WikiVault:
         if not target.is_file():
             raise FileNotFoundError(rel_path)
 
-        with self._lock:
+        with self._lock, exclusive_file_lock(self.root / self.VAULT_LOCK_NAME):
             filename = target.name
             parts = rel.parts
             target.unlink()
@@ -709,9 +737,23 @@ class WikiVault:
             "",
             f"共 {len(records)} 篇转写 · {len(authors)} 位作者 · {len(platforms)} 个平台",
             "",
-            "## 最近转写",
-            "",
         ]
+        # R-6: 账本损坏告示 —— 标记文件存在期间 HOME 顶部出横幅。
+        if (self.ledger_dir / self.LEDGER_CORRUPT_NOTICE).exists():
+            lines.extend(
+                [
+                    "> ⚠️ **账本告示**: 概念账本 `.mediascribe/index.json` 曾损坏, "
+                    "已以空账本重建; 损坏副本保留在 `.mediascribe/index.json.bak`。"
+                    "确认无需找回后删除 `.mediascribe/index.json.corrupt` 即可移除本告示。",
+                    "",
+                ]
+            )
+        lines.extend(
+            [
+                "## 最近转写",
+                "",
+            ]
+        )
         for r in records[:20]:
             bits = " · ".join(
                 part
@@ -740,7 +782,7 @@ class WikiVault:
             for note_name in concepts:
                 display = note_name[: -len(".md")] if note_name.endswith(".md") else note_name
                 lines.append(f"- [[{display}]]")
-        (self.root / _HOME_NOTE).write_text("\n".join(lines) + "\n", encoding="utf-8")
+        atomic_write_text(self.root / _HOME_NOTE, "\n".join(lines) + "\n", encoding="utf-8")
 
     # 兼容旧引用
     def _read_field(self, path: Path, key: str) -> Optional[str]:
