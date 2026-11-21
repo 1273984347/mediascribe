@@ -9,12 +9,15 @@ the full matrix. Source of truth: `.github/workflows/test.yml`.
 | Job | Purpose | Trigger | Matrix |
 |-----|---------|---------|--------|
 | `lint` | `ruff check .` + `ruff format --check .` (ruff pinned in dev extra) | every PR/push | 1 cell |
-| `unit` | fast unit suite (`-m "not integration and not network"`) | every PR/push | Ubuntu + py3.11 |
-| `integration` | E2E (`MEDIASCRIBE_E2E=1`, incl. Playwright) | push to main / tags / nightly cron / manual | Ubuntu+Windows × py3.11, 3.12 |
+| `unit` | fast unit suite (`-m "not integration and not network"`) **with coverage** (`pytest --cov`, **75 %** floor matching the README badge; Codecov + `coverage.xml` artifact uploaded here) | every PR/push | Ubuntu + py3.11 |
+| `integration` | E2E (`MEDIASCRIBE_E2E=1`, incl. Playwright — browsers pulled through an `actions/cache` keyed on `pyproject.toml`; Windows ffmpeg comes from the same BtbN static build as Linux) | push to main / tags / nightly cron / manual | Ubuntu+Windows × py3.11, 3.12 |
 | `matrix` | full cross-platform smoke | tags + develop | Ubuntu/macOS/Windows × py3.11, 3.12, 3.13 (macOS: 2 of 3) |
-| `coverage` | `pytest --cov` with a **75 %** floor (matches the README badge) | every PR/push | Ubuntu + py3.11 |
 
-The `lint`, `unit` and `coverage` jobs are **gating**: a red light
+There is no standalone `coverage` job since 2026-11-21: it duplicated
+the `unit` selection exactly, so `pytest --cov` now runs **inside**
+`unit` (one install, one test pass).
+
+The `lint` and `unit` jobs are **gating**: a red light
 on any of them blocks merge.  `bandit.yml` runs a single-Ubuntu
 Bandit scan on paths touching production code (MEDIUM+ fails);
 the release workflow re-runs it gating on HIGH only.
