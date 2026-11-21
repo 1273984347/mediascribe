@@ -52,8 +52,13 @@
 git clone https://github.com/1273984347/mediascribe.git
 cd mediascribe
 
-# Install dependencies (lightweight: ~40 packages, CPU torch)
+# Install dependencies (P2-4: base install is the orchestration layer only)
 pip install -r requirements.txt
+
+# ASR engine stack — opt in (torch ≈ 2GB; faster-whisper is the default engine
+# when installed and ~3.5x faster than openai-whisper)
+pip install -e ".[whisper]"          # openai-whisper engine (torch stack)
+pip install -e ".[faster-whisper]"   # recommended default engine
 
 # Install Playwright browser (for Douyin/Bilibili)
 playwright install chromium

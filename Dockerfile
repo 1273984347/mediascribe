@@ -22,7 +22,7 @@ COPY mediascribe ./mediascribe
 COPY scripts ./scripts
 # --no-cache-dir keeps the build context small; PIP_NO_CACHE_DIR=1 above
 # also stops pip from keeping a local cache inside the layer.
-RUN pip install --prefix=/install --no-cache-dir ".[web,ocr]"
+RUN pip install --prefix=/install --no-cache-dir ".[web,ocr,whisper]"
 
 # ----- runtime: minimal image with the installed package -----
 FROM python:3.11-slim

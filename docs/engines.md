@@ -8,7 +8,7 @@ MediaScribe supports four ASR engines, with automatic fallback.
 
 | Engine | Throughput | Accuracy | Installation |
 |--------|------------|----------|--------------|
-| `whisper` | 1x baseline | good | hard dep |
+| `whisper` | 1x baseline | good | `pip install "mediascribe[whisper]"` (P2-4: torch stack is opt-in) |
 | `faster-whisper` | ~3.5x | good | `pip install faster-whisper` |
 | `whisperx` | ~5x | best, with alignment | `pip install whisperx` |
 | `whisper-cpp` | ~3x (CPU), lowest memory | good (multilingual) | external binary + GGML weights |

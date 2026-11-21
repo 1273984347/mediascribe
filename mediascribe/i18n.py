@@ -464,6 +464,14 @@ Environment variables:
     }
 
     # P1-5 (2026-11-20 架构评审): bot-wall 命中后的整批指数退避提示
+    # P2-4 (2026-11-20 架构评审): whisper 缺包友好提示(引擎栈转 optional)
+    WHISPER_NOT_INSTALLED = {
+        "en": "openai-whisper is not installed. Install it with: "
+        'pip install "mediascribe[whisper]" (or use the faster-whisper engine)',
+        "zh": 'openai-whisper 未安装。执行 pip install "mediascribe[whisper]" 安装，'
+        "或改用 faster-whisper 引擎（默认已探测优先）",
+    }
+
     WARN_BOT_WALL_BACKOFF = {
         "en": "Rate-limit wall hit — pausing batch for {seconds}s before continuing",
         "zh": "命中平台风控，整批暂停 {seconds}s 后继续",

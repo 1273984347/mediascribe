@@ -8,4 +8,6 @@
 #   pip install -e ".[ocr]"       公众号图片文章 OCR (paddleocr/easyocr ≈150 包,
 #                                 纯文本/视频转录用不到 — 2026-11-03 首航自测起默认不装)
 #   pip install -e ".[vad]"       智能分块 VAD (webrtcvad)
--e .[web,faster-whisper,mcp]
+# whisper extra = openai-whisper + torch 栈(P2-4 起不再是基础依赖,
+# CI/开发环境仍需要 —— 测试大量覆盖 whisper 路径)
+-e .[web,faster-whisper,whisper,mcp]

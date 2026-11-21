@@ -24,7 +24,13 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Iterator, Optional, Tuple
 
-import torch
+try:
+    # P2-4(2026-11-20 架构评审): torch 是可选依赖(whisper extra)。
+    # 模块级守卫导入 —— 绝不用散布的懒导入(sys.modules 操纵窗口下
+    # 会触发 torch 二次执行,Windows 上报 "already has a docstring")。
+    import torch
+except ImportError:  # pragma: no cover - bare orchestration install
+    torch = None  # type: ignore[assignment]
 
 from ..gpu_budget import (
     ensure_resident_capacity,
@@ -104,6 +110,8 @@ def _get_cached_model(whisper_module: Any, model_name: str, device: str) -> Any:
     torch 2.6+ 兼容补丁只在真正走磁盘加载的窗口内生效, 命中缓存
     不进入补丁窗口。
     """
+    if torch is None:
+        raise RuntimeError(t("WHISPER_NOT_INSTALLED"))
     key = (model_name, device)
     with _MODEL_CACHE_LOCK:
         cached = _MODEL_CACHE.get(key)
@@ -143,7 +151,7 @@ def _get_cached_model(whisper_module: Any, model_name: str, device: str) -> Any:
 def _release_torch_cache() -> None:
     """淘汰/清缓存后尽力释放 torch CUDA 缓存(P1-4: 淘汰≠显存即时回落)。"""
     try:
-        if torch.cuda.is_available():
+        if torch is not None and torch.cuda.is_available():
             torch.cuda.empty_cache()
     except Exception:  # pragma: no cover - defensive
         pass
@@ -212,7 +220,12 @@ class WhisperTranscriber(Transcriber):
         if self._model is not None:
             return self._model
 
-        import whisper
+        # P2-4: whisper 是可选依赖(whisper extra) —— 缺包给带安装指引的
+        # 清晰错误,而不是裸 ImportError
+        try:
+            import whisper
+        except ImportError as e:
+            raise RuntimeError(t("WHISPER_NOT_INSTALLED")) from e
 
         if self.device is None or self.device == "auto":
             import torch as _torch
