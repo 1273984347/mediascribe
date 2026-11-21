@@ -247,30 +247,22 @@ jobs:
         run: >-
           uv sync --locked
           --extra dev --extra ocr --extra web --extra whisperx --extra faster-whisper --extra mcp
-      - name: Resolve Playwright version (cache key)
-        # P1-5(2026-11-22 CI 优化): key 绑实际解析出的 playwright 版本,
-        # 替代 pyproject 哈希 —— 无关的 pyproject 改动不再作废浏览器缓存。
-        id: pwver
-        run: echo "version=$(python -c 'import playwright; print(playwright.__version__)')" >> "$GITHUB_OUTPUT"
-      - name: Cache Playwright browsers
-        # CI 优化(2026-11-21): 浏览器本体 ~150MB/平台,命中时 chromium 步骤
-        # 只补校验;Linux 的 --with-deps 仍会跑 apt 系统依赖(较快)。
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/ms-playwright
-            ~/Library/Caches/ms-playwright
-            ~\AppData\Local\ms-playwright
-          key: ${{ runner.os }}-playwright-${{ steps.pwver.outputs.version }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-
-      - name: Install Playwright chromium (Linux)
-        if: runner.os == 'Linux'
-        run: python -m playwright install --with-deps chromium
-      - name: Install Playwright chromium (Windows/macOS)
-        if: runner.os != 'Linux'
-        run: python -m playwright install chromium
       - name: Run integration tests (matrix-scoped selection)
+        # 2026-11-22 CI 修复: Playwright chromium 四个步骤(cache/resolve/
+        # install×2)整体移除 —— 证据链: integration 标记的 15 个 E2E 只调
+        # parse_source 做纯 URL 解析(无下载无浏览器); browser.py 仅被
+        # batch_cli 使用; unit 套件从不装 chromium 也持续全绿。
+        # (uv sync 后 playwright 在 .venv 而非系统 python, 原 resolve/
+        # install 步骤在 windows 上 ModuleNotFoundError 硬红 —— 移除比
+        # 修补 venv 兼容更彻底, 同时消灭 44606964411 实测的 5m08s 尾部)
+        # 折叠标量 — Windows pwsh 不认 ``\`` 续行(见 unit job 说明)。
+        # P0-2: 选择器来自 matrix(见上); ubuntu/py3.12 组合只跑 15 个
+        # 真实 URL E2E(需要外网, 实测 runner 可出网——历史多轮绿);
+        # windows py3.11 组合跑全量非 network 套件(Windows 回归守卫)。
+        run: >-
+          uv run --no-sync pytest tests/
+          ${{ matrix.pytest_args }}
+          -v --tb=short --maxfail=3
         # 折叠标量 — Windows pwsh 不认 ``\`` 续行(见 unit job 说明)。
         # P0-2: 选择器来自 matrix(见上); ubuntu/py3.12 组合只跑 15 个
         # 真实 URL E2E(需要外网, 实测 runner 可出网——历史多轮绿);
