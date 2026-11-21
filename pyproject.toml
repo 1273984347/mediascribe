@@ -55,10 +55,10 @@ classifiers = [
     "Natural Language :: Multilingual",
 ]
 
+# P2-4(2026-11-20 架构评审): 基础安装 = 纯编排层(约 40 包),
+# ASR 引擎栈(torch ≈ 2GB+)全部转 optional extra —— whisper-cpp 纯用户
+# 不再被迫拉 torch;`pip install "mediascribe[all]"` 行为与旧版一致。
 dependencies = [
-    # 20250625 起修复 torch>=2.6 默认 weights_only=True 导致的
-    # .pt 模型 UnpicklingError；旧 whisper + 新 torch 是必崩组合。
-    "openai-whisper>=20250625",
     "yt-dlp>=2023.12.30",
     "ffmpeg-python>=0.2.0",
     "requests>=2.31.0",
@@ -66,8 +66,6 @@ dependencies = [
     # 1.63 上界已解除(2026-10-03): 当时 py3.11 CI 失败的根因是
     # test_browser_module 的残留 print-mock + 环境 greenlet 解析,
     # 产品 API 面稳定; 残留 mock 已删, 1.63 本地实测通过。
-    "torch>=2.0.0",
-    "torchaudio>=2.0.0",
     "tqdm>=4.66.0",
     "pyyaml>=6.0",
 ]
@@ -78,6 +76,13 @@ dependencies = [
 # 包里声明 [project.entry-points."mediascribe.*"] 即可被发现。
 
 [project.optional-dependencies]
+# openai-whisper 引擎栈(20250625 起修复 torch>=2.6 默认 weights_only=True
+# 导致的 .pt 模型 UnpicklingError；旧 whisper + 新 torch 是必崩组合)
+whisper = [
+    "openai-whisper>=20250625",
+    "torch>=2.0.0",
+    "torchaudio>=2.0.0",
+]
 # Higher-accuracy ASR engines (optional, user chooses)
 whisperx = [
     "whisperx>=3.1.1",
@@ -113,7 +118,7 @@ web = [
 ]
 # Convenience meta-packages
 all = [
-    "mediascribe[whisperx,faster-whisper,ocr,mcp,web,llm]",
+    "mediascribe[whisper,whisperx,faster-whisper,ocr,mcp,web,llm]",
 ]
 # Dev / CI tooling
 dev = [

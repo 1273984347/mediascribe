@@ -15,7 +15,12 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
-import torch
+try:
+    # P2-4: torch 是可选依赖(whisperx extra 会带上) —— 守卫导入,
+    # 理由同 whisper.py(懒导入在 sys.modules 操纵下触发二次执行)
+    import torch
+except ImportError:  # pragma: no cover - bare orchestration install
+    torch = None  # type: ignore[assignment]
 
 from ..gpu_budget import (
     ensure_resident_capacity,
@@ -77,7 +82,7 @@ def _get_cached_model(whisperx: Any, model_name: str, device: str, language: Opt
             _evicted_key, evicted_model = _MODEL_CACHE.popitem(last=False)
             del evicted_model
             unregister_resident("whisperx", ("main", _evicted_key))
-        if torch.cuda.is_available():
+        if torch is not None and torch.cuda.is_available():
             torch.cuda.empty_cache()
         return model
 
@@ -142,7 +147,7 @@ def clear_model_cache() -> None:
         _DIARIZE_CACHE.clear()
     unregister_family("whisperx")
     gc.collect()
-    if torch.cuda.is_available():
+    if torch is not None and torch.cuda.is_available():
         torch.cuda.empty_cache()
 
 
