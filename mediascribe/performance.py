@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import contextvars
 import functools
+import hashlib
 import json
 import os
 import shutil
@@ -267,11 +268,12 @@ class DownloadCache:
 
     def put(self, url: str, src: Path) -> Path:
         """Copy ``src`` into the cache under a stable name and remember it."""
-        safe = (
-            "".join(c if c.isalnum() or c in ("-", "_", ".") else "_" for c in url)[:200]
-            or "unnamed"
-        )
-        dst = self._root / safe
+        # R-11(2026-11-21 架构评审): 文件名 = sha256(url)[:32] —— 旧实现
+        # 清洗+截断 200 字符,两个 URL 撞名即静默串台媒体(第二个 URL 复用
+        # 第一个的错误音轨)。与 cache.py PersistentDownloadCache._key_for
+        # 同方案,不再有碰撞面。
+        digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:32]
+        dst = self._root / digest
         if not dst.exists():
             shutil.copy2(src, dst)
         self._seen[url] = dst

@@ -18,7 +18,9 @@ from mediascribe.gpu_budget import (
     VramLedger,
     _estimate_task_vram_mb,
     _probe_budget_mb,
+    budget_total_mb,
     get_vram_ledger,
+    reprobe_budget_if_failed,
     reset_vram_ledger,
 )
 
@@ -253,3 +255,59 @@ class TestResidentRegistry(unittest.TestCase):
         register_resident("faster-whisper", ("k",), 1500)
         with mock.patch("mediascribe.gpu_budget.budget_total_mb", return_value=None):
             self.assertTrue(ensure_resident_capacity("faster-whisper", 999999))
+
+
+class TestReprobeBudget(unittest.TestCase):
+    """R-3(2026-11-21 架构评审): 首探失败不终身失闸 —— 空闲时有限重探。"""
+
+    def tearDown(self):
+        reset_vram_ledger()
+
+    def test_reprobe_updates_cache_on_success(self):
+        reset_vram_ledger()
+        with mock.patch("mediascribe.gpu_budget._probe_budget_mb", return_value=None):
+            self.assertIsNone(budget_total_mb())  # 首探失败
+            self.assertIsNone(reprobe_budget_if_failed(min_interval_s=0))
+        with mock.patch("mediascribe.gpu_budget._probe_budget_mb", return_value=4096):
+            self.assertEqual(reprobe_budget_if_failed(min_interval_s=0), 4096)
+        self.assertEqual(budget_total_mb(), 4096)
+
+    def test_reprobe_respects_min_interval(self):
+        reset_vram_ledger()
+        with mock.patch("mediascribe.gpu_budget._probe_budget_mb", return_value=None):
+            self.assertIsNone(budget_total_mb())  # 首探失败,记时间戳
+            reprobe_budget_if_failed(min_interval_s=0)
+        with mock.patch("mediascribe.gpu_budget._probe_budget_mb", return_value=4096) as p:
+            self.assertIsNone(reprobe_budget_if_failed(min_interval_s=9999))
+            p.assert_not_called()
+
+    def test_slot_for_arms_gate_after_reprobe_when_idle(self):
+        reset_vram_ledger()
+        ledger = get_vram_ledger()
+        with mock.patch("mediascribe.gpu_budget._probe_budget_mb", return_value=None):
+            self.assertEqual(ledger.slot_for(_FakeTranscriber(), None), 0)  # 首探失败
+        import mediascribe.gpu_budget as gb
+
+        gb._LAST_PROBE_TS = 0.0  # 老化时间戳,绕过重探限频
+        with mock.patch("mediascribe.gpu_budget._probe_budget_mb", return_value=4096):
+            self.assertGreater(ledger.slot_for(_FakeTranscriber(), None), 0)
+        snap = ledger.snapshot()
+        self.assertTrue(snap["enabled"])
+        self.assertEqual(snap["total_mb"], 4096)
+
+    def test_no_reprobe_while_tasks_in_flight(self):
+        """有 in-flight slot 时禁止重探 —— 账实一致。"""
+        reset_vram_ledger()
+        ledger = get_vram_ledger()
+        with mock.patch("mediascribe.gpu_budget._probe_budget_mb", return_value=None):
+            self.assertEqual(ledger.slot_for(_FakeTranscriber(), None), 0)  # 首探失败
+        import mediascribe.gpu_budget as gb
+
+        ledger._active = 2
+        try:
+            gb._LAST_PROBE_TS = 0.0
+            with mock.patch("mediascribe.gpu_budget._probe_budget_mb", return_value=4096) as p:
+                self.assertEqual(ledger.slot_for(_FakeTranscriber(), None), 0)
+                p.assert_not_called()
+        finally:
+            ledger._active = 0

@@ -1616,6 +1616,17 @@ Environment variables:
         "en": "\n📌 runtime device",
         "zh": "\n📌 运行设备",
     }
+    DOCTOR_GPU_BUDGET_ON = {
+        "en": "VRAM ledger gate ON — budget {total} MB, available {available} MB",
+        "zh": "显存账本闸门已启用 — 预算 {total} MB，可用 {available} MB",
+    }
+    DOCTOR_GPU_BUDGET_OFF = {
+        "en": (
+            "VRAM ledger gate OFF (non-CUDA or probe failed); concurrent transcription "
+            "is not throttled. It auto-retries when idle."
+        ),
+        "zh": ("显存账本闸门未启用（非 CUDA 或探测失败）；并发转录不受限流，进程空闲时会自动重探"),
+    }
     DOCTOR_SECTION_ENGINES = {
         "en": "\n📌 transcription engines",
         "zh": "\n📌 转录引擎",

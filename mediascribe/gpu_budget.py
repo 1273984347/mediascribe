@@ -21,15 +21,20 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
+import time
 from typing import Any, Callable, Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "VramLedger",
     "get_vram_ledger",
     "reset_vram_ledger",
     "budget_total_mb",
+    "reprobe_budget_if_failed",
     "estimate_model_mb",
     "ensure_resident_capacity",
     "register_family_clear",
@@ -72,8 +77,13 @@ def _probe_budget_mb() -> Optional[int]:
     if not total or used is None:
         return None
     free = max(0, int(total) - int(used))
-    # free == 0 时设闸只会让所有任务死等 —— 放开闸门交给 CUDA 自身处理
-    return free if free > 0 else None
+    if free <= 0:
+        # R-3(2026-11-21 架构评审): 探测瞬间显存被占满时不设闸(fail-open,
+        # 否则所有任务死等),但留下可观测痕迹,并允许空闲后有限重探
+        # (见 reprobe_budget_if_failed)—— 不再"首探失败终身失闸"。
+        logger.warning("GPU 显存探测时 free=0 MB —— 本进程闸门暂不启用;任务空闲启动时会自动重探")
+        return None
+    return free
 
 
 def _estimate_task_vram_mb(transcriber: Any, settings: Any) -> int:
@@ -98,11 +108,16 @@ def estimate_model_mb(engine: str, model: str, device: str) -> int:
 
 
 # ---------------------------------------------------------------------------
-# 预算探测缓存 — 账本(P0-1)与驻留注册表(P1-4)共用,进程内只探测一次
+# 预算探测缓存 — 账本(P0-1)与驻留注册表(P1-4)共用,进程内只探测一次;
+# R-3: 首探失败后允许空闲重探(不再终身失闸)
 # ---------------------------------------------------------------------------
 _BUDGET_TOTAL_MB: Optional[int] = None
 _BUDGET_PROBED = False
+_LAST_PROBE_TS = 0.0
 _BUDGET_CACHE_LOCK = threading.Lock()
+
+#: R-3: 探测失败后的重探最小间隔(秒) —— 避免无 CUDA 环境每个任务都白试 import。
+_REPROBE_MIN_INTERVAL_S = 60.0
 
 
 def budget_total_mb() -> Optional[int]:
@@ -110,11 +125,33 @@ def budget_total_mb() -> Optional[int]:
 
     首次调用探测一次并缓存;``reset_vram_ledger`` 可强制重探。
     """
-    global _BUDGET_TOTAL_MB, _BUDGET_PROBED
+    global _BUDGET_TOTAL_MB, _BUDGET_PROBED, _LAST_PROBE_TS
     with _BUDGET_CACHE_LOCK:
         if not _BUDGET_PROBED:
             _BUDGET_PROBED = True
+            _LAST_PROBE_TS = time.monotonic()
             _BUDGET_TOTAL_MB = _probe_budget_mb()
+        return _BUDGET_TOTAL_MB
+
+
+def reprobe_budget_if_failed(min_interval_s: float = _REPROBE_MIN_INTERVAL_S) -> Optional[int]:
+    """R-3: 首探失败(``None``)后的有限重探 —— free==0 / 瞬时探测失败不终身失闸。
+
+    仅当**首探已发生且失败**(缓存 ``None`` 且 ``_BUDGET_PROBED`` 为真)时才
+    重试;重探成功即更新缓存并返回新预算,仍失败返回 ``None``(下一次空闲
+    任务再试,受 ``min_interval_s`` 限频)。测试以 ``min_interval_s=0`` 绕过
+    限频。
+    """
+    global _BUDGET_TOTAL_MB, _BUDGET_PROBED, _LAST_PROBE_TS
+    with _BUDGET_CACHE_LOCK:
+        if _BUDGET_TOTAL_MB is not None:
+            return _BUDGET_TOTAL_MB
+        now = time.monotonic()
+        if not _BUDGET_PROBED or now - _LAST_PROBE_TS < min_interval_s:
+            return None
+        _BUDGET_PROBED = True
+        _LAST_PROBE_TS = now
+        _BUDGET_TOTAL_MB = _probe_budget_mb()
         return _BUDGET_TOTAL_MB
 
 
@@ -235,6 +272,8 @@ class VramLedger:
         self._initialized = False
         self._total_mb: Optional[int] = None
         self._available_mb: int = 0
+        # R-3: in-flight 任务数 —— 仅在空闲(=0)时才允许重探,保证账实一致。
+        self._active = 0
 
     def _ensure_budget(self) -> Optional[int]:
         """惰性初始化:预算只拍一次快照(进程级缓存),之后由 acquire/release 自行记账。"""
@@ -247,7 +286,16 @@ class VramLedger:
 
     def slot_for(self, transcriber: Any, settings: Any) -> int:
         """单个转录任务的预估显存占用(MB);``0`` = 闸门空转(非 CUDA 等)。"""
-        if not self._ensure_budget():
+        total = self._ensure_budget()
+        if not total and self._active == 0:
+            # R-3: 首探失败不终身失闸 —— 进程空闲(无 in-flight slot)时有限重探;
+            # 成功则就地武装闸门(空闲 ⇒ 无需保留已发放份额)。
+            total = reprobe_budget_if_failed()
+            if total:
+                with self._cond:
+                    self._total_mb = total
+                    self._available_mb = total
+        if not total:
             return 0
         return _estimate_task_vram_mb(transcriber, settings)
 
@@ -273,6 +321,7 @@ class VramLedger:
                     return False
                 self._cond.wait(poll_seconds)
             self._available_mb -= need
+            self._active += 1
             return True
 
     def release(self, mb: int) -> None:
@@ -281,6 +330,7 @@ class VramLedger:
             if not self._total_mb:
                 return
             self._available_mb = min(self._total_mb, self._available_mb + max(0, int(mb)))
+            self._active = max(0, self._active - 1)
             self._cond.notify_all()
 
     def snapshot(self) -> dict:
@@ -304,9 +354,10 @@ def get_vram_ledger() -> VramLedger:
 
 def reset_vram_ledger() -> None:
     """清空单例与预算缓存(测试钩子 — reset 后首次使用会重新探测)。"""
-    global _LEDGER, _BUDGET_PROBED, _BUDGET_TOTAL_MB
+    global _LEDGER, _BUDGET_PROBED, _BUDGET_TOTAL_MB, _LAST_PROBE_TS
     with _LEDGER_LOCK:
         _LEDGER = None
     with _BUDGET_CACHE_LOCK:
         _BUDGET_PROBED = False
         _BUDGET_TOTAL_MB = None
+        _LAST_PROBE_TS = 0.0

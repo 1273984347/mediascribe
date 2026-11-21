@@ -351,7 +351,6 @@ class TestPerformanceExtras:
         cache.clear()
 
 
-
 class TestStepTimesBounded(unittest.TestCase):
     """R-14: 无 per-run 上下文时全局 STEP_TIMES 单步封顶 500 条。"""
 
@@ -374,3 +373,47 @@ class TestStepTimesBounded(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDownloadCacheKeying(unittest.TestCase):
+    """R-11(2026-11-21 架构评审): 缓存键 = sha256(url) —— 长 URL 不再截断撞名串台。"""
+
+    def test_long_urls_do_not_collide(self):
+        import tempfile as _tmp
+
+        from mediascribe.performance import DownloadCache
+
+        with _tmp.TemporaryDirectory() as td:
+            srcA = Path(td) / "a.txt"
+            srcB = Path(td) / "b.txt"
+            srcA.write_text("A", encoding="utf-8")
+            srcB.write_text("B", encoding="utf-8")
+            cache = DownloadCache()
+            try:
+                urlA = "https://example.com/video/" + "a" * 260 + "?p=1"
+                urlB = "https://example.com/video/" + "b" * 260 + "?p=1"
+                dstA = cache.put(urlA, srcA)
+                dstB = cache.put(urlB, srcB)
+                self.assertNotEqual(dstA, dstB, "清洗后同名的长 URL 不得共享缓存文件")
+                self.assertIn("A", dstA.read_text(encoding="utf-8"))
+                self.assertIn("B", dstB.read_text(encoding="utf-8"))
+                self.assertEqual(cache.get(urlA), dstA)
+                self.assertEqual(cache.get(urlB), dstB)
+            finally:
+                cache.clear()
+
+    def test_same_url_is_stable(self):
+        import tempfile as _tmp
+
+        from mediascribe.performance import DownloadCache
+
+        with _tmp.TemporaryDirectory() as td:
+            src = Path(td) / "s.txt"
+            src.write_text("S", encoding="utf-8")
+            cache = DownloadCache()
+            try:
+                dst1 = cache.put("https://example.com/v", src)
+                dst2 = cache.put("https://example.com/v", src)
+                self.assertEqual(dst1, dst2)
+            finally:
+                cache.clear()

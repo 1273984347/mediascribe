@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, Optional
 
+from .._version import __version__
 from .tools import TOOL_HANDLERS, TOOL_LIST
 
 
@@ -37,7 +38,8 @@ def _handle_request(req: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             req_id,
             {
                 "protocolVersion": "2024-11-05",
-                "serverInfo": {"name": "mediascribe", "version": "2.1.0"},
+                # R-13(2026-11-21 架构评审): 版本接单一真源,不再硬编码。
+                "serverInfo": {"name": "mediascribe", "version": __version__},
                 "capabilities": {"tools": {}},
             },
         )

@@ -29,6 +29,10 @@ class TestMCPServer(unittest.TestCase):
         r = self._request("initialize")
         self.assertIn("result", r)
         self.assertEqual(r["result"]["serverInfo"]["name"], "mediascribe")
+        from mediascribe._version import __version__
+
+        # R-13: serverInfo 版本接单一真源,不再硬编码 2.1.0。
+        self.assertEqual(r["result"]["serverInfo"]["version"], __version__)
         self.assertIn("capabilities", r["result"])
 
     def test_initialized_notification(self):

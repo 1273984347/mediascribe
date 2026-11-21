@@ -124,3 +124,43 @@ class TestParallelOcr(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestOcrEngineLocks(unittest.TestCase):
+    """R-16(2026-11-21 架构评审): 并发首载只建一个实例;引擎族调用锁就位。"""
+
+    def setUp(self):
+        from mediascribe.downloaders import ocr
+
+        ocr.clear_ocr_cache()
+        self.mod = ocr
+
+    def tearDown(self):
+        self.mod.clear_ocr_cache()
+
+    def test_concurrent_first_load_creates_single_instance(self):
+        import time as _time
+        import types
+        from concurrent.futures import ThreadPoolExecutor
+
+        constructions = []
+
+        class FakeReader:
+            def __init__(self, langs, gpu, verbose):
+                constructions.append(langs)
+                _time.sleep(0.05)  # 模拟秒级加载,放大竞态窗口
+
+        fake = types.SimpleNamespace(Reader=FakeReader)
+        with unittest.mock.patch.dict(sys.modules, {"easyocr": fake}):
+            with ThreadPoolExecutor(max_workers=4) as ex:
+                futs = [ex.submit(self.mod._get_easyocr_reader, ("ch_sim", "en")) for _ in range(4)]
+                readers = [f.result() for f in futs]
+        self.assertEqual(len(constructions), 1, "并发首载必须只构建一个实例")
+        self.assertTrue(all(r is readers[0] for r in readers))
+
+    def test_call_locks_per_family(self):
+        import threading
+
+        for fam in ("paddleocr", "easyocr"):
+            lock = self.mod._ENGINE_CALL_LOCKS.get(fam)
+            self.assertIsInstance(lock, type(threading.Lock()))

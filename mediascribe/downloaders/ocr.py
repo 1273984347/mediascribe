@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:  # pragma: no cover - 类型标注用
@@ -42,22 +43,32 @@ __all__ = [
 _EASYOCR_READER_CACHE: dict = {}
 _PADDLEOCR_INSTANCE_CACHE: dict = {}
 
+# R-16(2026-11-21 架构评审): wechat_mp._ocr_images 以 min(4, len) 线程池并发
+# 调用本模块 —— ① 单例加载必须 double-check 加锁(否则并发首载双实例,
+# 重复下模型);② PaddleOCR / easyocr.Reader 官方均未保证线程安全,同一单例
+# 被多线程并发 predict 存在竞态(异常被级联吞掉 → ocr_success 无故偏低)。
+# 按引擎族串行化;pytesseract 走子进程,天然安全,不需要锁。
+_ENGINE_INIT_LOCK = threading.Lock()
+_ENGINE_CALL_LOCKS: dict = {"paddleocr": threading.Lock(), "easyocr": threading.Lock()}
+
 
 def _get_easyocr_reader(langs: list):
     """返回缓存的 easyocr.Reader。键为 lang tuple。
 
     缓存命中时不触发 easyocr 模块导入（避免在没装 easyocr 的
-    测试环境下报错）。缓存未命中时才尝试 ``import easyocr``。
+    测试环境下报错）。缓存未命中时在初始化锁内 double-check 后加载。
     """
     key = tuple(langs)
     reader = _EASYOCR_READER_CACHE.get(key)
     if reader is not None:
         return reader
-    # 缓存未命中：实际加载（导入可能在未安装时抛 ImportError）
-    import easyocr  # type: ignore  # local import keeps module load fast
+    with _ENGINE_INIT_LOCK:
+        reader = _EASYOCR_READER_CACHE.get(key)  # R-16: double-check
+        if reader is None:
+            import easyocr  # type: ignore  # local import keeps module load fast
 
-    reader = easyocr.Reader(list(langs), gpu=False, verbose=False)
-    _EASYOCR_READER_CACHE[key] = reader
+            reader = easyocr.Reader(list(langs), gpu=False, verbose=False)
+            _EASYOCR_READER_CACHE[key] = reader
     return reader
 
 
@@ -65,17 +76,20 @@ def _get_paddleocr_ocr():
     """返回缓存的 PaddleOCR 实例（中文，带角度分类）。
 
     与 ``_get_easyocr_reader`` 相同的惰性单例模式：缓存命中时不触发
-    paddleocr 模块导入；未命中才 ``import paddleocr``（未安装时抛
-    ImportError，由调用方降级）。
+    paddleocr 模块导入；未命中才在初始化锁内 ``import paddleocr``
+    （未安装时抛 ImportError，由调用方降级）。
     """
     key = "ch"
     ocr = _PADDLEOCR_INSTANCE_CACHE.get(key)
     if ocr is not None:
         return ocr
-    from paddleocr import PaddleOCR  # type: ignore  # local import
+    with _ENGINE_INIT_LOCK:
+        ocr = _PADDLEOCR_INSTANCE_CACHE.get(key)  # R-16: double-check
+        if ocr is None:
+            from paddleocr import PaddleOCR  # type: ignore  # local import
 
-    ocr = PaddleOCR(use_angle_cls=True, lang="ch", show_log=False)
-    _PADDLEOCR_INSTANCE_CACHE[key] = ocr
+            ocr = PaddleOCR(use_angle_cls=True, lang="ch", show_log=False)
+            _PADDLEOCR_INSTANCE_CACHE[key] = ocr
     return ocr
 
 
@@ -93,7 +107,9 @@ def ocr_via_paddle(img: "Image.Image", engine: str) -> Optional[str]:
     try:
         # PaddleOCR 初始化耗时较长，复用进程内单例（与 easyocr 一致）
         ocr = _get_paddleocr_ocr()
-        result = ocr.ocr(img, cls=True)
+        # R-16: 单例非线程安全 —— 引擎族串行锁内调用。
+        with _ENGINE_CALL_LOCKS["paddleocr"]:
+            result = ocr.ocr(img, cls=True)
         lines: list = []
         for page in result or []:
             for item in page or []:
@@ -133,7 +149,9 @@ def ocr_via_easyocr(img: "Image.Image", engine: str, lang: str) -> Optional[str]
         easyocr_langs = langs_map.get(lang, [lang])
         # Reader 加载耗时 ~3s，复用进程内单例
         reader = _get_easyocr_reader(easyocr_langs)
-        result = reader.readtext(img, detail=0)
+        # R-16: 单例非线程安全 —— 引擎族串行锁内调用。
+        with _ENGINE_CALL_LOCKS["easyocr"]:
+            result = reader.readtext(img, detail=0)
         if result:
             return "\n".join(result)
     except Exception:

@@ -143,6 +143,33 @@ def _check_device() -> None:
         _check("设备探测", False, f"异常: {exc!r}")
 
 
+def _check_gpu_budget() -> None:
+    """R-3(2026-11-21 架构评审): 显存账本闸门状态可视 —— 闸门未启用必须可诊断。
+
+    附带触发一次预算探测(缓存)并给出账本快照;跨进程边界(Web 与 MCP
+    不互斥)是已声明的单机产品边界,见 gpu_budget 模块 docstring。
+    """
+    try:
+        from .gpu_budget import budget_total_mb, get_vram_ledger
+
+        budget_total_mb()  # 触发探测并缓存(失败也有 warn 日志)
+        snap = get_vram_ledger().snapshot()
+        if snap.get("enabled"):
+            _check(
+                "显存账本闸门",
+                True,
+                t(
+                    "DOCTOR_GPU_BUDGET_ON",
+                    total=snap.get("total_mb"),
+                    available=snap.get("available_mb"),
+                ),
+            )
+        else:
+            _check("显存账本闸门", False, t("DOCTOR_GPU_BUDGET_OFF"), "")
+    except Exception as exc:  # pragma: no cover - defensive
+        _check("显存账本闸门", False, f"探测异常: {exc!r}", "")
+
+
 def _check_engines() -> None:
     """📌 转录引擎 — 三个可选引擎的安装状态。"""
     print(t("DOCTOR_SECTION_ENGINES"))
@@ -300,6 +327,7 @@ def run_doctor(workspace: Optional[Path] = None) -> int:
     _check_python()
     critical_ok = _check_av_tools()
     _check_device()
+    _check_gpu_budget()
     _check_engines()
     _check_model_cache()
     _check_model_weights()

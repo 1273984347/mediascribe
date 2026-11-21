@@ -517,11 +517,17 @@ def _tool_batch_transcribe_creator(args: Dict[str, Any]) -> Dict[str, Any]:
         cmd.extend(["--output-dir", args["output_dir"]])
 
     try:
+        # R-9(2026-11-21 架构评审): 子进程 cwd 与 transcribe_video 的工作区
+        # 解析统一 —— 显式 MEDIASCRIBE_WORKSPACE 时以它为根(batch 默认
+        # output_dir 相对 cwd 落进 workspace/output);否则继承服务器 cwd
+        # (与 transcribe_video 的 Settings 默认 ./output 一致)。不再把
+        # 产物写进 mediascribe/ 包目录或 site-packages。
+        workspace_env = os.environ.get("MEDIASCRIBE_WORKSPACE", "").strip()
         proc = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            cwd=str(Path(__file__).parent.parent),
+            cwd=workspace_env or None,
             timeout=timeout,
             env=child_env,
         )
