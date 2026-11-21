@@ -22,6 +22,7 @@ import sys
 from pathlib import Path, PurePath
 from typing import List, Optional
 
+from .atomic_io import atomic_write_text
 from .config import _VALID_ENGINES, Settings
 from .i18n import t
 from .pipeline import Pipeline
@@ -158,7 +159,8 @@ def _write_latest_pointer(settings, result, output=None) -> None:
         if not isinstance(ws_raw, (str, PurePath)):
             return
         transcript = Path(transcript_raw)
-        (Path(ws_raw) / "LATEST.txt").write_text(str(transcript), encoding="utf-8")
+        # R-14(2026-11-21 架构评审): 原子写 —— 并发任务下瞬时半写不可被读到。
+        atomic_write_text(Path(ws_raw) / "LATEST.txt", str(transcript), encoding="utf-8")
     except Exception:
         pass
 

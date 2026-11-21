@@ -518,7 +518,7 @@ class TestRunBatchJobErrorHandling(unittest.TestCase):
         import app as app_module
 
         class FakeAP:
-            async def run_batch(self, urls, runners=None):
+            async def run_batch(self, urls, runners=None, cancel_events=None):
                 raise ValueError("boom")
 
         # _run_batch_job 搬到了 mediascribe.web.job_runner(2026-10-25 职责拆分),
@@ -534,7 +534,7 @@ class TestRunBatchJobErrorHandling(unittest.TestCase):
         import app as app_module
 
         class FakeAP:
-            async def run_batch(self, urls, runners=None):
+            async def run_batch(self, urls, runners=None, cancel_events=None):
                 raise SystemExit(3)
 
         # CI 主线程可能残留运行中的 event loop（asyncio.run 会拒绝
@@ -559,7 +559,7 @@ class TestRunBatchJobZombieMapping(unittest.TestCase):
         from mediascribe.progress import ProgressRegistry
 
         class FakeAP:
-            async def run_batch(self, urls, runners=None):
+            async def run_batch(self, urls, runners=None, cancel_events=None):
                 return [_FailedResult("u", PipelineCancelled())]
 
         registry = ProgressRegistry()
@@ -584,7 +584,7 @@ class TestRunBatchJobZombieMapping(unittest.TestCase):
         from mediascribe.progress import ProgressRegistry
 
         class FakeAP:
-            async def run_batch(self, urls, runners=None):
+            async def run_batch(self, urls, runners=None, cancel_events=None):
                 return [_FailedResult("u", ValueError("boom"))]
 
         registry = ProgressRegistry()
@@ -609,7 +609,7 @@ class TestRunBatchJobZombieMapping(unittest.TestCase):
         from mediascribe.progress import ProgressRegistry
 
         class FakeAP:
-            async def run_batch(self, urls, runners=None):
+            async def run_batch(self, urls, runners=None, cancel_events=None):
                 return [_FailedResult("u", PipelineCancelled())]
 
         registry = ProgressRegistry()

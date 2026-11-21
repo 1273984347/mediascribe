@@ -214,16 +214,22 @@ def with_progress(
     url: str,
     *,
     out_path: Any = None,
+    cancel_event: Optional[threading.Event] = None,
 ) -> Callable[[], Any]:
     """Run ``pipeline.transcribe(url, ...)`` while emitting stage events.
 
     Returns a thunk that the caller invokes from a worker thread.
     The function checks :attr:`JobProgress.cancelled` between stages
     and raises :class:`JobCancelled` if the user cancelled.
+
+    R-1(2026-11-21 架构评审): ``cancel_event``(与 ``AsyncPipeline.cancel_one``
+    共享同一 per-URL Event)在两处生效 —— ① stage 边界预检;② 作为
+    ``cancel_event`` 透传给 ``pipeline.transcribe``,让转录 stage 内部的
+    GPU 账本等待点与 stage 边界都能协作退出,取消不再空转到自然结束。
     """
 
     def _check_cancel() -> None:
-        if job.cancelled:
+        if job.cancelled or (cancel_event is not None and cancel_event.is_set()):
             raise JobCancelled(f"job {job.job_id} cancelled")
 
     def runner() -> Any:
@@ -244,6 +250,8 @@ def with_progress(
             kwargs: Dict[str, Any] = {}
             if out_path is not None:
                 kwargs["output"] = out_path
+            if cancel_event is not None:
+                kwargs["cancel_event"] = cancel_event
             result = pipeline.transcribe(url, **kwargs)
             job.advance(1)
             job.finish_stage()
@@ -286,9 +294,6 @@ class JobCancelled(Exception):
 # 2026-10-24 全量整理时旧转发壳已删除。与上面的 ProgressRegistry 服务
 # 不同场景: 前者面向 CLI 批处理的终端渲染, 后者面向 web/WS 的结构化事件。)
 # ---------------------------------------------------------------------------
-
-
-import time
 
 
 class ProgressTracker:

@@ -91,7 +91,12 @@ def profile_step(name: Optional[str] = None, *, log_to: Optional[Path] = None) -
                 return fn(*args, **kwargs)
             finally:
                 dur = time.perf_counter() - t0
-                _current_registry().setdefault(label, []).append(dur)
+                # R-14(2026-11-21 架构评审): 无 per-run 上下文时全局
+                # STEP_TIMES 在 Web 长驻进程中无界追加 —— 单步封顶 500 条。
+                reg = _current_registry().setdefault(label, [])
+                reg.append(dur)
+                if len(reg) > 500:
+                    del reg[: len(reg) - 500]
                 if log_to is not None:
                     _append_jsonl(log_to, label, dur)
 

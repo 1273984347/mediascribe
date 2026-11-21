@@ -327,5 +327,48 @@ class TestProgressRegistryHelpers:
         assert reg.purge(older_than_seconds=0) >= 1
 
 
+
+class TestWithProgressCancelEvent(unittest.TestCase):
+    """R-1: cancel_event 在 stage 边界预检,并透传给 pipeline.transcribe。"""
+
+    def test_preset_event_blocks_before_transcribe(self):
+        import threading
+
+        from mediascribe.progress import JobCancelled, JobProgress, with_progress
+
+        job = JobProgress(job_id="j1", url="u")
+        evt = threading.Event()
+        evt.set()
+        called = []
+
+        class FakePipeline:
+            def transcribe(self, url, **kw):
+                called.append(kw)
+                return "OK"
+
+        runner = with_progress(FakePipeline(), job, "u", cancel_event=evt)
+        with self.assertRaises(JobCancelled):
+            runner()
+        self.assertEqual(called, [], "取消预置位时转录不得启动")
+
+    def test_event_passed_into_transcribe_kwargs(self):
+        import threading
+
+        from mediascribe.progress import JobProgress, with_progress
+
+        job = JobProgress(job_id="j2", url="u")
+        evt = threading.Event()
+        seen = []
+
+        class FakePipeline:
+            def transcribe(self, url, **kw):
+                seen.append(kw)
+                return "OK"
+
+        runner = with_progress(FakePipeline(), job, "u", cancel_event=evt)
+        runner()
+        self.assertIs(seen[0].get("cancel_event"), evt)
+
+
 if __name__ == "__main__":
     unittest.main()

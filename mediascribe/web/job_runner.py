@@ -165,6 +165,7 @@ def _run_batch_job(
     registry: Any = None,
     job_ids_by_src: Dict[str, str] | None = None,
     job_sources: Dict[str, str] | None = None,
+    cancel_events: "Dict[str, threading.Event] | None" = None,
     store: Any = None,
 ) -> None:
     """整批提交路径:在独立线程跑 ``AsyncPipeline.run_batch``。
@@ -183,7 +184,7 @@ def _run_batch_job(
     """
     results: Any = None
     try:
-        results = asyncio.run(ap.run_batch(urls, runners=runners))
+        results = asyncio.run(ap.run_batch(urls, runners=runners, cancel_events=cancel_events))
     except Exception:
         # P2-7: 不再裸吞 BaseException — KeyboardInterrupt / SystemExit
         # 照常传播; 普通异常记入服务端日志(各 job 自身状态已反映结果)。

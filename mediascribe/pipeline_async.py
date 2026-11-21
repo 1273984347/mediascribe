@@ -318,6 +318,7 @@ class AsyncPipeline:
         source_inputs: Sequence[str],
         *,
         runners: Optional[Dict[str, Callable[[], Any]]] = None,
+        cancel_events: Optional[Dict[str, threading.Event]] = None,
         **kwargs,
     ) -> List[TranscriptResult]:
         """并发跑多个 video,任一失败不阻塞其他。
@@ -365,6 +366,11 @@ class AsyncPipeline:
                 async with sem:
                     if self._cancel_event.is_set():
                         return _FailedResult(src, PipelineCancelled())
+                    if evt.is_set():
+                        # R-1(2026-11-21 架构评审): cancel_one(src) 已置位本
+                        # 任务的 per-URL 事件(与 Web runner 闭包共享同一对象)
+                        # —— 排队中当场退出,不再进 runner。
+                        return _FailedResult(src, PipelineCancelled())
                     r = runners.get(src)
                     if r is not None:
                         # runner 路径(如 Web)的协作取消由 job 标志驱动
@@ -390,7 +396,10 @@ class AsyncPipeline:
 
         tasks = []
         for s in source_inputs:
-            evt = threading.Event()
+            # R-1: Web 层可传入 per-URL 取消事件(runner 闭包共享同一对象)
+            # —— cancel_one(src) 置位后,runner 路径也能在 stage 边界与
+            # GPU 账本等待点协作退出;缺省仍现场新建(默认路径行为不变)。
+            evt = (cancel_events or {}).get(s) or threading.Event()
             t = asyncio.create_task(_one(s, evt))
             tasks.append(t)
             self._task_ctl[t] = (s, evt)

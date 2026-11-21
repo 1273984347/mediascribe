@@ -351,5 +351,26 @@ class TestPerformanceExtras:
         cache.clear()
 
 
+
+class TestStepTimesBounded(unittest.TestCase):
+    """R-14: 无 per-run 上下文时全局 STEP_TIMES 单步封顶 500 条。"""
+
+    def test_global_registry_capped_at_500(self):
+        from mediascribe.performance import clear_step_times, get_step_times, profile_step
+
+        clear_step_times()
+
+        @profile_step("bounded_step")
+        def _f():
+            return 1
+
+        for _ in range(600):
+            _f()
+
+        times = get_step_times()["bounded_step"]
+        self.assertEqual(len(times), 500)
+        clear_step_times()
+
+
 if __name__ == "__main__":
     unittest.main()

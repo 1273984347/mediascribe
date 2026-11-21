@@ -8,6 +8,7 @@ from __future__ import annotations
 import functools
 import logging
 import sqlite3
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -265,6 +266,11 @@ def _register_submit_jobs_route(app: "FastAPI", workspace: Path, pipeline_factor
         # cancel_job 定位 per-URL 取消目标。
         job_ids_by_src: Dict[str, str] = {}
         sources_by_jid: Dict[str, str] = {}
+        # R-1(2026-11-21 架构评审): per-URL 取消事件 —— 与 with_progress
+        # 闭包共享同一对象,经 run_batch(cancel_events=) 注册进 _task_ctl,
+        # cancel_one(url) 置位后 runner 路径在 stage 边界与 GPU 账本等待点
+        # 协作退出(此前 runner 路径的取消要等 ASR 自然结束)。
+        cancel_events: Dict[str, threading.Event] = {}
         for url in urls:
             job = registry.create(url)
             job_ids_by_src[url] = job.job_id
@@ -277,7 +283,9 @@ def _register_submit_jobs_route(app: "FastAPI", workspace: Path, pipeline_factor
                     logger.debug("job store gone before upsert (job=%s)", job.job_id)
                 except Exception as exc:  # pragma: no cover - defensive
                     logger.warning("job store upsert failed (job=%s): %r", job.job_id, exc)
-            wp = with_progress(pipeline, job, url, out_path=out_path)
+            evt = threading.Event()
+            cancel_events[url] = evt
+            wp = with_progress(pipeline, job, url, out_path=out_path, cancel_event=evt)
             runners[url] = functools.partial(
                 _store_job_result,
                 wp,
@@ -317,6 +325,7 @@ def _register_submit_jobs_route(app: "FastAPI", workspace: Path, pipeline_factor
             registry=registry,
             job_ids_by_src=job_ids_by_src,
             job_sources=job_sources,
+            cancel_events=cancel_events,
             store=job_store,
         )
         return {

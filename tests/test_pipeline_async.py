@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import os
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -725,3 +726,56 @@ class TestSemaphoreLoopRebuild(unittest.TestCase):
 
         a, b = asyncio.run(main())
         self.assertIs(a, b, "同 loop 内必须复用同一信号量")
+
+
+class TestCancelEventWiring(unittest.TestCase):
+    """R-1(2026-11-21 架构评审): run_batch(cancel_events=) 的 per-URL 事件贯通。"""
+
+    def test_injected_event_precheck_blocks_runner(self):
+        """evt 预先置位 → runner 不进,结果按取消语义返回。"""
+        with tempfile.TemporaryDirectory() as td:
+            sync = Pipeline(
+                settings=_fake_settings(Path(td)),
+                transcriber=_fake_transcriber(),
+            )
+
+            async def driver():
+                ap = AsyncPipeline(sync, max_concurrent=1)
+                evt = threading.Event()
+                evt.set()
+                return await ap.run_batch(
+                    ["a"], runners={"a": lambda: "OK"}, cancel_events={"a": evt}
+                )
+
+            results = _run_coro(driver())
+            self.assertIsInstance(results[0], _FailedResult)
+            self.assertIsInstance(results[0].exc, PipelineCancelled)
+
+    def test_cancel_one_sets_the_injected_event_object(self):
+        """cancel_one(src) 置位的是 Web 层传入的同一个 Event 对象。"""
+        with tempfile.TemporaryDirectory() as td:
+            sync = Pipeline(
+                settings=_fake_settings(Path(td)),
+                transcriber=_fake_transcriber(),
+            )
+
+            async def driver():
+                ap = AsyncPipeline(sync, max_concurrent=1)
+                evt = threading.Event()
+
+                def runner():
+                    time.sleep(1.5)
+                    return "OK"
+
+                task = asyncio.create_task(
+                    ap.run_batch(["a"], runners={"a": runner}, cancel_events={"a": evt})
+                )
+                await asyncio.sleep(0.15)
+                n = ap.cancel_one("a")
+                return await task, evt, n
+
+            results, evt, n = _run_coro(driver())
+            self.assertEqual(n, 1)
+            self.assertTrue(evt.is_set(), "必须置位注入的同一事件对象")
+            self.assertIsInstance(results[0], _FailedResult)
+            self.assertIsInstance(results[0].exc, PipelineCancelled)

@@ -15,6 +15,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
 
+from .atomic_io import atomic_write_text
+
 
 def _anchor(i: int, video_id: str) -> str:
     """与 ``### {i}. 视频 {video_id}`` 标题对应的 GitHub 风格锚点。"""
@@ -203,10 +205,10 @@ def generate_summary_report(
     _copy_latest(summary_file, output_dir / "summary.md")
     _copy_latest(json_file, output_dir / "results.json")
 
-    # LATEST 指针：内容为最新汇总报告绝对路径
+    # LATEST 指针：内容为最新汇总报告绝对路径（R-14: 原子写，并发下半写不可读）
     try:
         latest_pointer = output_dir / "LATEST.txt"
-        latest_pointer.write_text(str(summary_file.resolve()), encoding="utf-8")
+        atomic_write_text(latest_pointer, str(summary_file.resolve()), encoding="utf-8")
     except Exception:
         pass
 
