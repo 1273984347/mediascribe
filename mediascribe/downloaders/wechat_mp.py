@@ -512,57 +512,6 @@ class WechatMpDownloader(Downloader):
         except Exception as e:
             logger.warning("保存图片失败: %s", e)
 
-    def _ocr_via_paddle(self, img: "Image.Image", engine: str) -> Optional[str]:
-        """引擎 1：paddleocr（中文公众号文章首选）。显式指定失败即 None。"""
-        try:
-            # PaddleOCR 初始化耗时较长，复用进程内单例（与 easyocr 一致）
-            ocr = _get_paddleocr_ocr()
-            result = ocr.ocr(img, cls=True)
-            lines: list = []
-            for page in result or []:
-                for item in page or []:
-                    if item and len(item) >= 2 and item[1]:
-                        lines.append(item[1][0])
-            if lines:
-                return "\n".join(lines)
-        except Exception:
-            if engine == "paddleocr":
-                return None
-        return None
-
-    def _ocr_via_tesseract(self, img: "Image.Image", engine: str, lang: str) -> Optional[str]:
-        """引擎 2：pytesseract（轻量，多语言）。显式指定失败即 None。"""
-        try:
-            import pytesseract  # type: ignore
-
-            text: str = pytesseract.image_to_string(img, lang=lang)
-            if text and text.strip():
-                return text.strip()
-        except Exception:
-            if engine == "pytesseract":
-                return None
-        return None
-
-    def _ocr_via_easyocr(self, img: "Image.Image", engine: str, lang: str) -> Optional[str]:
-        """引擎 3：easyocr（兜底）。显式指定失败即 None。"""
-        # pytesseract 风格的语言代码 → easyocr 语言列表
-        langs_map = {
-            "chi_sim+eng": ["ch_sim", "en"],
-            "chi_tra+eng": ["ch_tra", "en"],
-            "eng": ["en"],
-        }
-        try:
-            easyocr_langs = langs_map.get(lang, [lang])
-            # Reader 加载耗时 ~3s，复用进程内单例
-            reader = _get_easyocr_reader(easyocr_langs)
-            result = reader.readtext(img, detail=0)
-            if result:
-                return "\n".join(result)
-        except Exception:
-            if engine == "easyocr":
-                return None
-        return None
-
     def _ocr_image(self, image_url: str, save_dir: Path) -> Optional[str]:
         """
         下载图片并尝试 OCR。引擎选择规则：
@@ -588,19 +537,11 @@ class WechatMpDownloader(Downloader):
         engine = getattr(self, "_ocr_engine", "auto") or "auto"
         lang = getattr(self, "_ocr_lang", "chi_sim+eng") or "chi_sim+eng"
 
-        if engine in ("auto", "paddleocr"):
-            text = self._ocr_via_paddle(img, engine)
-            if text:
-                return text
-        if engine in ("auto", "pytesseract"):
-            text = self._ocr_via_tesseract(img, engine, lang)
-            if text:
-                return text
-        if engine in ("auto", "easyocr"):
-            text = self._ocr_via_easyocr(img, engine, lang)
-            if text:
-                return text
-        return None
+        # P2-1(2026-11-20 评审): 三引擎级联拆到 downloaders.ocr,
+        # 本方法只保留下载/保存(I/O 与凭据关注点)
+        from .ocr import recognize_image
+
+        return recognize_image(img, engine=engine, lang=lang)
 
     def _ocr_images(self, image_urls: list, save_dir: Path) -> tuple:
         """
@@ -689,54 +630,3 @@ class WechatMpDownloader(Downloader):
         file_path = save_dir / file_name
         file_path.write_text(text, encoding="utf-8")
         return file_path
-
-
-# ---------------------------------------------------------------------------
-# Module-level singletons
-# ---------------------------------------------------------------------------
-# easyocr.Reader / paddleocr.PaddleOCR 加载耗时数秒（下载模型 + 构建神经网络）。
-# 多张图片 OCR 时应复用同一实例，避免每张图重新初始化（P2-2）。
-_EASYOCR_READER_CACHE: dict = {}
-_PADDLEOCR_INSTANCE_CACHE: dict = {}
-
-
-def _get_easyocr_reader(langs: list):
-    """返回缓存的 easyocr.Reader。键为 lang tuple。
-
-    缓存命中时不触发 easyocr 模块导入（避免在没装 easyocr 的
-    测试环境下报错）。缓存未命中时才尝试 ``import easyocr``。
-    """
-    key = tuple(langs)
-    reader = _EASYOCR_READER_CACHE.get(key)
-    if reader is not None:
-        return reader
-    # 缓存未命中：实际加载（导入可能在未安装时抛 ImportError）
-    import easyocr  # type: ignore  # local import keeps module load fast
-
-    reader = easyocr.Reader(list(langs), gpu=False, verbose=False)
-    _EASYOCR_READER_CACHE[key] = reader
-    return reader
-
-
-def _get_paddleocr_ocr():
-    """返回缓存的 PaddleOCR 实例（中文，带角度分类）。
-
-    与 ``_get_easyocr_reader`` 相同的惰性单例模式：缓存命中时不触发
-    paddleocr 模块导入；未命中才 ``import paddleocr``（未安装时抛
-    ImportError，由调用方降级）。
-    """
-    key = "ch"
-    ocr = _PADDLEOCR_INSTANCE_CACHE.get(key)
-    if ocr is not None:
-        return ocr
-    from paddleocr import PaddleOCR  # type: ignore  # local import
-
-    ocr = PaddleOCR(use_angle_cls=True, lang="ch", show_log=False)
-    _PADDLEOCR_INSTANCE_CACHE[key] = ocr
-    return ocr
-
-
-def clear_ocr_cache() -> None:
-    """测试和长进程用：清空 OCR 引擎缓存以释放内存。"""
-    _EASYOCR_READER_CACHE.clear()
-    _PADDLEOCR_INSTANCE_CACHE.clear()
