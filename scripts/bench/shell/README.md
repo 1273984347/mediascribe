@@ -99,8 +99,8 @@ output/bench/shell/        # 构建产物（被 .gitignore 忽略, 不入库）
 
 * 缺失组件（**具体到组件名**）：**MSVC 链接器 `link.exe`**、Visual Studio / Build Tools、
   Windows SDK、`cl.exe`。本机探测结果：`vswhere.exe` 不存在、
-  `C:\Program Files\Microsoft Visual Studio` 与 `C:\Program Files (x86)\Microsoft Visual Studio` 不存在、
-  `C:\Program Files (x86)\Windows Kits\10` 不存在、`cl.exe` 不在 PATH、`link.exe` 不在 PATH。
+  `%ProgramFiles%\Microsoft Visual Studio` 与 `%ProgramFiles(x86)%\Microsoft Visual Studio` 不存在、
+  `%ProgramFiles(x86)%\Windows Kits\10` 不存在、`cl.exe` 不在 PATH、`link.exe` 不在 PATH。
 * **Rust 工具链本身是装好了的**（`rustc 1.99.1 (58cf8f9c3 2026-10-13)`，经 rustup 官方渠道），
   WebView2 Runtime 也在（`155.0.4283.62`）—— 唯一缺的就是 MSVC。
 * 最小链接测试（`cargo build --release` 一个空 `fn main()`）**确定性失败**，原文：
@@ -199,8 +199,8 @@ https://v2.tauri.app/concept/size/ （**注意：本轮未逐项抓取该页数�
    ```
    npm error code EEXIST
    npm error syscall rename
-   npm error ENOENT: no such file or directory, rename 'C:\Users\<user>\AppData\Local\npm-cache\_cacache\tmp\8a3a0237' -> 'C:\Users\<user>\AppData\Local\npm-cache\_cacache\content-v2\sha512\a3\96\...'
-   npm error File exists: C:\Users\<user>\AppData\Local\npm-cache\_cacache\content-v2\sha512\a3\96\...
+   npm error ENOENT: no such file or directory, rename '%USERPROFILE%\AppData\Local\npm-cache\_cacache\tmp\8a3a0237' -> '%USERPROFILE%\AppData\Local\npm-cache\_cacache\content-v2\sha512\a3\96\...'
+   npm error File exists: %USERPROFILE%\AppData\Local\npm-cache\_cacache\content-v2\sha512\a3\96\...
    ```
    → 改用 bench 专属缓存目录 `npm install --cache <dir>` 即可复现地避开。
 2. 连带效应：npm install 失败后 `npm run build` 报 `'vite' is not recognized as an internal or external command`
@@ -226,7 +226,7 @@ https://v2.tauri.app/concept/size/ （**注意：本轮未逐项抓取该页数�
    导致 `electron.exe` 永远缺失 —— 必须删掉残缺的包目录强制重跑。
 3. `electron-builder` 解压 `winCodeSign` 需要创建符号链接，本机无「创建符号链接」特权：
    ```
-   ERROR: Cannot create symbolic link : 客户端没有所需的特权。 : C:\Users\<user>\AppData\Local\electron-builder\Cache\winCodeSign\...\darwin\10.12\lib\libcrypto.dylib
+   ERROR: Cannot create symbolic link : 客户端没有所需的特权。 : %USERPROFILE%\AppData\Local\electron-builder\Cache\winCodeSign\...\darwin\10.12\lib\libcrypto.dylib
    ```
    → 用 `win.signAndEditExecutable: false` 绕开（本基准的安装包因此不带 exe 资源元数据）。
 4. Electron 会派生 **主进程 + GPU + utility + renderer** 多个进程，内存必须按**进程树**求和，

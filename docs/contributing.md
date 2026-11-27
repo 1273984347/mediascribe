@@ -20,7 +20,7 @@ welcome — bug reports, feature requests, documentation, code.
 ## Local development setup
 
 ```bash
-git clone https://github.com/example/mediascribe
+git clone https://github.com/1273984347/mediascribe
 cd mediascribe
 python -m pip install -e ".[dev,ocr,web,mcp,faster-whisper]"
 pytest tests/ -q
@@ -95,5 +95,6 @@ contracts.
 
 ## Reporting a security issue
 
-Please email `security@example.com` rather than opening a
-public issue.  See `SECURITY.md` for the disclosure policy.
+Please use GitHub Private Vulnerability Reporting rather than opening a
+public issue. See [`SECURITY.md`](https://github.com/1273984347/mediascribe/blob/main/SECURITY.md)
+for the disclosure policy.

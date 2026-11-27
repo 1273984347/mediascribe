@@ -6,7 +6,7 @@ name: release
 #
 # Pipeline:
 #   1. ``lint``        — ruff + bandit on Python 3.12
-#   2. ``test``        — pytest on Python 3.10 / 3.11 / 3.12
+#   2. ``test``        — pytest on Python 3.12 (full matrix runs in test.yml)
 #                        across Ubuntu / macOS / Windows (matrix subset for speed)
 #   3. ``build``       — sdist + manylinux wheel
 #   4. ``publish-pypi``  — uses ``PYPI_API_TOKEN`` secret (id-token for OIDC)
@@ -76,7 +76,7 @@ jobs:
   # ------------------------------------------------------------------
   test:
     # 单一 sanity 组合即可:tag push 同时触发 test.yml 的 integration(5 组合)
-    # + matrix(3 OS × 5 py)全量门禁,此处再跑 9 组合是 ~15 倍重复开销
+    # + matrix(3 OS × 3 py)全量门禁,此处再跑多组合属于重复开销
     # (2026-10-03 审查收敛;如需恢复删掉 matrix 字段即可)。
     name: test (sanity · py3.12 · ubuntu)
     needs: lint

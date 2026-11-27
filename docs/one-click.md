@@ -11,7 +11,7 @@ command on every operating system.
 
     ```bash
     # Clone, install, run — that's it.
-    git clone https://github.com/example/mediascribe.git
+    git clone https://github.com/1273984347/mediascribe.git
     cd mediascribe
     pip install -e ".[web]"
     ./scripts/launch/one_click_up.sh           # foreground
@@ -22,7 +22,7 @@ command on every operating system.
 === "Windows (PowerShell)"
 
     ```powershell
-    git clone https://github.com/example/mediascribe.git
+    git clone https://github.com/1273984347/mediascribe.git
     cd mediascribe
     pip install -e ".[web]"
     .\scripts\launch\one_click_up.ps1
@@ -33,7 +33,7 @@ command on every operating system.
 === "Docker (any OS)"
 
     ```bash
-    git clone https://github.com/example/mediascribe.git
+    git clone https://github.com/1273984347/mediascribe.git
     cd mediascribe
     docker compose up -d --build
     ```

@@ -69,6 +69,8 @@ precedence:
 
 ### Security
 
+- Added a private vulnerability reporting policy and expanded ignore rules for
+  environment files, local configuration, keys, and certificates.
 - Checkpoints do not persist cookies, Hugging Face tokens, API keys, or other
   secrets. WhisperX resume requiring runtime authorization fails before a new
   attempt is created when that authorization is unavailable.
@@ -301,7 +303,7 @@ HTML**（双击即开，无需服务端、无需构建）。
   `.mypy_cache/`（120 MB）、`.ruff_cache/`、`.pytest_cache/`、`web-workspace/`
   与全部 `__pycache__`，合计释放约 2.4 GB。清理前已把**不可再生**的转录成果
   （124 份转录稿 + 75 份人工审校稿 + 运行元数据）备份到仓库外的
-  `<local-archive>\`。
+  仓库外的本地归档目录（路径已脱敏）。
 
 ### Added (2026-10-24 选型落地：权重预置 + 简繁统一 + whisper.cpp 第三条腿 + 运行时守卫 + 前端拆分)
 

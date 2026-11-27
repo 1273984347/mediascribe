@@ -36,7 +36,7 @@ assignees: ''
 ## Environment / 环境
 
 - **OS**: [e.g. Windows 11, macOS 14, Ubuntu 22.04]
-- **Python version**: [e.g. 3.10.5]
+- **Python version**: [e.g. 3.11.9]
 - **Package version**: [e.g. 2.1.0]
 - **Installation method**: [e.g. pip, source]
 

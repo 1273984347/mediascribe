@@ -4,7 +4,7 @@
 # weekly PRs against `main`.  The PRs trigger the existing ``test.yml``
 # pipeline — lint + unit + coverage on Python 3.11 / ubuntu-latest —
 # while the nightly cron and tag pushes extend coverage to the full
-# 3.9–3.12 × Linux/macOS/Windows matrix before a release.
+# 3.11–3.13 × Linux/macOS/Windows matrix before a release.
 #
 # See https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
 
@@ -59,8 +59,6 @@ updates:
           - "pytest-asyncio"
           - "mypy"
           - "bandit"
-          - "black"
-          - "isort"
 
   # ------------------------------------------------------------------
   # GitHub Actions — keep workflow actions up to date for security

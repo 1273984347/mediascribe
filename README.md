@@ -209,6 +209,12 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for deta
 
 MIT License - see [LICENSE](LICENSE) for details.
 
+### Security
+
+Please report security vulnerabilities through GitHub Private Vulnerability
+Reporting. See [SECURITY.md](SECURITY.md) for supported versions, reporting
+instructions, and response targets.
+
 ---
 
 ## 🤖 AI Agent Compatibility
@@ -595,6 +601,11 @@ python scripts/demo_v3.py
 ### 📄 许可证
 
 MIT 许可证 - 详情见 [LICENSE](LICENSE)。
+
+### 安全
+
+请通过 GitHub 私密漏洞报告提交安全问题。支持版本、报告方式和响应目标见
+[SECURITY.md](SECURITY.md)。
 
 ---
 

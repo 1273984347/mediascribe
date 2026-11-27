@@ -97,7 +97,7 @@ When adding new files:
 
 ### 🔒 Security
 
-For security vulnerabilities, please email us directly instead of opening a public issue.
+For security vulnerabilities, please follow [SECURITY.md](SECURITY.md) and use GitHub Private Vulnerability Reporting. Do not open a public issue with vulnerability details.
 
 ---
 
@@ -188,7 +188,7 @@ python scripts/gates/pre_push_gate.py
 
 ### 🔒 安全
 
-如有安全漏洞，请直接通过邮件联系我们，而不是公开 issue。
+如有安全漏洞，请遵循 [SECURITY.md](SECURITY.md)，使用 GitHub 私密漏洞报告。不要创建包含漏洞细节的公开 issue。
 
 ---
 

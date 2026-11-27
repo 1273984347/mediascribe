@@ -52,9 +52,9 @@ This Code of Conduct applies within all project spaces, and also applies when an
 
 ## Enforcement / 执行
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported by contacting the project team. All complaints will be reviewed and investigated and will result in a response that is deemed necessary and appropriate to the circumstances.
+Instances of abusive, harassing, or otherwise unacceptable behavior may be reported through a private maintainer contact. If no private channel is available, open an issue asking the maintainers to establish one without including sensitive details. Security issues should follow [SECURITY.md](SECURITY.md). All complaints will be reviewed and investigated and will result in a response that is deemed necessary and appropriate to the circumstances.
 
-虐待、骚扰或其他不可接受行为的实例可以通过联系项目团队举报。所有投诉都将被审查和调查，并将根据情况做出必要和适当的回应。
+虐待、骚扰或其他不可接受行为的实例可以通过维护者的私密联系方式举报。如果没有可用的私密渠道，请创建一个 issue，请求维护者建立私密渠道，但不要包含敏感细节。安全问题请遵循 [SECURITY.md](SECURITY.md)。所有投诉都将被审查和调查，并将根据情况做出必要和适当的回应。
 
 ## Attribution / 署名
 
