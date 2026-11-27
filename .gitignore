@@ -19,6 +19,9 @@ env/
 ENV/
 .venv/
 
+# Local worktrees
+.worktrees/
+
 # IDE
 .vscode/
 .idea/
