@@ -20,6 +20,8 @@ from __future__ import annotations
 import pathlib
 import sys
 
+DEFAULT_MAIN_JS = pathlib.Path(__file__).resolve().parents[5] / "output/bench/shell/b5-app/main.js"
+
 
 def extract_wasm(js: bytes) -> bytes:
     """从 main.js 里把 ``binaryDecode('...')`` 的 JS 字符串还原成原始 wasm 二进制。"""
@@ -80,9 +82,7 @@ def read_uleb(data: bytes, pos: int) -> tuple[int, int]:
 
 
 def main() -> int:
-    path = pathlib.Path(
-        sys.argv[1] if len(sys.argv) > 1 else r"<repo>\output\bench\shell\b5-app\main.js"
-    )
+    path = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_MAIN_JS
     js = path.read_bytes()
     wasm = extract_wasm(js)
     print(

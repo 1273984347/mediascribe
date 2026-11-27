@@ -61,6 +61,8 @@ precedence:
 
 ### Fixed
 
+- Benchmark shell scripts now derive repository paths from their location
+  instead of hard-coding a developer-specific absolute path.
 - Resumed faster-whisper artifacts now include durable prefix segments as well
   as accepted suffix segments. Resumed Markdown no longer contains only the
   suffix produced after the resume point.

@@ -26,9 +26,10 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-TOOLS = Path(r"<repo>\output\bench\shell\tools")
-WORK = Path(r"<repo>\output\bench\shell\b5-build")
-APPDIR = Path(r"<repo>\output\bench\shell\b5-app")
+REPO_ROOT = Path(__file__).resolve().parents[5]
+TOOLS = REPO_ROOT / "output/bench/shell/tools"
+WORK = REPO_ROOT / "output/bench/shell/b5-build"
+APPDIR = REPO_ROOT / "output/bench/shell/b5-app"
 
 CMAKE_VER = "3.31.6"
 EMSCRIPTEN_VER = os.environ.get("B5_EMSDK_VERSION", "4.0.16")

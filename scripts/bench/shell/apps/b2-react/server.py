@@ -32,7 +32,7 @@ if not REPO:
             break
         _cand = _cand.parent
     else:
-        REPO = r"<repo>"
+        raise RuntimeError("Unable to locate MediaScribe repository; set MEDIASCRIBE_REPO_ROOT")
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
 
