@@ -35,7 +35,7 @@ def test_fixed_golden_corpus_hashes_verify():
     )
     assert (
         manifest["reference_sha256"]
-        == "090f7770677436b7ec1401edfaa206c096c8e5f7d6a60bd8f8d39ebc692ee265"
+        == "4284c6fc6a4dc69d2c32e73c0a9501105098cc3cdadb3fc1515b22a917033f3f"
     )
 
 

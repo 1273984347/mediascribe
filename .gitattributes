@@ -1,0 +1,2 @@
+tests/fixtures/golden/us016/*.json text eol=lf
+tests/fixtures/golden/us016/*.wav binary

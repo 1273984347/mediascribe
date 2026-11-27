@@ -106,22 +106,22 @@ class TestTranscribeAudio(unittest.TestCase):
 
         fake_result = mock.MagicMock()
         fake_result.transcript_path = Path("/tmp/x.md")
-        with mock.patch.object(
-            transcribe.TranscriberPool, "transcribe", return_value=fake_result.transcript_path
-        ) as mock_tx:
+        with mock.patch.object(transcribe, "TranscriberPool") as pool_cls:
+            pool_cls.return_value.transcribe.return_value = fake_result.transcript_path
             out = transcribe.transcribe_audio(Path("/tmp/x.wav"))
         self.assertEqual(out, Path("/tmp/x.md"))
-        mock_tx.assert_called_once_with(Path("/tmp/x.wav"))
+        pool_cls.assert_called_once()
+        pool_cls.return_value.transcribe.assert_called_once_with(Path("/tmp/x.wav"))
 
     def test_transcribe_audio_returns_none_on_failure(self):
         from mediascribe import transcribe
 
-        with mock.patch.object(
-            transcribe.TranscriberPool, "transcribe", return_value=None
-        ) as mock_tx:
+        with mock.patch.object(transcribe, "TranscriberPool") as pool_cls:
+            pool_cls.return_value.transcribe.return_value = None
             out = transcribe.transcribe_audio(Path("/tmp/bad.wav"))
         self.assertIsNone(out)
-        mock_tx.assert_called_once()
+        pool_cls.assert_called_once()
+        pool_cls.return_value.transcribe.assert_called_once_with(Path("/tmp/bad.wav"))
 
 
 if __name__ == "__main__":

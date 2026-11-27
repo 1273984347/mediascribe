@@ -63,6 +63,8 @@ precedence:
 
 - Benchmark shell scripts now derive repository paths from their location
   instead of hard-coding a developer-specific absolute path.
+- Golden corpus hashes are now line-ending stable, and unit tests no longer
+  depend on locally provisioned model weights or optional `psutil`.
 - Resumed faster-whisper artifacts now include durable prefix segments as well
   as accepted suffix segments. Resumed Markdown no longer contains only the
   suffix produced after the resume point.

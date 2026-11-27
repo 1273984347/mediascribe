@@ -343,6 +343,8 @@ def test_worker_environment_is_offline_and_isolated(tmp_path: Path):
 
 
 def test_run_gate_controls_worker_lifecycle_with_real_sqlite(tmp_path: Path, monkeypatch):
+    from types import SimpleNamespace
+
     from mediascribe.checkpoint import capability_for
     from mediascribe.progress import ProgressRegistry
     from mediascribe.web.job_control import JobControl
@@ -354,6 +356,11 @@ def test_run_gate_controls_worker_lifecycle_with_real_sqlite(tmp_path: Path, mon
         gate,
         "resource_status",
         lambda **_kwargs: {"status": "ready", "code": None, "available_mb": 4096},
+    )
+    monkeypatch.setattr(
+        gate,
+        "detect_hardware",
+        lambda: SimpleNamespace(to_dict=lambda: {"python": "3.11", "ram_total_mb": 4096}),
     )
     run_dir = tmp_path / "run"
     workspace = run_dir / "workspace"

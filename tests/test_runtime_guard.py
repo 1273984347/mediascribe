@@ -304,15 +304,21 @@ class TestPipelineIntegration(unittest.TestCase):
         from mediascribe.pipeline import Pipeline
 
         settings = Settings(model="small", engine="faster-whisper", device="cpu")
-        with mock.patch(
-            "mediascribe.pipeline.plan_resources",
-            return_value=DegradeDecision(
-                engine="faster-whisper",
-                model="small",
-                device="cpu",
-                changed=False,
-                reasons=["memory-pressure-no-cpp-binary"],
-                notices=["目标 whisper.cpp 不可用，保留原引擎"],
+        with (
+            mock.patch(
+                "mediascribe.pipeline.ensure_model_ready",
+                return_value=mock.MagicMock(ok=True),
+            ),
+            mock.patch(
+                "mediascribe.pipeline.plan_resources",
+                return_value=DegradeDecision(
+                    engine="faster-whisper",
+                    model="small",
+                    device="cpu",
+                    changed=False,
+                    reasons=["memory-pressure-no-cpp-binary"],
+                    notices=["目标 whisper.cpp 不可用，保留原引擎"],
+                ),
             ),
         ):
             p = Pipeline(settings)
@@ -326,13 +332,19 @@ class TestPipelineIntegration(unittest.TestCase):
         from mediascribe.pipeline import Pipeline
 
         settings = Settings(model="small", engine="faster-whisper", device="cpu")
-        with mock.patch(
-            "mediascribe.pipeline.plan_resources",
-            return_value=DegradeDecision(
-                engine="faster-whisper",
-                model="small",
-                device="cpu",
-                changed=False,
+        with (
+            mock.patch(
+                "mediascribe.pipeline.ensure_model_ready",
+                return_value=mock.MagicMock(ok=True),
+            ),
+            mock.patch(
+                "mediascribe.pipeline.plan_resources",
+                return_value=DegradeDecision(
+                    engine="faster-whisper",
+                    model="small",
+                    device="cpu",
+                    changed=False,
+                ),
             ),
         ):
             p = Pipeline(settings)
@@ -345,15 +357,21 @@ class TestPipelineIntegration(unittest.TestCase):
         from mediascribe.pipeline import Pipeline
 
         settings = Settings(engine="whisper", model="large-v3", device="cpu")
-        with mock.patch(
-            "mediascribe.pipeline.plan_resources",
-            return_value=DegradeDecision(
-                engine="faster-whisper",
-                model="small",
-                device="cuda",
-                changed=True,
-                reasons=["resource-pressure"],
-                notices=["建议调整"],
+        with (
+            mock.patch(
+                "mediascribe.pipeline.ensure_model_ready",
+                return_value=mock.MagicMock(ok=True),
+            ),
+            mock.patch(
+                "mediascribe.pipeline.plan_resources",
+                return_value=DegradeDecision(
+                    engine="faster-whisper",
+                    model="small",
+                    device="cuda",
+                    changed=True,
+                    reasons=["resource-pressure"],
+                    notices=["建议调整"],
+                ),
             ),
         ):
             p = Pipeline(settings)
@@ -372,6 +390,10 @@ class TestPipelineIntegration(unittest.TestCase):
         settings = Settings(engine="whisper", model=None, device="cpu")
         with (
             mock.patch("mediascribe.pipeline.resolve_device", return_value="cpu"),
+            mock.patch(
+                "mediascribe.pipeline.ensure_model_ready",
+                return_value=mock.MagicMock(ok=True),
+            ),
             mock.patch(
                 "mediascribe.pipeline.plan_resources",
                 return_value=DegradeDecision(
@@ -398,6 +420,10 @@ class TestPipelineIntegration(unittest.TestCase):
         settings = Settings(engine="whisper", model="small", device=None)
         with (
             mock.patch("mediascribe.pipeline.resolve_device", return_value="cpu"),
+            mock.patch(
+                "mediascribe.pipeline.ensure_model_ready",
+                return_value=mock.MagicMock(ok=True),
+            ),
             mock.patch(
                 "mediascribe.pipeline.plan_resources",
                 return_value=DegradeDecision(
