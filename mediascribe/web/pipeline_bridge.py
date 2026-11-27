@@ -40,6 +40,7 @@ def _build_pipeline(req: "TranscribeRequest", workspace: Path):
         ``_active_cookies`` 会话状态，跨请求复用会凭据粘滞，每请求新建。
     """
     from mediascribe.config import Settings
+    from mediascribe.inputs import preflight_source
     from mediascribe.pipeline import Pipeline, resolve_device
 
     cookies: Optional[Dict[str, str]] = None
@@ -51,12 +52,24 @@ def _build_pipeline(req: "TranscribeRequest", workspace: Path):
                 cookies[k.strip()] = v.strip()
 
     device = resolve_device(os.environ.get("MEDIASCRIBE_DEVICE", "auto"))
+    settings = Settings(
+        workspace_root=workspace,
+        model=req.model,
+        engine=req.engine,
+        language=req.language,
+        wechat_cookies=cookies,
+        allow_model_download=req.allow_model_download,
+    )
+    settings.device = device
+    for url in req.urls:
+        preflight_source(url, settings, workspace / "out" / "preflight.md")
+
     # 缓存 key 不含 cookies（不影响 transcriber），不含 workspace（每次请求不同）。
     # 引擎名**原样**进 key 与 settings —— 曾在此把 "whisper" 静默改写成
     # "faster-whisper"，UI 标着 whisper 实际永远跑别的引擎（2026-10-29 拍板
     # 删除：选什么跑什么，引导用 UI 文案）。
     cache_key = (
-        req.engine,
+        req.engine or "auto",
         req.model,
         device,
         req.language or "",
@@ -65,26 +78,10 @@ def _build_pipeline(req: "TranscribeRequest", workspace: Path):
     if cached is not None:
         # 复用 transcriber（5s+ 加载的重资源），但用本次请求的独立 settings
         # 构造新 Pipeline，避免修改 cached 实例的状态导致并发污染。
-        settings = Settings(
-            workspace_root=workspace,
-            model=req.model,
-            engine=cache_key[0],
-            language=req.language,
-            wechat_cookies=cookies,
-        )
-        settings.device = device
         # 缓存值就是 transcriber 本体 (SEC-002: downloader 持有会话状态
         # 不可跨请求复用, 每请求新建)
         return Pipeline(settings, transcriber=cached)
 
-    settings = Settings(
-        workspace_root=workspace,
-        model=req.model,
-        engine=req.engine,
-        language=req.language,
-        wechat_cookies=cookies,
-    )
-    settings.device = device
     pipeline = Pipeline(settings)
     # FIFO: 容量 8，超出淘汰最旧。持锁避免并发写入 race。
     with _PIPELINE_CACHE_LOCK:
@@ -140,7 +137,14 @@ def _run_one(pipeline, url: str, out_dir: Path, req: "TranscribeRequest") -> "Tr
             ocr_total=int(meta.get("ocr_total", 0)),
         )
     except Exception as exc:  # pragma: no cover - defensive
-        # P2-8: 下载/解析类用户输入错误(如视频不存在)原样返回给提交者,
-        # 但完整 traceback 要落服务端日志。
+        from mediascribe.recovery import recovery_for_exception
+
         logger.exception("transcribe failed (url=%s)", url[:200])
-        return TranscribeItem(url=url, ok=False, error=f"{exc.__class__.__name__}: {exc}")
+        recovery = recovery_for_exception(exc)
+        return TranscribeItem(
+            url=url,
+            ok=False,
+            error=recovery["reason"],
+            error_code=recovery["code"],
+            recovery=recovery,
+        )

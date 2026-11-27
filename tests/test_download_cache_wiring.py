@@ -116,6 +116,24 @@ class TestDownloadCacheWiring(unittest.TestCase):
         self.assertIsNotNone(ctx.downloaded)
         self.assertEqual(ctx.downloaded.metadata.get("download_cache"), "hit")
 
+    def test_download_stage_uses_settings_cache_dir_and_isolates_singletons(self):
+        os.environ["MEDIASCRIBE_DOWNLOAD_CACHE"] = "1"
+        first_dir = self._tmp / "first-cache"
+        second_dir = self._tmp / "second-cache"
+        source = _make_source("https://example.com/v/1")
+
+        for cache_dir in (first_dir, second_dir):
+            ctx = PipelineContext(
+                settings=Settings(workspace_root=self._tmp, cache_dir=cache_dir),
+                source_input="x",
+            )
+            ctx.source = source
+            DownloadStage(downloader=self._fake_downloader([])).run(ctx)
+
+        assert (first_dir / "downloads.index.json").is_file()
+        assert (second_dir / "downloads.index.json").is_file()
+        assert not (Path(os.environ["MEDIASCRIBE_CACHE_DIR"]) / "downloads.index.json").exists()
+
 
 if __name__ == "__main__":
     unittest.main()

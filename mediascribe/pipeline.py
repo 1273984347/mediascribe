@@ -20,15 +20,17 @@ import platform
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Type
+from typing import Any, Callable, List, Optional, Type
 
 from .audio_utils import extract_audio
+from .checkpoint import CheckpointCapability, CheckpointCursor
 from .config import Settings
 from .downloaders import Downloader
 from .i18n import t
-from .inputs import parse_source, safe_stem
+from .inputs import preflight_source, safe_stem
 from .markdown_builder import build_markdown as _build_markdown_structured
 from .markdown_builder import split_into_paragraphs as _split_text_paragraphs
+from .model_weights import ensure_model_ready
 from .models import DownloadResult, SourceRef, TranscriptResult
 from .pipeline_stages import (
     PipelineContext,
@@ -46,6 +48,7 @@ from .transcribers import (
     WhisperTranscriber,
     WhisperXTranscriber,
 )
+from .transcribers.base import SegmentCallback
 from .zh_normalize import is_yue_language
 
 logger = logging.getLogger(__name__)
@@ -211,6 +214,20 @@ class _AutoModelTranscriber:
             settings.model = model
             self._real = self._pipeline._create_transcriber(settings, model=model)
         return self._real
+
+    def prepare(self, **kwargs) -> Transcriber:
+        return self._resolve()
+
+    def checkpoint_capability(self) -> CheckpointCapability | None:
+        return self._resolve().checkpoint_capability()
+
+    def effective_decode_params(
+        self, *, language: str | None, initial_prompt: str | None
+    ) -> dict[str, Any]:
+        return self._resolve().effective_decode_params(
+            language=language,
+            initial_prompt=initial_prompt,
+        )
 
     def transcribe(self, audio_path, **kwargs) -> dict:
         if self._real is None:
@@ -391,6 +408,9 @@ class Pipeline:
         # 资源守卫的降档/过载说明 —— 会随转写稿 metadata 落盘，
         # 让用户知道「这次为什么用了小模型 / 为什么中止」。
         self._resource_notices: List[str] = []
+        self._resource_degrade_reasons: List[str] = []
+        if settings.engine_notice:
+            self._resource_notices.append(settings.engine_notice)
         self.transcriber = transcriber or self._create_transcriber(settings)
         self.profile = bool(profile)
         self.profile_log = Path(profile_log) if profile_log else None
@@ -407,6 +427,7 @@ class Pipeline:
         就把模型定死。``model`` 参数供代理解析后回填使用。
         """
         device = resolve_device(settings.device)
+        settings.device = device
         resolved_model = model or settings.model
         if resolved_model == "auto":
             return _AutoModelTranscriber(self)  # type: ignore[return-value]
@@ -415,16 +436,66 @@ class Pipeline:
         # 决策依据见 mediascribe/runtime_guard.py（每条规则都有实测出处）。
         # 降档是**自动**的，但**必须明确通知** —— 通知会进转写稿 metadata，
         # 不能只写日志（用户看不到日志）。
-        decision = plan_resources(settings.engine, resolved_model, device)
-        if decision.changed:
-            for notice in decision.notices:
+        decision = plan_resources(
+            settings.engine,
+            resolved_model,
+            device,
+            allow_engine_switch=not getattr(settings, "engine_explicit", False),
+            allow_model_degrade=not getattr(settings, "model_explicit", False),
+        )
+        for notice in decision.notices:
+            logger.warning("资源守卫: %s", notice)
+            self._resource_notices.append(notice)
+        self._resource_degrade_reasons.extend(decision.reasons)
+
+        effective_engine = settings.engine
+        effective_model = resolved_model
+        effective_device = device
+        if decision.engine != settings.engine:
+            if getattr(settings, "engine_explicit", False):
+                notice = t("RUNTIME_EXPLICIT_ENGINE_PROTECTED", engine=settings.engine)
                 logger.warning("资源守卫: %s", notice)
                 self._resource_notices.append(notice)
-            settings.engine = decision.engine
-            # ⚠️ 必须同时改 settings.model —— 只改局部变量的话，转录实际用
-            # medium、而 settings/metadata 仍记 large-v3 ⇒ 记录与事实不符。
-            settings.model = decision.model
-            resolved_model = decision.model
+                self._resource_degrade_reasons.append("explicit-engine-protected")
+            else:
+                effective_engine = decision.engine
+        if decision.model != resolved_model:
+            if getattr(settings, "model_explicit", False):
+                notice = t("RUNTIME_EXPLICIT_MODEL_PROTECTED", model=resolved_model)
+                logger.warning("资源守卫: %s", notice)
+                self._resource_notices.append(notice)
+                self._resource_degrade_reasons.append("explicit-model-protected")
+            else:
+                effective_model = decision.model
+        if decision.device != device:
+            if getattr(settings, "device_explicit", False):
+                notice = t("RUNTIME_EXPLICIT_DEVICE_PROTECTED", device=device)
+                logger.warning("资源守卫: %s", notice)
+                self._resource_notices.append(notice)
+                self._resource_degrade_reasons.append("explicit-device-protected")
+            else:
+                effective_device = decision.device
+
+        if (
+            effective_engine != settings.engine
+            or effective_model != resolved_model
+            or effective_device != device
+        ):
+            settings.engine = effective_engine
+            settings.model = effective_model
+            settings.device = effective_device
+            device = effective_device
+            resolved_model = effective_model
+
+        weight_status = ensure_model_ready(
+            settings.engine,
+            resolved_model,
+            allow_download=bool(getattr(settings, "allow_model_download", False)),
+        )
+        if not weight_status.ok:
+            notice = t("MODEL_DOWNLOAD_NOTICE")
+            logger.warning("%s", notice)
+            self._resource_notices.append(notice)
 
         engine = settings.engine
         if engine == "whisperx":
@@ -433,6 +504,7 @@ class Pipeline:
                 device=device,
                 hf_token=settings.hf_token,
                 diarization=settings.diarization,
+                allow_model_download=bool(settings.allow_model_download),
             )
         elif engine == "faster-whisper":
             return FasterWhisperTranscriber(
@@ -476,6 +548,20 @@ class Pipeline:
         bilingual: bool = False,
         timestamps: bool = False,
         cancel_event: Optional[threading.Event] = None,
+        progress_cb: Optional[Callable[[str, float], None]] = None,
+        segment_cb: Optional[SegmentCallback] = None,
+        resume_start: Optional[float] = None,
+        resume_source: Optional[SourceRef] = None,
+        resume_audio_path: Optional[Path] = None,
+        audio_path_cb: Optional[Callable[[Path], None]] = None,
+        decode_params_cb: Optional[Callable[[dict[str, Any]], None]] = None,
+        checkpoint_capability: Optional[CheckpointCapability] = None,
+        checkpoint_cursor: Optional[CheckpointCursor] = None,
+        prior_segments_cb: Optional[Callable[[], list[dict[str, Any]]]] = None,
+        checkpoint_window_started_cb: Optional[Callable[[int, float, float], None]] = None,
+        checkpoint_window_committed_cb: Optional[
+            Callable[[int, float, float, str | None], None]
+        ] = None,
     ) -> TranscriptResult:
         """
         完整的转录流程：
@@ -504,8 +590,23 @@ class Pipeline:
         阻塞点抛 :class:`PipelineCancelled` 协作式退出(由
         :class:`AsyncPipeline` 传入实现批量任务的协作取消)。
         """
+
+        def _emit(stage: str, percent: float) -> None:
+            if progress_cb is None:
+                return
+            try:
+                progress_cb(stage, percent)
+            except Exception:
+                pass
+
+        _emit("preflight", 0.0)
+        source = (
+            resume_source
+            if resume_source is not None
+            else preflight_source(source_input, self.settings, output)
+        )
+        _emit("preflight", 100.0)
         self.settings.ensure_directories()
-        source = parse_source(source_input)
 
         # v3.4.0: --timestamps 可经 Settings（--config JSON / CLI 公共选项）
         # 全局打开，kwargs 显式传 True 优先。
@@ -537,6 +638,7 @@ class Pipeline:
             source_input=source_input,
             # 资源守卫在转录器创建阶段产生的降档说明 ⇒ 带进 ctx ⇒ 进 metadata
             resource_notices=list(self._resource_notices),
+            resource_degrade_reasons=list(self._resource_degrade_reasons),
             prompt=prompt,
             output=output,
             language=language,
@@ -546,8 +648,22 @@ class Pipeline:
             bilingual=bilingual,
             timestamps=effective_timestamps,
             cancel_event=cancel_event,
+            progress_cb=progress_cb,
+            segment_cb=segment_cb,
+            resume_start=resume_start,
+            resume_audio_path=resume_audio_path,
+            audio_path_cb=audio_path_cb,
+            decode_params_cb=decode_params_cb,
+            checkpoint_capability=checkpoint_capability,
+            checkpoint_cursor=checkpoint_cursor,
+            prior_segments_cb=prior_segments_cb,
+            checkpoint_window_started_cb=checkpoint_window_started_cb,
+            checkpoint_window_committed_cb=checkpoint_window_committed_cb,
             source=source,
+            audio_path=resume_audio_path,
         )
+        if resume_audio_path is not None and audio_path_cb is not None:
+            audio_path_cb(resume_audio_path)
         result = self._run_stage_chain(ctx).result
         if result is None:
             # AssembleStage 必然写入 result; 走到这里说明 stage 被旁路, 静默返回
@@ -575,6 +691,8 @@ class Pipeline:
         按 run 隔离,并发 run 不再互相清空/混入全局 ``STEP_TIMES``;
         ``get_step_times`` 无 run 上下文时回退全局,API 兼容。
         """
+        if ctx.resume_audio_path is not None:
+            ctx.audio_path = ctx.resume_audio_path
         # Lazy import so performance.py is only touched when profile is used.
         if self.profile:
             from .performance import (
@@ -586,6 +704,8 @@ class Pipeline:
             clear_step_times()  # fresh slate (全局) + 脱离残留 run registry
             begin_run_registry()  # per-run 隔离的计时注册表 (P2-7)
         for stage in self._build_chain():
+            if ctx.resume_audio_path is not None and stage.name in {"download", "extract_audio"}:
+                continue
             # P1-8: stage 之间协作式取消检查点 — cancel_event 置位时
             # 抛 PipelineCancelled,让 AsyncPipeline 提早退出而非等
             # 当前阻塞操作完成。

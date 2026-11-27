@@ -101,3 +101,4 @@ class TranscriptResult:
     segments: Optional[list] = None
     language: Optional[str] = None
     speaker_diarization: bool = False
+    duration_seconds: Optional[float] = None

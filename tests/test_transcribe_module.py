@@ -145,18 +145,39 @@ class TestTranscriberPoolEngine(unittest.TestCase):
             mock.patch("mediascribe.Settings") as SetCls,
         ):
             TranscriberPool(config=cfg)
-        SetCls.assert_called_once_with(model="small", engine="whisper")
+        SetCls.assert_called_once_with(model="small", engine="whisper", allow_model_download=False)
 
-    def test_engine_defaults_to_install_probe(self):
+    def test_engine_default_stays_none_for_settings_resolution(self):
         from types import SimpleNamespace
 
-        from mediascribe.config import default_engine
         from mediascribe.transcribe import TranscriberPool
 
-        cfg = SimpleNamespace(whisper_model="small", language="zh")  # 无 engine 属性
+        cfg = SimpleNamespace(language="zh")  # 无 engine / whisper_model 属性
         with (
             mock.patch("mediascribe.Pipeline"),
             mock.patch("mediascribe.Settings") as SetCls,
         ):
             TranscriberPool(config=cfg)
-        SetCls.assert_called_once_with(model="small", engine=default_engine())
+        SetCls.assert_called_once_with(model=None, engine=None, allow_model_download=False)
+
+    def test_model_download_authorization_passes_through(self):
+        from types import SimpleNamespace
+
+        from mediascribe.transcribe import TranscriberPool
+
+        cfg = SimpleNamespace(
+            whisper_model="small",
+            language="zh",
+            engine="whisper",
+            allow_model_download=True,
+        )
+        with (
+            mock.patch("mediascribe.Pipeline"),
+            mock.patch("mediascribe.Settings") as SetCls,
+        ):
+            TranscriberPool(config=cfg)
+        SetCls.assert_called_once_with(
+            model="small",
+            engine="whisper",
+            allow_model_download=True,
+        )

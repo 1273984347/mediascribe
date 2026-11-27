@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from ..config import default_engine
 from .base import Transcriber
 from .faster_whisper import FasterWhisperTranscriber
 from .whisper import WhisperTranscriber
@@ -31,17 +32,24 @@ from .whisperx import WhisperXTranscriber
 
 
 def get_transcriber(
-    name: str = "whisperx",
+    name: Optional[str] = None,
     *,
     model: str = "small",
     device: Optional[str] = None,
     hf_token: Optional[str] = None,
     diarization: bool = False,
+    allow_model_download: bool = False,
 ) -> Transcriber:
     """Return a single transcriber instance by name."""
+    if name is None:
+        name = default_engine()
     if name == "whisperx":
         return WhisperXTranscriber(
-            model=model, device=device, hf_token=hf_token, diarization=diarization
+            model=model,
+            device=device,
+            hf_token=hf_token,
+            diarization=diarization,
+            allow_model_download=allow_model_download,
         )
     if name == "faster-whisper":
         return FasterWhisperTranscriber(model=model, device=device)

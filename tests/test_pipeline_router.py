@@ -92,6 +92,25 @@ class TestPipelineRouter(unittest.TestCase):
             self.assertEqual(d.name, "yt-dlp")
 
 
+class TestPipelinePreflight(unittest.TestCase):
+    def test_missing_input_fails_before_stage_chain(self):
+        import tempfile
+
+        from mediascribe.config import Settings
+        from mediascribe.inputs import PreflightError
+        from mediascribe.pipeline import Pipeline
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            settings = Settings(workspace_root=Path(tmp_dir), engine="whisper")
+            pipeline = Pipeline(settings=settings, transcriber=MagicMock())
+            with patch.object(pipeline, "_run_stage_chain") as run_chain:
+                with self.assertRaises(PreflightError) as exc_info:
+                    pipeline.transcribe(str(Path(tmp_dir) / "missing.wav"))
+
+        self.assertEqual(exc_info.exception.code, "INPUT_INVALID")
+        run_chain.assert_not_called()
+
+
 class TestWechatMpDownloader(unittest.TestCase):
     """WechatMpDownloader 单元测试（mocked 网络）"""
 

@@ -12,8 +12,9 @@
 * 抖音 cookies 文件（``douyin_cookies.txt``）
 * ASR 术语库（``learn`` 累积的条数）
 
-退出码：ffmpeg 缺失返回 1，其余情况一律 0 — doctor 的定位是
-"诊断报告"，非关键项缺失不应阻断脚本调用方。
+退出码：READY / READY_WITH_WARNINGS 返回 0，BLOCKED 返回 1。
+BLOCKED 包括 Python 版本过低、缺 ffmpeg、无可用 ASR 引擎、离线模式缺模型、
+工作区不可写；其余缺项按警告展示。
 """
 
 from __future__ import annotations
@@ -67,11 +68,11 @@ def _list_downloaded_models(cache_dir: Optional[Path]) -> List[str]:
     return sorted(p.name for p in cache_dir.iterdir() if p.is_dir() and not p.name.startswith("."))
 
 
-def _check_python() -> None:
+def _check_python() -> bool:
     """📌 Python — 版本下限 3.11。"""
     print("\n📌 Python")
     v = sys.version_info
-    _check(
+    return _check(
         "版本",
         v >= (3, 11),
         f"{v.major}.{v.minor}.{v.micro}",
@@ -170,17 +171,30 @@ def _check_gpu_budget() -> None:
         _check("显存账本闸门", False, f"探测异常: {exc!r}", "")
 
 
-def _check_engines() -> None:
-    """📌 转录引擎 — 三个可选引擎的安装状态。"""
+def _check_engines() -> tuple[Optional[str], str]:
+    """📌 转录引擎 — 安装状态与统一自动推荐。"""
+    from .config import EngineUnavailableError, resolve_default_engine
+
     print(t("DOCTOR_SECTION_ENGINES"))
     engines = [
-        ("whisper", "whisper（默认）", "pip install -r requirements.txt"),
-        ("faster_whisper", "faster-whisper（更快）", "pip install faster-whisper"),
-        ("whisperx", "whisperx（说话人分离/对齐）", "pip install whisperx"),
+        ("whisper", "whisper（兼容回退）", 'pip install "mediascribe[whisper]"'),
+        ("faster_whisper", "faster-whisper（推荐）", 'pip install "mediascribe[faster-whisper]"'),
+        ("whisperx", "whisperx（说话人分离/对齐）", 'pip install "mediascribe[whisperx]"'),
     ]
     for module, label, hint in engines:
         avail, detail = _engine_available(module)
         _check(label, avail, detail, hint)
+
+    try:
+        engine, notice = resolve_default_engine()
+    except EngineUnavailableError as exc:
+        _check("自动选择", False, str(exc), "安装推荐引擎后重新运行 doctor")
+        return None, ""
+    detail = f"{engine} + small"
+    if notice:
+        detail += f" — {notice}"
+    _check("自动选择", True, detail)
+    return engine, notice
 
 
 def _check_model_cache() -> None:
@@ -194,11 +208,11 @@ def _check_model_cache() -> None:
         _check(
             "缓存目录",
             True,
-            f"{cache_dir}（空 — 首次转录时会自动下载模型）",
+            f"{cache_dir}（{t('DOCTOR_MODEL_CACHE_EMPTY')}）",
         )
 
 
-def _check_model_weights() -> None:
+def _check_model_weights(engine: Optional[str] = None) -> tuple[bool, bool]:
     """📌 权重预置 — 离线产品必须**预先放置**的模型权重。
 
     此前缺权重只能在跑到一半时炸（2026-10-23 实测：``faster-whisper medium``
@@ -210,7 +224,7 @@ def _check_model_weights() -> None:
         from .model_weights import check_weights, known_weight_pairs
     except Exception as exc:  # pragma: no cover - 模块缺失不应毁掉整个自检
         _check("权重清单", False, f"无法加载 model_weights: {exc!r}")
-        return
+        return False, False
 
     by_engine: dict = {}
     for engine, model in known_weight_pairs():
@@ -252,8 +266,13 @@ def _check_model_weights() -> None:
                 missing[0].hint,
             )
 
+    if engine is None:
+        return False, False
+    recommended = check_weights(engine, "small")
+    return recommended.ok, not recommended.ok
 
-def _check_workspace(workspace: Optional[Path]) -> None:
+
+def _check_workspace(workspace: Optional[Path]) -> bool:
     """📌 工作区 — 目录存在且可写(写探针实测)。"""
     print(t("DOCTOR_SECTION_WORKSPACE"))
     ws = (
@@ -267,8 +286,10 @@ def _check_workspace(workspace: Optional[Path]) -> None:
         probe.write_text("ok", encoding="utf-8")
         probe.unlink(missing_ok=True)
         _check("可写", True, str(ws.resolve()))
+        return True
     except Exception as exc:
         _check("可写", False, f"{ws} — {exc!r}", "检查目录权限或用 --workspace 换路径")
+        return False
 
 
 def _check_cookies() -> None:
@@ -336,31 +357,77 @@ def _check_env_config() -> None:
         print(f"  {_WARN} {t('DOCTOR_ENV_TOKEN_HINT')}")
 
 
-def run_doctor(workspace: Optional[Path] = None) -> int:
-    """执行环境自检并打印报告。返回进程退出码。
+def run_doctor(workspace: Optional[Path] = None, *, offline: bool = False) -> int:
+    """执行环境自检并返回进程退出码。
 
-    各自检项拆分为 ``_check_*`` 系列函数(输出顺序即调用顺序);
-    退出码约定: ffmpeg 缺失返回 1, 其余情况一律 0 — doctor 的定位
-    是"诊断报告", 非关键项缺失不应阻断脚本调用方。
+    READY / READY_WITH_WARNINGS 返回 0；BLOCKED 返回 1。
+    ``offline=True`` 表示用户明确声明当前离线，此时缺失模型是阻塞项。
     """
     print(t("DOCTOR_BANNER"))
     print("=" * 50)
 
-    _check_python()
-    critical_ok = _check_av_tools()
+    blockers: List[str] = []
+    warnings: List[str] = []
+
+    if not _check_python():
+        blockers.append("PYTHON_VERSION")
+    if not _check_av_tools():
+        blockers.append("FFMPEG_MISSING")
     _check_device()
     _check_gpu_budget()
-    _check_engines()
+    engine, engine_notice = _check_engines()
+    if engine is None:
+        blockers.append("ENGINE_UNAVAILABLE")
+    elif engine_notice:
+        warnings.append("ENGINE_FALLBACK_WHISPER")
     _check_model_cache()
-    _check_model_weights()
-    _check_workspace(workspace)
+    _, model_missing = _check_model_weights(engine)
+    if model_missing:
+        if offline:
+            blockers.append("MODEL_NOT_READY")
+        else:
+            warnings.append("MODEL_NOT_READY")
+    if not _check_workspace(workspace):
+        blockers.append("OUTPUT_WRITE_FAILED")
+    from .events import event_retention_status
+
+    retention = event_retention_status()
+    if retention["warning"]:
+        warnings.append(retention["warning"])
     _check_cookies()
     _check_terms()
     _check_env_config()
 
+    status = "BLOCKED" if blockers else ("READY_WITH_WARNINGS" if warnings else "READY")
+    try:
+        from .events import EventRecorder
+
+        EventRecorder(surface="cli").record_readiness(
+            status=status,
+            exit_code=1 if blockers else 0,
+            blockers=blockers,
+            warnings=warnings,
+            engine=engine,
+            force=True,
+        )
+    except Exception:  # pragma: no cover - telemetry must never alter doctor
+        import logging
+
+        logging.getLogger(__name__).debug("event readiness recording failed", exc_info=True)
     print("\n" + "=" * 50)
-    if critical_ok:
-        print(t("DOCTOR_ALL_OK"))
+    print(
+        t(
+            "DOCTOR_STATUS",
+            status=status,
+            blockers=", ".join(blockers) or "-",
+            warnings=", ".join(warnings) or "-",
+        )
+    )
+    if blockers:
+        print(t("DOCTOR_CRITICAL_MISSING"))
+        return 1
+    if warnings:
+        print(t("DOCTOR_READY_WITH_WARNINGS"))
         return 0
-    print(t("DOCTOR_CRITICAL_MISSING"))
-    return 1
+    print(t("DOCTOR_ALL_OK"))
+    return 0

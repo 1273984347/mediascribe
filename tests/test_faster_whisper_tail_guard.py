@@ -123,6 +123,156 @@ class TestTailGuardIntegration(unittest.TestCase):
             result = tr.transcribe("fake.wav", language="zh")
         self.assertEqual(len(result["segments"]), 1)
 
+    def test_transcribe_emits_each_segment_and_callback_failure_propagates(self):
+        model = _FakeModel([[_FakeSeg("one", 0.0, 1.0), _FakeSeg("two", 1.0, 2.0)]])
+        tr = _make_transcriber(model)
+        seen = []
+        result = tr.transcribe("fake.wav", language="zh", segment_cb=seen.append)
+        self.assertEqual([segment["text"] for segment in seen], ["one", "two"])
+        self.assertEqual(result["segments"], seen)
+
+        def fail(_segment):
+            raise RuntimeError("checkpoint write failed")
+
+        tr = _make_transcriber(_FakeModel([[_FakeSeg("one", 0.0, 1.0)]]))
+        with self.assertRaisesRegex(RuntimeError, "checkpoint write failed"):
+            tr.transcribe("fake.wav", language="zh", segment_cb=fail)
+
+    def test_resume_sets_clip_timestamps_and_skips_tail_rescue(self):
+        model = _FakeModel([[_FakeSeg("tail", 0.0, 2.0)]])
+        tr = _make_transcriber(model)
+        with (
+            mock.patch.object(fw, "_probe_duration_seconds", return_value=12.0),
+            mock.patch.object(fw, "_extract_tail_wav") as extract,
+        ):
+            tr.transcribe("fake.wav", language="zh", resume_start=9.0)
+        self.assertEqual(model.kwargs_log[0]["clip_timestamps"], [9.0, 12.0])
+        extract.assert_not_called()
+
+    def test_tail_rescue_callback_failure_is_not_swallowed(self):
+        model = _FakeModel(
+            [
+                [_FakeSeg("正文", 0.0, 500.0)],
+                [_FakeSeg("收尾语", 2.0, 79.0)],
+            ]
+        )
+        tr = _make_transcriber(model)
+
+        def fail(_segment):
+            raise RuntimeError("checkpoint write failed")
+
+        with (
+            mock.patch.object(fw, "_probe_duration_seconds", return_value=579.0),
+            mock.patch.object(fw, "_extract_tail_wav", return_value=True),
+            self.assertRaisesRegex(RuntimeError, "checkpoint write failed"),
+        ):
+            tr.transcribe("fake.wav", language="zh", segment_cb=fail)
+
+    def test_checkpoint_session_accepts_only_deduplicated_suffix(self):
+        from mediascribe.checkpoint import (
+            CheckpointCapability,
+            CheckpointCursor,
+            CheckpointSession,
+        )
+
+        model = _FakeModel(
+            [
+                [
+                    _FakeSeg("covered", 8.0, 9.0),
+                    _FakeSeg("two next", 9.0, 12.0),
+                ]
+            ]
+        )
+        tr = _make_transcriber(model)
+        committed = []
+        session = CheckpointSession(
+            capability=CheckpointCapability("faster-whisper", "segment"),
+            prior_segments=[
+                {"text": "one", "start": 0.0, "end": 5.0},
+                {"text": "two", "start": 5.0, "end": 10.0},
+            ],
+            cursor=CheckpointCursor("segment", 9.0, 10.0, "two"),
+            segment_cb=committed.append,
+        )
+
+        result = tr.transcribe(
+            "fake.wav",
+            language="zh",
+            segment_cb=lambda segment: self.fail("duplicate direct callback"),
+            checkpoint_session=session,
+        )
+
+        self.assertEqual(result["segments"], [{"text": "next", "start": 9.0, "end": 12.0}])
+        self.assertEqual(result["text"], "next")
+        self.assertEqual(committed, result["segments"])
+        self.assertEqual([segment["text"] for segment in session.segments], ["one", "two", "next"])
+
+    def test_tail_rescue_commits_only_checkpoint_accepted_segments(self):
+        from mediascribe.checkpoint import CheckpointCapability, CheckpointSession
+
+        model = _FakeModel(
+            [
+                [_FakeSeg("正文", 0.0, 500.0)],
+                [
+                    _FakeSeg("重叠区", 2.0, 9.0),
+                    _FakeSeg("正文 收尾语", 9.8, 79.0),
+                ],
+            ]
+        )
+        tr = _make_transcriber(model)
+        committed = []
+        session = CheckpointSession(
+            capability=CheckpointCapability("faster-whisper", "segment"),
+            prior_segments=[],
+            cursor=None,
+            segment_cb=committed.append,
+        )
+
+        with (
+            mock.patch.object(fw, "_probe_duration_seconds", return_value=579.0),
+            mock.patch.object(fw, "_extract_tail_wav", return_value=True),
+        ):
+            result = tr.transcribe(
+                "fake.wav",
+                language="zh",
+                segment_cb=lambda segment: self.fail("duplicate direct callback"),
+                checkpoint_session=session,
+            )
+
+        self.assertEqual([segment["text"] for segment in result["segments"]], ["正文", "收尾语"])
+        self.assertEqual(result["text"], "正文 收尾语")
+        self.assertEqual(committed, result["segments"])
+        self.assertEqual(session.segments, result["segments"])
+
+    def test_effective_decode_params_match_main_transcription_defaults(self):
+        from importlib import metadata
+
+        tr = FasterWhisperTranscriber("small", device="cpu", vad_filter=False)
+        model = _FakeModel([[_FakeSeg("one", 0.0, 1.0)]])
+        tr._model = model
+        with mock.patch.object(fw, "_probe_duration_seconds", return_value=1.0):
+            tr.transcribe("fake.wav", language="zh", initial_prompt="terms")
+        with mock.patch.object(metadata, "version", return_value="1.2.3"):
+            payload = tr.effective_decode_params(language="zh", initial_prompt="terms")
+
+        self.assertEqual(
+            payload,
+            {
+                **model.kwargs_log[0],
+                "engine": "faster-whisper",
+                "package_version": "1.2.3",
+                "model": "small",
+                "device": "cpu",
+                "compute_type": "int8",
+                "runtime_defaults": {
+                    "temperature": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+                    "beam_size": 5,
+                },
+            },
+        )
+        self.assertNotIn("temperature", model.kwargs_log[0])
+        self.assertNotIn("beam_size", model.kwargs_log[0])
+
 
 if __name__ == "__main__":
     unittest.main()

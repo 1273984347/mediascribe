@@ -89,8 +89,8 @@ nav:
   - Performance: performance.md
   - E2E testing: e2e-testing.md
   - CI matrix: ci-matrix.md
-  - Roadmap v3.2: roadmap-v3.2.md
-  - Roadmap v3.2b: roadmap-v3.2b.md
+  - Historical — Roadmap v3.2: roadmap-v3.2.md
+  - Historical — Roadmap v3.2b: roadmap-v3.2b.md
   - Changelog: changelog.md
   - Contributing: contributing.md
   - License: license.md
@@ -110,6 +110,5 @@ extra:
 
 copyright: Copyright &copy; 2024–2026 MediaScribe contributors. Licensed under MIT.
 
-# Strict mode: build fails on warnings.  Disable for now because
-# some auto-generated sections may include stale cross-refs.
-strict: false
+# Build fails on warnings; fix stale references instead of weakening the gate.
+strict: true

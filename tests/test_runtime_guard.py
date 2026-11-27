@@ -167,6 +167,50 @@ class TestPlanDegrade(unittest.TestCase):
         d = plan("faster-whisper", "large-v3", "cuda", _snap())
         json.dumps(d.to_dict(), ensure_ascii=False)
 
+    def test_explicit_engine_blocks_resource_switch(self):
+        snap = _snap(cuda_available=False, ram_total_mb=MEMORY_PRESSURE_TOTAL_MB - 1024)
+        with mock.patch("mediascribe.runtime_guard._whisper_cpp_available", return_value=True):
+            d = plan(
+                "faster-whisper",
+                "small",
+                "cpu",
+                snap,
+                allow_engine_switch=False,
+            )
+
+        self.assertEqual(d.engine, "faster-whisper")
+        self.assertIn("explicit-engine-protected", d.reasons)
+        self.assertTrue(d.notices)
+
+    def test_explicit_model_blocks_resource_degrade(self):
+        snap = _snap(vram_total_mb=4096, vram_used_mb=1000)
+        d = plan(
+            "faster-whisper",
+            "large-v3",
+            "cuda",
+            snap,
+            allow_model_degrade=False,
+        )
+
+        self.assertEqual(d.model, "large-v3")
+        self.assertIn("explicit-model-protected", d.reasons)
+        self.assertTrue(d.notices)
+
+    def test_explicit_engine_with_auto_model_keeps_engine_and_degrades_model(self):
+        snap = _snap(vram_total_mb=4096, vram_used_mb=1000)
+        d = plan(
+            "faster-whisper",
+            "large-v3",
+            "cuda",
+            snap,
+            allow_engine_switch=False,
+            allow_model_degrade=True,
+        )
+
+        self.assertEqual(d.engine, "faster-whisper")
+        self.assertNotEqual(d.model, "large-v3")
+        self.assertIn("model-degraded", d.reasons)
+
 
 class TestSnapshot(unittest.TestCase):
     def test_snapshot_never_raises(self):
@@ -233,7 +277,12 @@ class TestPipelineIntegration(unittest.TestCase):
         from mediascribe.pipeline import Pipeline
 
         snap = _snap(vram_total_mb=4096, vram_used_mb=1000)
-        settings = Settings(model="large-v3", engine="faster-whisper", device="cuda")
+        settings = Settings(
+            model=None,
+            engine="faster-whisper",
+            device="cuda",
+            allow_model_download=True,
+        )
         with mock.patch(
             "mediascribe.pipeline.plan_resources",
             return_value=DegradeDecision(
@@ -241,12 +290,191 @@ class TestPipelineIntegration(unittest.TestCase):
                 model="medium",
                 device="cuda",
                 changed=True,
+                reasons=["model-degraded"],
                 notices=["测试降档说明"],
             ),
         ):
             p = Pipeline(settings)
         self.assertEqual(settings.model, "medium")
         self.assertIn("测试降档说明", p._resource_notices)
+        self.assertEqual(p._resource_degrade_reasons, ["model-degraded"])
+
+    def test_pipeline_keeps_notice_when_target_engine_is_unavailable(self):
+        from mediascribe.config import Settings
+        from mediascribe.pipeline import Pipeline
+
+        settings = Settings(model="small", engine="faster-whisper", device="cpu")
+        with mock.patch(
+            "mediascribe.pipeline.plan_resources",
+            return_value=DegradeDecision(
+                engine="faster-whisper",
+                model="small",
+                device="cpu",
+                changed=False,
+                reasons=["memory-pressure-no-cpp-binary"],
+                notices=["目标 whisper.cpp 不可用，保留原引擎"],
+            ),
+        ):
+            p = Pipeline(settings)
+
+        self.assertEqual(settings.engine, "faster-whisper")
+        self.assertEqual(p._resource_notices, ["目标 whisper.cpp 不可用，保留原引擎"])
+        self.assertEqual(p._resource_degrade_reasons, ["memory-pressure-no-cpp-binary"])
+
+    def test_pipeline_without_degrade_has_no_notices_or_reasons(self):
+        from mediascribe.config import Settings
+        from mediascribe.pipeline import Pipeline
+
+        settings = Settings(model="small", engine="faster-whisper", device="cpu")
+        with mock.patch(
+            "mediascribe.pipeline.plan_resources",
+            return_value=DegradeDecision(
+                engine="faster-whisper",
+                model="small",
+                device="cpu",
+                changed=False,
+            ),
+        ):
+            p = Pipeline(settings)
+
+        self.assertEqual(p._resource_notices, [])
+        self.assertEqual(p._resource_degrade_reasons, [])
+
+    def test_pipeline_protects_all_explicit_selections(self):
+        from mediascribe.config import Settings
+        from mediascribe.pipeline import Pipeline
+
+        settings = Settings(engine="whisper", model="large-v3", device="cpu")
+        with mock.patch(
+            "mediascribe.pipeline.plan_resources",
+            return_value=DegradeDecision(
+                engine="faster-whisper",
+                model="small",
+                device="cuda",
+                changed=True,
+                reasons=["resource-pressure"],
+                notices=["建议调整"],
+            ),
+        ):
+            p = Pipeline(settings)
+
+        self.assertEqual(settings.engine, "whisper")
+        self.assertEqual(settings.model, "large-v3")
+        self.assertEqual(settings.device, "cpu")
+        self.assertIn("explicit-engine-protected", p._resource_degrade_reasons)
+        self.assertIn("explicit-model-protected", p._resource_degrade_reasons)
+        self.assertIn("explicit-device-protected", p._resource_degrade_reasons)
+
+    def test_pipeline_explicit_engine_allows_auto_model_degrade(self):
+        from mediascribe.config import Settings
+        from mediascribe.pipeline import Pipeline
+
+        settings = Settings(engine="whisper", model=None, device="cpu")
+        with (
+            mock.patch("mediascribe.pipeline.resolve_device", return_value="cpu"),
+            mock.patch(
+                "mediascribe.pipeline.plan_resources",
+                return_value=DegradeDecision(
+                    engine="faster-whisper",
+                    model="small",
+                    device="cpu",
+                    changed=True,
+                    reasons=["model-degraded"],
+                    notices=["已降档"],
+                ),
+            ),
+        ):
+            p = Pipeline(settings)
+
+        self.assertEqual(settings.engine, "whisper")
+        self.assertEqual(settings.model, "small")
+        self.assertIn("explicit-engine-protected", p._resource_degrade_reasons)
+        self.assertIn("model-degraded", p._resource_degrade_reasons)
+
+    def test_pipeline_records_resolved_device_as_effective(self):
+        from mediascribe.config import Settings
+        from mediascribe.pipeline import Pipeline
+
+        settings = Settings(engine="whisper", model="small", device=None)
+        with (
+            mock.patch("mediascribe.pipeline.resolve_device", return_value="cpu"),
+            mock.patch(
+                "mediascribe.pipeline.plan_resources",
+                return_value=DegradeDecision(
+                    engine="whisper",
+                    model="small",
+                    device="cpu",
+                    changed=False,
+                ),
+            ),
+            mock.patch("mediascribe.pipeline.WhisperTranscriber"),
+        ):
+            Pipeline(settings)
+
+        self.assertEqual(settings.requested_device, "auto")
+        self.assertEqual(settings.device, "cpu")
+
+    def test_pipeline_blocks_missing_model_without_download_authorization(self):
+        from mediascribe.config import Settings
+        from mediascribe.model_weights import ModelNotReadyError, WeightStatus
+        from mediascribe.pipeline import Pipeline
+
+        settings = Settings(engine="whisper", model="small", allow_model_download=False)
+        missing = WeightStatus(
+            engine="whisper",
+            model="small",
+            ok=False,
+            location="fake-cache",
+            hint="provision model",
+        )
+        with (
+            mock.patch("mediascribe.model_weights.check_weights", return_value=missing),
+            mock.patch("mediascribe.pipeline.WhisperTranscriber") as transcriber,
+        ):
+            with self.assertRaises(ModelNotReadyError) as exc_info:
+                Pipeline(settings)
+
+        self.assertEqual(exc_info.exception.code, "MODEL_NOT_READY")
+        transcriber.assert_not_called()
+
+    def test_pipeline_allows_missing_model_when_download_is_authorized(self):
+        from mediascribe.config import Settings
+        from mediascribe.model_weights import WeightStatus
+        from mediascribe.pipeline import Pipeline
+
+        settings = Settings(engine="whisper", model="small", allow_model_download=True)
+        missing = WeightStatus(
+            engine="whisper",
+            model="small",
+            ok=False,
+            location="fake-cache",
+            hint="provision model",
+        )
+        with (
+            mock.patch("mediascribe.model_weights.check_weights", return_value=missing),
+            mock.patch("mediascribe.pipeline.WhisperTranscriber"),
+        ):
+            pipeline = Pipeline(settings)
+
+        self.assertTrue(
+            any(
+                "download" in notice.lower() or "下载" in notice
+                for notice in pipeline._resource_notices
+            )
+        )
+
+    def test_context_carries_resource_degrade_reasons(self):
+        from mediascribe.config import Settings
+        from mediascribe.pipeline_stages import PipelineContext
+
+        ctx = PipelineContext(
+            settings=Settings(),
+            source_input="x",
+            resource_notices=["一条说明"],
+            resource_degrade_reasons=["model-degraded"],
+        )
+        self.assertEqual(ctx.resource_notices, ["一条说明"])
+        self.assertEqual(ctx.resource_degrade_reasons, ["model-degraded"])
 
     def test_context_carries_resource_notices(self):
         from mediascribe.config import Settings

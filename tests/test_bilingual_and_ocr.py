@@ -488,7 +488,7 @@ class TestMediaScribeCliWechatFlags(unittest.TestCase):
                 [
                     "mediascribe",
                     "transcribe",
-                    "video.mp4",
+                    "https://www.bilibili.com/video/BV1xx411c7mD",
                 ],
             ),
         ):

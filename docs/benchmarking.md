@@ -47,6 +47,19 @@ measured error rate is pure ASR error, with no annotation noise.
     verify with a SHA-256 comparison. Without a fixed seed, the same
     parameters produced error rates anywhere between 23.8 % and 45.9 %.
 
+## Fixed release corpus
+
+`tests/fixtures/golden/us016/` contains a 179.837-second Mandarin synthetic
+clip, its exact reference transcript, acceptance metadata, and SHA-256 hashes.
+The benchmark verifies those hashes before planning a run and records the
+corpus fingerprint in every round. This fixture is for reproducible functional
+and relative-engine comparisons; it does not establish natural-speech accuracy
+or English WER coverage.
+
+`--repeat N` creates independent round files. Resume only reuses a round when
+engine/model/device/precision/file/repeat and corpus fingerprint all match and
+the cached round has no error or abort. Failed or blocked rounds are rerun.
+
 ## Quick start — ASR engines
 
 ```bash
@@ -64,6 +77,11 @@ python scripts/bench/asr/bench_asr.py \
     --engines faster_whisper,openai_whisper --models small,medium,large-v3 \
     --devices cpu \
     --files 01_zh_huihui.wav,01h_zh_huihui_harsh.wav,06_en_zira.wav
+
+# Fixed release corpus, three independent rounds
+python scripts/bench/asr/bench_asr.py \
+    --corpus tests/fixtures/golden/us016 \
+    --engines faster_whisper --models small --devices cpu --repeat 3
 ```
 
 ### What it measures
@@ -98,6 +116,26 @@ python scripts/bench/asr/bench_asr.py \
     --hard-gpu-temp-c 92 --sys-ram-abort-mb 512 --sys-ram-start-mb 2048 \
     --wait-seconds 600 --timeout-s 1800
 ```
+
+## Offline installation cost
+
+Measure a fresh venv installed only from a local wheelhouse. The wheelhouse must
+include the complete `mediascribe[faster-whisper]` dependency closure:
+
+```bash
+python scripts/bench/asr/measure_install_cost.py \
+  --wheel dist/mediascribe-3.4.0a1-py3-none-any.whl \
+  --wheelhouse wheelhouse \
+  --work-dir output/bench/install-cost
+```
+
+The report records venv creation, install and import-smoke time plus logical
+wheel/wheelhouse/venv/site-packages bytes. Network and model download are
+disabled. The timing covers local resolution/unpacking only, not end-user
+network installation. Resource shortages return `RESOURCE_GUARD_BLOCKED`.
+
+`summarize_asr.py` reports P50/P90 for cold-start wall time, RTF and error rate;
+failed, skipped and blocked rounds never enter those statistics.
 
 ## Quick start — front-end frameworks
 

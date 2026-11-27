@@ -1,0 +1,15 @@
+{
+  "schema": "mediascribe-first-success-acceptance/v1",
+  "engine": "faster-whisper",
+  "model": "small",
+  "device": "cpu",
+  "language": "zh",
+  "required_keywords": ["人工智能", "软件开发", "技术债"],
+  "duration_bucket": "1-3m",
+  "expected_metrics": {
+    "new_installations": 1,
+    "submitted_installs": 1,
+    "successful_installs": 1,
+    "success_rate": 1.0
+  }
+}

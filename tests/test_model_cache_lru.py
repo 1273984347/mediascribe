@@ -7,6 +7,7 @@ faster_whisper 一直有 LRU 2 兜底。本轮对齐为 LRU 容量 2。
 
 from __future__ import annotations
 
+import hashlib
 import sys
 import unittest
 from pathlib import Path
@@ -31,7 +32,7 @@ class TestWhisperXCacheLRU(unittest.TestCase):
         wx_mod._MODEL_CACHE.clear()
         loads = []
 
-        def fake_load(name, device, compute_type=None, language=None):
+        def fake_load(name, device, compute_type=None, language=None, asr_options=None):
             loads.append((name, language))
             return SimpleNamespace(tag=f"{name}-{language}")
 
@@ -61,7 +62,7 @@ class TestWhisperXCacheLRU(unittest.TestCase):
             wx_mod._get_cached_model(fake, "small", "cpu", "zh")
             keys = list(wx_mod._MODEL_CACHE.keys())
             self.assertEqual(len(keys), 2)
-            self.assertIn(("tiny", "cpu", "int8", "zh"), keys)
+            self.assertIn(("tiny", "cpu", "int8", "zh", hashlib.sha256(b"").hexdigest()), keys)
         finally:
             wx_mod._MODEL_CACHE.clear()
 
@@ -170,8 +171,8 @@ class TestWhisperXResidencyAccounting(unittest.TestCase):
         from mediascribe.gpu_budget import resident_total_mb
 
         fake = SimpleNamespace(
-            load_model=lambda name, device, compute_type=None, language=None: SimpleNamespace(
-                tag=f"{name}"
+            load_model=lambda name, device, compute_type=None, language=None, asr_options=None: (
+                SimpleNamespace(tag=f"{name}")
             ),
             load_align_model=lambda language_code, device: (
                 SimpleNamespace(tag=f"align-{language_code}"),
@@ -179,7 +180,7 @@ class TestWhisperXResidencyAccounting(unittest.TestCase):
             ),
         )
         wx_mod._get_cached_model(fake, "small", "cuda", "zh")
-        wx_mod._get_cached_align_model(fake, "zh", "cuda")
+        wx_mod._get_cached_align_model(fake, "zh", "cuda", allow_model_download=True)
         # 主模型 small cuda=900(实测表) + align 记 small 档=900
         self.assertEqual(resident_total_mb(), 900 + 900)
         wx_mod.clear_model_cache()

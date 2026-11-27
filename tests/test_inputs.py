@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 ###########################################################################
 # 迁入自 tests/test_coverage_gaps.py —— TestInputs(mediascribe.inputs)
 ###########################################################################
@@ -41,3 +43,66 @@ class TestInputs:
         # Control chars stripped
         cleaned = safe_stem("bad\x00name\x1f")
         assert "\x00" not in cleaned and "\x1f" not in cleaned
+
+
+class TestPreflightSource:
+    def _settings(self, tmp_path):
+        from mediascribe.config import Settings
+
+        return Settings(workspace_root=tmp_path / "workspace", engine="whisper")
+
+    def test_missing_local_path_is_rejected(self, tmp_path):
+        from mediascribe.inputs import PreflightError, preflight_source
+
+        with pytest.raises(PreflightError) as exc_info:
+            preflight_source(str(tmp_path / "missing.wav"), self._settings(tmp_path))
+
+        assert exc_info.value.code == "INPUT_INVALID"
+
+    def test_unsupported_local_format_is_rejected(self, tmp_path):
+        from mediascribe.inputs import PreflightError, preflight_source
+
+        source = tmp_path / "notes.txt"
+        source.write_text("not media", encoding="utf-8")
+
+        with pytest.raises(PreflightError) as exc_info:
+            preflight_source(str(source), self._settings(tmp_path))
+
+        assert exc_info.value.code == "INPUT_INVALID"
+
+    def test_local_video_requires_ffmpeg(self, tmp_path, monkeypatch):
+        from mediascribe.inputs import PreflightError, preflight_source
+
+        source = tmp_path / "video.mp4"
+        source.write_bytes(b"fake")
+        monkeypatch.setattr("shutil.which", lambda _name: None)
+
+        with pytest.raises(PreflightError) as exc_info:
+            preflight_source(str(source), self._settings(tmp_path))
+
+        assert exc_info.value.code == "FFMPEG_MISSING"
+
+    def test_local_audio_does_not_require_ffmpeg(self, tmp_path, monkeypatch):
+        from mediascribe.inputs import preflight_source
+
+        source = tmp_path / "audio.wav"
+        source.write_bytes(b"fake")
+        monkeypatch.setattr("shutil.which", lambda _name: None)
+
+        parsed = preflight_source(str(source), self._settings(tmp_path))
+
+        assert parsed.kind == "audio"
+        assert parsed.path == source
+
+    def test_unwritable_output_is_rejected(self, tmp_path):
+        from mediascribe.inputs import PreflightError, preflight_source
+
+        source = tmp_path / "audio.wav"
+        source.write_bytes(b"fake")
+        blocker = tmp_path / "not-a-directory"
+        blocker.write_text("block", encoding="utf-8")
+
+        with pytest.raises(PreflightError) as exc_info:
+            preflight_source(str(source), self._settings(tmp_path), output=blocker / "out.md")
+
+        assert exc_info.value.code == "OUTPUT_WRITE_FAILED"

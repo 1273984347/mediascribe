@@ -19,11 +19,21 @@ class TestFactoryAndChunked:
     def test_factory_creates_known_engines(self):
         from mediascribe.transcribers.factory import get_transcriber
 
-        # The default is whisperx.  We just assert the factory returns
-        # a non-None instance and that the requested model is honoured.
         t = get_transcriber(name="whisper", model="tiny")
         assert t is not None
         assert t.model_name == "tiny"
+
+    def test_factory_without_name_uses_auto_resolution(self, monkeypatch):
+        from mediascribe.transcribers.factory import get_transcriber
+
+        monkeypatch.setattr(
+            "mediascribe.config.find_spec",
+            lambda name: object() if name == "whisper" else None,
+        )
+
+        transcriber = get_transcriber(model="tiny")
+
+        assert transcriber.name == "whisper"
 
     def test_factory_unknown_engine_raises(self):
         from mediascribe.transcribers.factory import get_transcriber

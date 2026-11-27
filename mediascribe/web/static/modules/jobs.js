@@ -24,13 +24,15 @@ import { escapeHtml, readError, setStatus, updateMeters } from './status.js';
 import { authHeaders, wsProtocols, wsUrl } from './auth.js';
 import { ICONS } from './theme.js';
 
-const STAGES = ["download", "extract_audio", "transcribe", "merge"];
+const STAGES = ["preflight", "model_prepare", "download", "extract_audio", "transcribe", "assemble"];
 
 const STAGE_LABELS = {
+  preflight: "输入检查",
+  model_prepare: "模型准备",
   download: "下载",
   extract_audio: "提取音频",
   transcribe: "转写",
-  merge: "合并",
+  assemble: "写入结果",
 };
 
 //: 重连退避序列(毫秒) —— 指数级, 上限 15s。
@@ -45,6 +47,11 @@ $("urls").addEventListener("keydown", (e) => {
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
+  const readiness = submit.dataset.readiness;
+  if (readiness === "blocked" || readiness === "unknown") {
+    setStatus("环境未就绪，请先按页面顶部提示修复。", true);
+    return;
+  }
   const urls = $("urls").value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
   if (urls.length === 0) { setStatus("请先粘贴至少一条链接。", true); return; }
   if (urls.length > 20) {
@@ -57,13 +64,16 @@ form.addEventListener("submit", async (e) => {
   try {
     const body = {
       urls,
-      engine: $("engine").value,
-      model: $("model").value,
       language: $("language").value || null,
       ocr_engine: $("ocr").value,
       wechat_cookies: $("cookies").value || null,
       bilingual: $("bilingual").checked,
+      allow_model_download: $("allow-model-download").checked,
     };
+    const engine = $("engine").value;
+    const model = $("model").value;
+    if (engine) body.engine = engine;
+    if (model) body.model = model;
     const resp = await fetch("/api/jobs", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
@@ -87,13 +97,58 @@ form.addEventListener("submit", async (e) => {
   } catch (err) {
     setStatus("提交失败:" + err.message, true);
   } finally {
-    submit.disabled = false;
+    submit.disabled = submit.dataset.readiness === "blocked"
+      || submit.dataset.readiness === "unknown";
   }
 });
 
 // ---------------------------------------------------------------------
 // 任务卡片 + WS 进度 + 取消 + 结果拉取
 // ---------------------------------------------------------------------
+
+function showRecovery(card, recovery) {
+  const box = card.querySelector("[data-recovery]");
+  const retryBtn = card.querySelector("[data-retry]");
+  card.__recovery = recovery || null;
+  box.replaceChildren();
+  if (!recovery) {
+    box.hidden = true;
+    retryBtn.style.display = "none";
+    return;
+  }
+  const english = recovery.lang === "en";
+  const title = document.createElement("p");
+  title.className = "recovery-title";
+  title.textContent = `${recovery.code || recovery.category || "UNKNOWN"} · ${recovery.reason || ""}`;
+  const scope = document.createElement("p");
+  scope.className = "recovery-scope";
+  scope.textContent = english
+    ? `Scope: ${recovery.scope || "unknown"}`
+    : `影响范围：${recovery.scope || "unknown"}`;
+  box.append(title, scope);
+  if (Array.isArray(recovery.actions) && recovery.actions.length) {
+    const label = document.createElement("p");
+    label.className = "recovery-actions-label";
+    label.textContent = english ? "Next actions:" : "下一步操作：";
+    const list = document.createElement("ul");
+    list.className = "recovery-actions";
+    recovery.actions.forEach((action) => {
+      const item = document.createElement("li");
+      item.textContent = action.label || action.id || "";
+      if (action.command) {
+        const command = document.createElement("code");
+        command.textContent = ` ${action.command}`;
+        item.appendChild(command);
+      }
+      list.appendChild(item);
+    });
+    box.append(label, list);
+  }
+  box.hidden = false;
+  retryBtn.style.display = recovery.retryable && !card.__retryUsed ? "" : "none";
+  retryBtn.disabled = false;
+  retryBtn.textContent = english ? "Retry" : "重试";
+}
 
 function renderJobCard(job, opts = {}) {
   // 2026-10-31 独立盲审 P1-4: 提交路径与 restoreQueue 可能对**同一个
@@ -120,8 +175,12 @@ function renderJobCard(job, opts = {}) {
     </div>
     <p class="chain-meta"><span class="cm-label">阶段</span><span data-stage-label>—</span><span data-pct>—</span></p>
     <p class="errmsg" data-err></p>
+    <div class="recovery" data-recovery hidden></div>
     <div class="toolbar">
       <button type="button" data-cancel class="danger">终止</button>
+      <button type="button" data-retry style="display:none;">重试</button>
+      <button type="button" data-resume class="ghost" style="display:none;">继续</button>
+      <button type="button" data-open style="display:none;">打开文稿</button>
       <button type="button" data-copy style="display:none;">复制文稿</button>
       <button type="button" data-download style="display:none;">下载 .md</button>
     </div>`;
@@ -143,6 +202,62 @@ function renderJobCard(job, opts = {}) {
     } catch (_) {
       setStatus("取消失败:无法连接服务器", true);
       cancelBtn.disabled = false;
+    }
+  });
+  const retryBtn = card.querySelector("[data-retry]");
+  retryBtn.addEventListener("click", async () => {
+    const recovery = card.__recovery;
+    if (!recovery || !recovery.retryable || card.__retryBusy || card.__retryUsed) return;
+    const english = recovery.lang === "en";
+    card.__retryBusy = true;
+    retryBtn.disabled = true;
+    retryBtn.textContent = english ? "Retrying…" : "重试中…";
+    try {
+      const response = await fetch(`/api/jobs/${job.job_id}/retry`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      if (!response.ok) throw new Error(await readError(response));
+      const data = await response.json();
+      card.__retryUsed = true;
+      retryBtn.style.display = "none";
+      emptyState.style.display = "none";
+      (data.jobs || []).forEach((nextJob) => renderJobCard(nextJob));
+      setStatus(english ? "Retry submitted with the original selections." : "已按原输入和选择提交重试。");
+    } catch (err) {
+      retryBtn.disabled = false;
+      retryBtn.textContent = english ? "Retry" : "重试";
+      setStatus(`${english ? "Retry failed" : "重试失败"}:${err.message}`, true);
+    } finally {
+      card.__retryBusy = false;
+    }
+  });
+  const resumeBtn = card.querySelector("[data-resume]");
+  resumeBtn.addEventListener("click", async () => {
+    resumeBtn.disabled = true;
+    try {
+      const response = await fetch(`/api/jobs/${job.job_id}/resume`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      if (!response.ok) throw new Error(await readError(response));
+      const next = await response.json();
+      if (card.__wsState) {
+        card.__wsState.stopped = true;
+        if (card.__wsState.timer) clearTimeout(card.__wsState.timer);
+        if (card.__wsState.socket) card.__wsState.socket.close();
+      }
+      card.__wsState = { attempt: 0, timer: null, socket: null, stopped: false };
+      card.__resultRendered = false;
+      card.dataset.attemptId = next.attempt_id;
+      card.classList.remove("ok", "err", "cancelled");
+      resumeBtn.style.display = "none";
+      activeJobs.add(job.job_id);
+      emptyState.style.display = "none";
+      connectWs(card, { ...job, attempt_id: next.attempt_id, status: "queued", finished: false });
+    } catch (error) {
+      resumeBtn.disabled = false;
+      setStatus(`继续失败:${error.message}`, true);
     }
   });
   // 终态任务**不建 WS**。
@@ -171,6 +286,7 @@ function connectWs(card, job) {
   const pctEl = card.querySelector("[data-pct]");
   const errEl = card.querySelector("[data-err]");
   const cancelBtn = card.querySelector("[data-cancel]");
+  const resumeBtn = card.querySelector("[data-resume]");
 
   //: 本卡片的重连状态 —— 挂在 card 上, 跨 connectWs 调用存活。
   //: (旧实现把这些放在 connectWs 闭包里 ⇒ 每次重连都重置退避计数,
@@ -213,7 +329,7 @@ function connectWs(card, job) {
     n.textContent = String(STAGES.indexOf(s) + 1).padStart(2, "0");
   }
 
-  function setStage(stage, pct, done) {
+  function setStage(stage, pct, done, known = true) {
     const idx = STAGES.indexOf(stage);
     if (idx < 0) return;
     STAGES.forEach((s, i) => {
@@ -230,14 +346,14 @@ function connectWs(card, job) {
       if (prev < idx || (prev === idx && done)) { seg.className = "seg done"; fill.className = ""; fill.style.width = "100%"; }
       else if (prev === idx) {
         seg.className = "seg";
-        fill.className = "shimmer-bar";
-        fill.style.width = pct + "%";
+        fill.className = known ? "" : "shimmer-bar";
+        fill.style.width = known ? pct + "%" : "100%";
       }
       else { seg.className = "seg"; fill.className = ""; fill.style.width = "0%"; }
     });
     stageLabel.textContent = STAGE_LABELS[stage] || stage;
     delete stageLabel.dataset.state;
-    pctEl.textContent = Math.round(pct) + "%";
+    pctEl.textContent = done ? "100%" : known ? Math.round(pct) + "%" : "处理中";
   }
 
   function markCancelled() {
@@ -341,33 +457,49 @@ function connectWs(card, job) {
         }
         // ping 携带 job 快照 ⇒ 顺带把阶段/进度补齐(重连后事件不回放)。
         if (msg.stage && !msg.finished && !msg.cancelled) {
-          setStage(msg.stage, pctOf(msg), false);
+          setStage(msg.stage, pctOf(msg), false, msg.progress_known !== false);
         }
         return;
       }
       if (evt === "snapshot") {
+        if (msg.status === "interrupted") {
+          stopHeartbeat();
+          state.stopped = true;
+          if (state.timer) { clearTimeout(state.timer); state.timer = null; }
+          setChip("busy", "已中断");
+          stageLabel.textContent = "已中断";
+          stageLabel.dataset.state = "off";
+          pctEl.textContent = "—";
+          setRunning(false);
+          resumeBtn.style.display = msg.resumable ? "" : "none";
+          cancelBtn.style.display = "none";
+          activeJobs.delete(job.job_id);
+          updateMeters();
+          ws.close();
+          return;
+        }
         if (msg.cancelled) { markCancelled(); return; }
         if (msg.finished) {
           // 重连时任务已经跑完 —— 走终态分支, 别让卡片永远转圈。
           applyFinished(msg);
           return;
         }
-        if (msg.stage) setStage(msg.stage, pctOf(msg), false);
+        if (msg.stage) setStage(msg.stage, pctOf(msg), false, msg.progress_known !== false);
         return;
       }
       if (evt === "stage_start") {
         // 收到**进度**事件 ⇒ 连接真的可用 ⇒ 退避计数归零。
         // (只在进度事件上归零 —— ping/error 消息不代表进度。)
         markConnected();
-        setChip("busy", "运行中"); setRunning(true); setStage(stage, 0, false);
+        setChip("busy", "运行中"); setRunning(true); setStage(stage, 0, false, msg.progress_known !== false);
       }
       else if (evt === "stage_progress") {
         markConnected();
-        setChip("busy", "运行中"); setRunning(true); setStage(stage, msg.total > 0 ? (msg.current / msg.total) * 100 : 0, false);
+        setChip("busy", "运行中"); setRunning(true); setStage(stage, msg.total > 0 ? (msg.current / msg.total) * 100 : 0, false, msg.progress_known !== false);
       }
       else if (evt === "stage_done") { setStage(stage, 100, true); }
       else if (evt === "succeeded") {
-        setStage("merge", 100, true);
+        setStage("assemble", 100, true);
         setRunning(false);
         finishCard("ok", "完成");
         stageLabel.textContent = "完成";
@@ -384,14 +516,24 @@ function connectWs(card, job) {
         STAGES.forEach((s, i) => { if (i < idx) { nodes[s].className = "node done"; nodes[s].textContent = "✓"; } });
         const bad = nodes[stage] || nodes[STAGES[STAGES.length - 1]];
         if (bad) { bad.className = "node fail"; bad.textContent = "×"; }
-        errEl.textContent = msg.error || "未知错误";
+        errEl.textContent = msg.recovery && msg.recovery.reason
+          ? msg.recovery.reason
+          : msg.error || "未知错误";
         errEl.classList.add("show");
-        stageLabel.textContent = "失败";
+        stageLabel.textContent = msg.error_code === "NO_SPEECH" ? "无语音" : "失败";
         stageLabel.dataset.state = "err";
         setRunning(false);
-        finishCard("err", "失败");
+        finishCard("err", msg.error_code === "NO_SPEECH" ? "无语音" : "失败");
+        showRecovery(card, msg.recovery);
         stopHeartbeat();
+        if (!msg.recovery) fetchResult(card, job);
         ws.close();
+      } else if (evt === "cancel_requested") {
+        setChip("busy", "取消中");
+        stageLabel.textContent = "取消中";
+        pctEl.textContent = "—";
+        setRunning(false);
+        cancelBtn.disabled = true;
       } else if (evt === "cancelled" || evt === "cancelled_done") {
         markCancelled();
         stopHeartbeat();
@@ -445,15 +587,21 @@ function connectWs(card, job) {
     stopHeartbeat();
     if (msg.cancelled) { markCancelled(); return; }
     if (msg.error) {
-      errEl.textContent = msg.error;
+      errEl.textContent = msg.recovery && msg.recovery.reason
+        ? msg.recovery.reason
+        : msg.error_code === "NO_SPEECH"
+          ? "未检测到语音，请检查音频或更换输入。"
+          : msg.error;
       errEl.classList.add("show");
-      stageLabel.textContent = "失败";
+      stageLabel.textContent = msg.error_code === "NO_SPEECH" ? "无语音" : "失败";
       stageLabel.dataset.state = "err";
       setRunning(false);
-      finishCard("err", "失败");
+      finishCard("err", msg.error_code === "NO_SPEECH" ? "无语音" : "失败");
+      showRecovery(card, msg.recovery);
+      if (!msg.recovery) fetchResult(card, job);
       return;
     }
-    setStage("merge", 100, true);
+    setStage("assemble", 100, true);
     setRunning(false);
     finishCard("ok", "完成");
     stageLabel.textContent = "完成";
@@ -467,6 +615,7 @@ function connectWs(card, job) {
 
 async function fetchResult(card, job) {
   const errEl = card.querySelector("[data-err]");
+  const openBtn = card.querySelector("[data-open]");
   const copyBtn = card.querySelector("[data-copy]");
   const dlBtn = card.querySelector("[data-download]");
 
@@ -503,6 +652,18 @@ async function fetchResult(card, job) {
         return;
       }
       const data = await r.json();
+      if (data.status === "no_speech" || data.error_code === "NO_SPEECH") {
+        showRecovery(card, data.recovery);
+        errEl.textContent = data.recovery && data.recovery.reason
+          ? data.recovery.reason
+          : "未检测到语音，请检查音频或更换输入。";
+        errEl.classList.add("show");
+        const chip = card.querySelector("[data-chip]");
+        chip.className = "chip err";
+        chip.textContent = "无语音";
+        return;
+      }
+      if (data.cancelled) return;
       if (!data.markdown) {
         // 结果尚未落盘 —— 继续重试, 不下"内容为空"的结论。
         if (attempt < RETRY_DELAYS.length - 1) continue;
@@ -523,11 +684,45 @@ async function fetchResult(card, job) {
           ${archived}
           <span>${escapeHtml(dateStr)}</span>
         </div>
+        <div class="result-summary"></div>
         <div class="result-body"></div>`;
+      const summary = data.summary || {};
+      wrap.querySelector(".result-summary").textContent = [
+        summary.input ? `输入：${summary.input}` : "",
+        summary.engine ? `引擎：${summary.engine}` : "",
+        summary.model ? `模型：${summary.model}` : "",
+        summary.duration_seconds != null ? `耗时：${summary.duration_seconds.toFixed(1)} 秒` : "",
+        data.artifact && data.artifact.name ? `文件：${data.artifact.name}` : "",
+      ].filter(Boolean).join(" · ");
       wrap.querySelector(".result-body").textContent = data.markdown;
       card.appendChild(wrap);
+      openBtn.style.display = "";
       copyBtn.style.display = "";
       dlBtn.style.display = "";
+      openBtn.addEventListener("click", async () => {
+        const opened = window.open("", "_blank");
+        if (!opened) {
+          setStatus("打开文稿失败:浏览器阻止了新窗口", true);
+          return;
+        }
+        opened.opener = null;
+        try {
+          const response = await fetch(data.artifact.url, { headers: authHeaders() });
+          if (!response.ok) throw new Error(await readError(response));
+          const blob = await response.blob();
+          const url = URL.createObjectURL(blob);
+          opened.location.replace(url);
+          setTimeout(() => URL.revokeObjectURL(url), 60000);
+          fetch(`/api/jobs/${job.job_id}/events`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...authHeaders() },
+            body: JSON.stringify({ event: "artifact_opened", action: "open" }),
+          }).catch(() => {});
+        } catch (err) {
+          opened.close();
+          setStatus(`打开文稿失败:${err.message}`, true);
+        }
+      });
       copyBtn.addEventListener("click", async () => {
         try {
           await navigator.clipboard.writeText(data.markdown);
@@ -535,6 +730,11 @@ async function fetchResult(card, job) {
           const label = copyBtn.textContent;
           copyBtn.textContent = "✓ 已复制";
           setTimeout(() => { copyBtn.textContent = label; }, 1500);
+          fetch(`/api/jobs/${job.job_id}/events`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...authHeaders() },
+            body: JSON.stringify({ event: "artifact_opened", action: "copy" }),
+          }).catch(() => {});
         } catch (_) { setStatus("复制失败:浏览器拒绝了剪贴板访问", true); }
       });
       dlBtn.addEventListener("click", () => {
@@ -544,6 +744,11 @@ async function fetchResult(card, job) {
         a.download = (data.title || job.url).replace(/[^a-z0-9\u4e00-\u9fff]+/gi, "_").slice(0, 60) + ".md";
         a.click();
         URL.revokeObjectURL(a.href);
+        fetch(`/api/jobs/${job.job_id}/events`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeaders() },
+          body: JSON.stringify({ event: "artifact_opened", action: "download" }),
+        }).catch(() => {});
       });
       return;
     } catch (err) {
@@ -588,8 +793,29 @@ async function restoreQueue() {
   for (const job of jobs) {
     // 终态任务走 skipWs 路径 —— 不建 WS(服务端会对已结束任务发两次
     // snapshot, 导致文稿被渲染多份)。renderJobCard 内部已按 job_id 去重。
-    const card = renderJobCard(job, { skipWs: Boolean(job.finished) });
+    const interrupted = job.status === "interrupted";
+    const card = renderJobCard(job, { skipWs: Boolean(job.finished) || interrupted });
     if (!card) continue;
+    if (interrupted) {
+      const chip = card.querySelector("[data-chip]");
+      const stageLabel = card.querySelector("[data-stage-label]");
+      const pct = card.querySelector("[data-pct]");
+      const resumeBtn = card.querySelector("[data-resume]");
+      const errEl = card.querySelector("[data-err]");
+      chip.className = "chip busy";
+      chip.textContent = "已中断";
+      stageLabel.textContent = "已中断";
+      stageLabel.dataset.state = "off";
+      pct.textContent = "—";
+      resumeBtn.style.display = job.resumable ? "" : "none";
+      if (job.resume_block_reason) {
+        errEl.textContent = job.resume_block_reason;
+        errEl.classList.add("show");
+      }
+      activeJobs.delete(job.job_id);
+      updateMeters();
+      continue;
+    }
     if (job.finished) {
       // 任务在刷新前就跑完了 —— 直接补结果, 不必再连 WS。
       //
@@ -612,12 +838,17 @@ async function restoreQueue() {
       }
       if (job.error) {
         const errEl = card.querySelector("[data-err]");
-        errEl.textContent = job.error;
+        showRecovery(card, job.recovery);
+        errEl.textContent = job.recovery && job.recovery.reason
+          ? job.recovery.reason
+          : job.error_code === "NO_SPEECH"
+            ? "未检测到语音，请检查音频或更换输入。"
+            : job.error;
         errEl.classList.add("show");
         card.classList.add("err");
         chip.className = "chip err";
-        chip.textContent = "失败";
-        stageLabel.textContent = "失败";
+        chip.textContent = job.error_code === "NO_SPEECH" ? "无语音" : "失败";
+        stageLabel.textContent = job.error_code === "NO_SPEECH" ? "无语音" : "失败";
         stageLabel.dataset.state = "err";
         pct.textContent = "—";
         continue;

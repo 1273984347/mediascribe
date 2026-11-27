@@ -52,7 +52,7 @@ it stays frozen until the schema version itself is bumped.
       },
       "summary_report": "output/reports/...md" | null,
       "errors": [
-        {"at": "...", "kind": "...", "message": "..."}
+        {"at": "...", "kind": "...", "message": "...", "recovery": "{...optional}"}
       ]
     }
 
@@ -299,15 +299,22 @@ class AgentOutput:
             }
         )
 
-    def add_error(self, kind: str, message: str) -> None:
-        """Append a top-level error (e.g. browser launch failure)."""
-        self._errors.append(
-            {
-                "at": datetime.now(timezone.utc).isoformat(),
-                "kind": kind,
-                "message": message,
-            }
-        )
+    def add_error(
+        self,
+        kind: str,
+        message: str,
+        *,
+        recovery: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Append a top-level error with optional safe recovery metadata."""
+        entry: Dict[str, Any] = {
+            "at": datetime.now(timezone.utc).isoformat(),
+            "kind": kind,
+            "message": message,
+        }
+        if recovery is not None:
+            entry["recovery"] = recovery
+        self._errors.append(entry)
 
     def set_summary_report(self, path: Optional[Union[str, Path]]) -> None:
         self._summary_report = str(path) if path else None

@@ -18,6 +18,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import pytest
+
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
@@ -113,12 +115,13 @@ class TestTranscribeFlow(unittest.TestCase):
             captured["cmd"] = cmd
             out_prefix = Path(cmd[cmd.index("-of") + 1])
             payload = {
+                "result": {"language": "zh"},
                 "transcription": [
                     {
                         "text": " 各位觀眾大家好。",
                         "offsets": {"from": 0, "to": 2500},
                     }
-                ]
+                ],
             }
             Path(str(out_prefix) + ".json").write_text(json.dumps(payload), encoding="utf-8")
             return mock.MagicMock(returncode=0, stdout="", stderr="")
@@ -186,6 +189,7 @@ class TestTranscribeFlow(unittest.TestCase):
         self.assertAlmostEqual(seg["start"], 0.0)
         self.assertAlmostEqual(seg["end"], 2.5)
         self.assertEqual(res["model"], "tiny")
+        self.assertEqual(res["language"], "zh")
 
 
 class TestFactoryIntegration(unittest.TestCase):
@@ -235,6 +239,166 @@ class TestVadDefaultAndDllDetection(unittest.TestCase):
             with self.assertRaises(RuntimeError) as cm:
                 t._resolve_binary()
         self.assertIn("DLL", str(cm.exception))
+
+
+def _run_payload(payload, *, returncode=0, window_duration=None):
+    transcriber = cpp.WhisperCppTranscriber(model="tiny", device="cpu", binary=Path("fake.exe"))
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        wav = root / "input.wav"
+        wav.write_bytes(b"wav")
+        out_prefix = root / "out"
+        Path(str(out_prefix) + ".json").write_text(json.dumps(payload), encoding="utf-8")
+        with (
+            mock.patch.object(transcriber, "_resolve_binary", return_value=Path("fake.exe")),
+            mock.patch.object(transcriber, "_resolve_model", return_value=Path("ggml-tiny.bin")),
+            mock.patch.object(
+                cpp.subprocess,
+                "run",
+                return_value=mock.Mock(returncode=returncode, stdout="", stderr="boom"),
+            ),
+        ):
+            return transcriber._run_binary_on_wav(
+                wav,
+                out_prefix,
+                "zh",
+                None,
+                window_duration=window_duration,
+            )
+
+
+def test_binary_returns_official_detected_language_with_segments():
+    segments, language = _run_payload(
+        {
+            "result": {"language": "zh"},
+            "transcription": [{"text": "hello", "offsets": {"from": 0, "to": 1000}}],
+        }
+    )
+    assert language == "zh"
+    assert segments == [{"text": "hello", "start": 0.0, "end": 1.0}]
+
+
+@pytest.mark.parametrize("language", [None, 3, [], {}])
+def test_binary_rejects_non_string_detected_language(language):
+    with pytest.raises(ValueError, match="language"):
+        _run_payload({"result": {"language": language}, "transcription": []})
+
+
+def test_nonzero_return_is_rejected_even_when_json_exists():
+    transcriber = cpp.WhisperCppTranscriber(model="tiny", device="cpu", binary=Path("fake.exe"))
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        wav = root / "input.wav"
+        wav.write_bytes(b"wav")
+        out_prefix = root / "out"
+        Path(str(out_prefix) + ".json").write_text(
+            json.dumps(
+                {"transcription": [{"text": "partial", "offsets": {"from": 0, "to": 1000}}]}
+            ),
+            encoding="utf-8",
+        )
+        with (
+            mock.patch.object(transcriber, "_resolve_binary", return_value=Path("fake.exe")),
+            mock.patch.object(transcriber, "_resolve_model", return_value=Path("ggml-tiny.bin")),
+            mock.patch.object(
+                cpp.subprocess,
+                "run",
+                return_value=mock.Mock(returncode=1, stdout="", stderr="boom"),
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="exit=1"):
+                transcriber._run_binary_on_wav(wav, out_prefix, "zh", None)
+
+
+def test_malformed_offsets_are_rejected():
+    transcriber = cpp.WhisperCppTranscriber(model="tiny", device="cpu", binary=Path("fake.exe"))
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        wav = root / "input.wav"
+        wav.write_bytes(b"wav")
+        out_prefix = root / "out"
+        Path(str(out_prefix) + ".json").write_text(
+            json.dumps(
+                {"transcription": [{"text": "bad", "offsets": {"from": "nan", "to": 1000}}]}
+            ),
+            encoding="utf-8",
+        )
+        with (
+            mock.patch.object(transcriber, "_resolve_binary", return_value=Path("fake.exe")),
+            mock.patch.object(transcriber, "_resolve_model", return_value=Path("ggml-tiny.bin")),
+            mock.patch.object(
+                cpp.subprocess, "run", return_value=mock.Mock(returncode=0, stdout="", stderr="")
+            ),
+        ):
+            with pytest.raises(ValueError, match="offset"):
+                transcriber._run_binary_on_wav(wav, out_prefix, "zh", None)
+
+
+def test_success_without_json_is_rejected():
+    transcriber = cpp.WhisperCppTranscriber(model="tiny", device="cpu", binary=Path("fake.exe"))
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        wav = root / "input.wav"
+        wav.write_bytes(b"wav")
+        with (
+            mock.patch.object(transcriber, "_resolve_binary", return_value=Path("fake.exe")),
+            mock.patch.object(transcriber, "_resolve_model", return_value=Path("ggml-tiny.bin")),
+            mock.patch.object(
+                cpp.subprocess,
+                "run",
+                return_value=mock.Mock(returncode=0, stdout="", stderr=""),
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="exit=0"):
+                transcriber._run_binary_on_wav(wav, root / "out", "zh", None)
+
+
+@pytest.mark.parametrize("payload", [{}, {"transcription": None}, {"transcription": {}}])
+def test_transcription_must_be_a_list(payload):
+    with pytest.raises(ValueError, match="transcription must be a list"):
+        _run_payload(payload)
+
+
+@pytest.mark.parametrize(
+    "offsets",
+    [
+        {"from": "nan", "to": 1000},
+        {"from": 0, "to": "inf"},
+        {"from": None, "to": 1000},
+        {},
+    ],
+)
+def test_nonfinite_and_missing_offsets_are_rejected(offsets):
+    with pytest.raises(ValueError, match="offset"):
+        _run_payload({"transcription": [{"text": "bad", "offsets": offsets}]})
+
+
+@pytest.mark.parametrize(
+    "offsets",
+    [
+        {"from": -1, "to": 1000},
+        {"from": 2000, "to": 1000},
+        {"from": 0, "to": 60051},
+    ],
+)
+def test_offset_order_and_window_bounds_are_validated(offsets):
+    with pytest.raises(ValueError, match="offset"):
+        _run_payload(
+            {"transcription": [{"text": "bad", "offsets": offsets}]},
+            window_duration=60.0,
+        )
+
+
+def test_window_duration_tolerance_is_accepted():
+    segments, language = _run_payload(
+        {
+            "result": {"language": "zh"},
+            "transcription": [{"text": " tail ", "offsets": {"from": 59000, "to": 60050}}],
+        },
+        window_duration=60.0,
+    )
+    assert segments == [{"text": "tail", "start": 59.0, "end": 60.05}]
+    assert language == "zh"
 
 
 if __name__ == "__main__":

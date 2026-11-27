@@ -401,7 +401,7 @@ class TestSsrfSubmitRejected(unittest.TestCase):
         for url in ("http://127.0.0.1:8080/x", "http://169.254.169.254/"):
             r = self.client.post("/api/jobs", json={"urls": [url]})
             self.assertEqual(r.status_code, 400, url)
-            self.assertIn("SSRF", r.json()["detail"])
+            self.assertIn("SSRF", r.json()["detail"]["error"])
             r2 = self.client.post("/api/transcribe", json={"urls": [url]})
             self.assertEqual(r2.status_code, 400, url)
 
@@ -443,6 +443,8 @@ class TestLocalPathSource(unittest.TestCase):
             inside = ws / "clip.mp4"
             inside.write_bytes(b"x")
             fake = mock.MagicMock(name="Pipeline")
+            fake.settings = SimpleNamespace(engine="fake", model="small", device="cpu")
+            fake.transcriber = SimpleNamespace(vad_filter=True)
             fake.transcribe.return_value = SimpleNamespace(
                 engine="fake",
                 metadata={},
@@ -514,6 +516,7 @@ class TestJsonContentTypeRequired(unittest.TestCase):
 class TestRunBatchJobErrorHandling(unittest.TestCase):
     def test_exception_is_logged(self):
         import logging
+        from types import SimpleNamespace
 
         import app as app_module
 
@@ -526,10 +529,11 @@ class TestRunBatchJobErrorHandling(unittest.TestCase):
         # (「异常被记录」), 只是记录位置更精确。
         logger_name = "mediascribe.web.job_runner"
         with self.assertLogs(logging.getLogger(logger_name), level="ERROR"):
-            app_module._run_batch_job(FakeAP(), ["u"], {}, [], {})
+            app_module._run_batch_job(FakeAP(), ["u"], {}, [], {}, control=SimpleNamespace())
 
     def test_system_exit_propagates(self):
         import concurrent.futures
+        from types import SimpleNamespace
 
         import app as app_module
 
@@ -542,7 +546,15 @@ class TestRunBatchJobErrorHandling(unittest.TestCase):
         # 全新线程里跑，保证 asyncio.run 正常传播 SystemExit。
         with self.assertRaises(SystemExit):
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                pool.submit(app_module._run_batch_job, FakeAP(), ["u"], {}, [], {}).result()
+                pool.submit(
+                    app_module._run_batch_job,
+                    FakeAP(),
+                    ["u"],
+                    {},
+                    [],
+                    {},
+                    control=SimpleNamespace(),
+                ).result()
 
 
 # ---------------------------------------------------------------------------
@@ -557,13 +569,17 @@ class TestRunBatchJobZombieMapping(unittest.TestCase):
         from mediascribe.pipeline_async import _FailedResult
         from mediascribe.pipeline_stages import PipelineCancelled
         from mediascribe.progress import ProgressRegistry
+        from mediascribe.web.job_control import JobControl
+        from mediascribe.web.job_store import JobStore
 
         class FakeAP:
             async def run_batch(self, urls, runners=None, cancel_events=None):
                 return [_FailedResult("u", PipelineCancelled())]
 
         registry = ProgressRegistry()
-        job = registry.create("u")
+        control = JobControl(JobStore(Path(tempfile.mkdtemp()) / "jobs.sqlite3"), registry)
+        job = control.submit("u", request={}, selection={}, out_path=Path("out.md"))
+        control.start_attempt(job.job_id)
         app_module._run_batch_job(
             FakeAP(),
             ["u"],
@@ -571,6 +587,7 @@ class TestRunBatchJobZombieMapping(unittest.TestCase):
             [job.job_id],
             {},
             registry=registry,
+            control=control,
             job_ids_by_src={"u": job.job_id},
             job_sources={job.job_id: "u"},
         )
@@ -582,13 +599,17 @@ class TestRunBatchJobZombieMapping(unittest.TestCase):
 
         from mediascribe.pipeline_async import _FailedResult
         from mediascribe.progress import ProgressRegistry
+        from mediascribe.web.job_control import JobControl
+        from mediascribe.web.job_store import JobStore
 
         class FakeAP:
             async def run_batch(self, urls, runners=None, cancel_events=None):
                 return [_FailedResult("u", ValueError("boom"))]
 
         registry = ProgressRegistry()
-        job = registry.create("u")
+        control = JobControl(JobStore(Path(tempfile.mkdtemp()) / "jobs.sqlite3"), registry)
+        job = control.submit("u", request={}, selection={}, out_path=Path("out.md"))
+        control.start_attempt(job.job_id)
         app_module._run_batch_job(
             FakeAP(),
             ["u"],
@@ -596,10 +617,12 @@ class TestRunBatchJobZombieMapping(unittest.TestCase):
             [job.job_id],
             {},
             registry=registry,
+            control=control,
             job_ids_by_src={"u": job.job_id},
         )
         self.assertTrue(job.finished)
-        self.assertIn("ValueError", job.error or "")
+        self.assertEqual(job.error_code, "UNKNOWN")
+        self.assertNotIn("boom", job.error or "")
 
     def test_already_finished_jobs_are_skipped(self):
         import app as app_module
@@ -607,14 +630,18 @@ class TestRunBatchJobZombieMapping(unittest.TestCase):
         from mediascribe.pipeline_async import _FailedResult
         from mediascribe.pipeline_stages import PipelineCancelled
         from mediascribe.progress import ProgressRegistry
+        from mediascribe.web.job_control import JobControl
+        from mediascribe.web.job_store import JobStore
 
         class FakeAP:
             async def run_batch(self, urls, runners=None, cancel_events=None):
                 return [_FailedResult("u", PipelineCancelled())]
 
         registry = ProgressRegistry()
-        job = registry.create("u")
-        job.fail("original error")  # runner 已置终态(幂等保护的目标场景)
+        control = JobControl(JobStore(Path(tempfile.mkdtemp()) / "jobs.sqlite3"), registry)
+        job = control.submit("u", request={}, selection={}, out_path=Path("out.md"))
+        control.start_attempt(job.job_id)
+        control.finish(job.job_id, status="failed", error="original error")
         app_module._run_batch_job(
             FakeAP(),
             ["u"],
@@ -622,6 +649,7 @@ class TestRunBatchJobZombieMapping(unittest.TestCase):
             [job.job_id],
             {},
             registry=registry,
+            control=control,
             job_ids_by_src={"u": job.job_id},
         )
         self.assertEqual(job.error, "original error")

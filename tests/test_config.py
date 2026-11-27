@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 ###########################################################################
 # 迁入自 tests/test_coverage_gaps_2.py —— TestConfig(mediascribe.config)
 ###########################################################################
@@ -73,3 +75,89 @@ class TestDefaultEngine:
 
         expected = "faster-whisper" if find_spec("faster_whisper") else "whisper"
         assert default_engine() == expected
+
+    def test_default_engine_raises_when_no_asr_engine_is_installed(self, monkeypatch):
+        from mediascribe.config import default_engine
+
+        monkeypatch.setattr("mediascribe.config.find_spec", lambda _name: None)
+
+        with pytest.raises(RuntimeError) as exc_info:
+            default_engine()
+
+        assert getattr(exc_info.value, "code", None) == "ENGINE_UNAVAILABLE"
+
+    def test_settings_records_whisper_fallback_notice(self, tmp_path, monkeypatch):
+        from mediascribe.config import Settings
+
+        monkeypatch.setattr(
+            "mediascribe.config.find_spec",
+            lambda name: object() if name == "whisper" else None,
+        )
+
+        settings = Settings(workspace_root=tmp_path)
+
+        assert settings.engine == "whisper"
+        assert "faster-whisper" in settings.engine_notice
+
+    def test_explicit_engine_skips_auto_probe_and_notice(self, tmp_path, monkeypatch):
+        from mediascribe.config import Settings
+
+        monkeypatch.setattr("mediascribe.config.find_spec", lambda _name: None)
+
+        settings = Settings(workspace_root=tmp_path, engine="whisperx")
+
+        assert settings.engine == "whisperx"
+        assert settings.engine_notice == ""
+
+    def test_default_model_is_small_but_not_explicit(self, tmp_path):
+        from mediascribe.config import Settings
+
+        settings = Settings(workspace_root=tmp_path, engine="whisper", model=None)
+
+        assert settings.model == "small"
+        assert settings.requested_model == "auto"
+        assert settings.model_explicit is False
+
+    def test_explicit_selection_sources_are_recorded(self, tmp_path):
+        from mediascribe.config import Settings
+
+        settings = Settings(
+            workspace_root=tmp_path,
+            engine="whisper",
+            model="large-v3",
+            device="cuda",
+        )
+
+        assert settings.requested_engine == "whisper"
+        assert settings.requested_model == "large-v3"
+        assert settings.requested_device == "cuda"
+        assert settings.engine_explicit is True
+        assert settings.model_explicit is True
+        assert settings.device_explicit is True
+
+    def test_auto_model_is_not_explicit(self, tmp_path):
+        from mediascribe.config import Settings
+
+        settings = Settings(workspace_root=tmp_path, engine="whisper", model="auto")
+
+        assert settings.model == "auto"
+        assert settings.requested_model == "auto"
+        assert settings.model_explicit is False
+
+    def test_model_download_is_disabled_by_default(self, tmp_path):
+        from mediascribe.config import Settings
+
+        settings = Settings(workspace_root=tmp_path, engine="whisper")
+
+        assert settings.allow_model_download is False
+
+    def test_model_download_can_be_explicitly_authorized(self, tmp_path):
+        from mediascribe.config import Settings
+
+        settings = Settings(
+            workspace_root=tmp_path,
+            engine="whisper",
+            allow_model_download=True,
+        )
+
+        assert settings.allow_model_download is True

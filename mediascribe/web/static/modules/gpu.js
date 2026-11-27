@@ -1,5 +1,5 @@
 // GPU 状态指示：轮询 /api/health，每 5 秒刷新。
-import { authBadge, gpuLabel, gpuPill } from './dom.js';
+import { authBadge, gpuLabel, gpuPill, submit } from './dom.js';
 
 // 2026-10-31 交互审查 P2-6 + 独立盲审 P2-6:
 // 页面从不告诉用户「这台服务器要不要令牌」。/api/health 的 auth_enabled
@@ -29,8 +29,37 @@ function fmtMb(mb) {
   return Math.round(mb) + "M";
 }
 
+function renderReadiness(health, reachable = true) {
+  const el = document.getElementById("readiness");
+  if (!el) return;
+  const readiness = reachable ? health && health.readiness : null;
+  const status = readiness && readiness.status;
+  const state = status === "READY" ? "ready"
+    : status === "READY_WITH_WARNINGS" ? "warning"
+      : status === "BLOCKED" ? "blocked" : "unknown";
+  const labels = {
+    ready: "环境就绪",
+    warning: "可运行，有警告",
+    blocked: "环境阻塞",
+    unknown: "环境状态未知",
+  };
+  const details = [];
+  if (readiness && readiness.engine) {
+    details.push(`引擎 ${readiness.engine}`);
+    details.push(`模型 ${readiness.model || "small"}`);
+  }
+  if (readiness && Array.isArray(readiness.actions)) {
+    details.push(...readiness.actions);
+  }
+  el.className = "readiness " + state;
+  el.textContent = [labels[state], ...details].join(" · ");
+  submit.dataset.readiness = state;
+  submit.disabled = state === "blocked" || state === "unknown";
+}
+
 function renderGpuPill(health) {
   renderAuthBadge(health);
+  renderReadiness(health);
   const gpu = health && health.gpu;
   if (!gpu || !gpu.available) {
     gpuPill.className = "chip-status";
@@ -54,11 +83,13 @@ async function pollGpu() {
       gpuPill.className = "chip-status";
       gpuLabel.textContent = "CPU 模式";
       renderAuthBadge(null, false);
+      renderReadiness(null, false);
     }
   } catch (_) {
     gpuPill.className = "chip-status";
     gpuLabel.textContent = "离线";
     renderAuthBadge(null, false);
+    renderReadiness(null, false);
   }
 }
 

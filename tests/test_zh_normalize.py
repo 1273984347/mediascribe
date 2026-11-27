@@ -199,22 +199,32 @@ class TestEnginesInjectSimplifiedPrompt(unittest.TestCase):
         captured = {}
 
         class FakeWhisperXModel:
-            def transcribe(self, audio, **kwargs):
-                captured.update(kwargs)
+            def transcribe(self, audio, *, batch_size):
+                captured.update(batch_size=batch_size)
                 return {"segments": [], "language": "zh"}
 
+        model = FakeWhisperXModel()
         fake_module = mock.MagicMock()
         fake_module.load_audio.return_value = b"audio"
-        fake_module.load_model.return_value = FakeWhisperXModel()
+        fake_module.load_model.return_value = model
 
         import importlib
 
         mod = importlib.import_module("mediascribe.transcribers.whisperx")
+        mod.clear_model_cache()
+        self.addCleanup(mod.clear_model_cache)
         inst = mod.WhisperXTranscriber(model="small", device="cpu")
         with mock.patch.dict(sys.modules, {"whisperx": fake_module}):
-            with mock.patch.object(mod, "_get_cached_model", return_value=FakeWhisperXModel()):
-                inst.transcribe(Path("dummy.wav"), language="zh")
-        self.assertEqual(captured.get("initial_prompt"), SIMPLIFIED_ZH_PROMPT)
+            inst.transcribe(Path("dummy.wav"), language="zh")
+
+        fake_module.load_model.assert_called_once_with(
+            "small",
+            "cpu",
+            compute_type="int8",
+            language="zh",
+            asr_options={"initial_prompt": SIMPLIFIED_ZH_PROMPT},
+        )
+        self.assertEqual(captured, {"batch_size": 16})
 
 
 if __name__ == "__main__":

@@ -10,13 +10,21 @@
 
 from __future__ import annotations
 
+import json
+import sqlite3
 import tempfile
+import threading
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import pytest
+
+from mediascribe.web import job_store
+from mediascribe.web.job_events import CheckpointConflict, JobEvent
 from mediascribe.web.job_store import JobStore
 
 try:
@@ -27,6 +35,255 @@ try:
     _HAS_FASTAPI = True
 except ImportError:  # pragma: no cover - optional
     _HAS_FASTAPI = False
+
+
+def _durable_event(
+    event_id: str = "evt-1",
+    *,
+    job_id: str = "j1",
+    attempt_id: str = "a1",
+    seq: int = 1,
+    payload: dict | None = None,
+) -> JobEvent:
+    return JobEvent(
+        event_id=event_id,
+        job_id=job_id,
+        attempt_id=attempt_id,
+        seq=seq,
+        type="segment_committed",
+        payload=payload or {"segment_index": 0, "text": "hello"},
+        created_at=10.0,
+    )
+
+
+def _durable_segment(*, attempt_id: str = "a1", text: str = "hello") -> dict:
+    return {
+        "job_id": "j1",
+        "segment_index": 0,
+        "attempt_id": attempt_id,
+        "start": 0.0,
+        "end": 1.0,
+        "text": text,
+        "text_sha256": "text-hash",
+        "engine": "faster-whisper",
+        "model": "small",
+        "decode_params_hash": "params-hash",
+    }
+
+
+@pytest.mark.parametrize(
+    ("finished", "cancelled", "error", "expected"),
+    [
+        (0, 0, None, "queued"),
+        (0, 0, "boom", "queued"),
+        (1, 0, None, "succeeded"),
+        (1, 0, "boom", "failed"),
+        (1, 0, "interrupted: restart", "interrupted"),
+        (0, 1, "interrupted: restart", "cancelled"),
+    ],
+)
+def test_legacy_status_backfill(tmp_path: Path, finished, cancelled, error, expected):
+    db = tmp_path / "jobs.sqlite3"
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "CREATE TABLE jobs (job_id TEXT PRIMARY KEY, url TEXT NOT NULL, "
+            "stage TEXT, finished INTEGER NOT NULL DEFAULT 0, "
+            "cancelled INTEGER NOT NULL DEFAULT 0, error TEXT, out_path TEXT, "
+            "engine TEXT, title TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL)"
+        )
+        conn.execute(
+            "INSERT INTO jobs (job_id, url, finished, cancelled, error, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("old", "u", finished, cancelled, error, 1.0, 1.0),
+        )
+
+    assert JobStore(db).get_snapshot("old")["status"] == expected
+
+
+def test_migration_failure_rolls_back_all_schema_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    db = tmp_path / "jobs.sqlite3"
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "CREATE TABLE jobs (job_id TEXT PRIMARY KEY, url TEXT NOT NULL, "
+            "stage TEXT, finished INTEGER NOT NULL DEFAULT 0, "
+            "cancelled INTEGER NOT NULL DEFAULT 0, error TEXT, out_path TEXT, "
+            "engine TEXT, title TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL)"
+        )
+        conn.execute(
+            "INSERT INTO jobs (job_id, url, created_at, updated_at) VALUES (?, ?, ?, ?)",
+            ("old", "u", 1.0, 1.0),
+        )
+
+    class FailingMigrationConnection(sqlite3.Connection):
+        alter_count = 0
+
+        def execute(self, sql, parameters=()):
+            if sql.lstrip().upper().startswith("ALTER TABLE JOBS ADD COLUMN"):
+                self.alter_count += 1
+                if self.alter_count == 3:
+                    raise sqlite3.OperationalError("injected migration failure")
+            return super().execute(sql, parameters)
+
+    real_connect = sqlite3.connect
+
+    def failing_connect(*args, **kwargs):
+        kwargs["factory"] = FailingMigrationConnection
+        return real_connect(*args, **kwargs)
+
+    monkeypatch.setattr(job_store.sqlite3, "connect", failing_connect)
+    with pytest.raises(sqlite3.OperationalError, match="injected migration failure"):
+        JobStore(db)
+
+    with real_connect(db) as conn:
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+            )
+        }
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(jobs)")]
+        legacy_row = conn.execute("SELECT job_id, url FROM jobs").fetchone()
+
+    assert tables == {"jobs"}
+    assert columns == [
+        "job_id",
+        "url",
+        "stage",
+        "finished",
+        "cancelled",
+        "error",
+        "out_path",
+        "engine",
+        "title",
+        "created_at",
+        "updated_at",
+    ]
+    assert legacy_row == ("old", "u")
+
+
+def test_migration_does_not_reset_durable_status_on_reopen(tmp_path: Path):
+    db = tmp_path / "jobs.sqlite3"
+    store = JobStore(db)
+    assert store.commit_event(_durable_event(), snapshot={"url": "u", "status": "running"})
+
+    assert JobStore(db).get_snapshot("j1")["status"] == "running"
+
+
+def test_commit_event_can_create_job_from_url_only_snapshot(tmp_path: Path):
+    store = JobStore(tmp_path / "jobs.sqlite3")
+
+    assert store.commit_event(_durable_event(), snapshot={"url": "u"}) is True
+    assert store.get_snapshot("j1")["url"] == "u"
+
+
+def test_identical_segment_content_is_idempotent_across_attempts(tmp_path: Path):
+    store = JobStore(tmp_path / "jobs.sqlite3")
+    store.upsert("j1", "u")
+    assert store.commit_event(_durable_event(), segment=_durable_segment())
+
+    assert (
+        store.commit_event(
+            _durable_event("evt-2", attempt_id="a2", seq=2),
+            segment=_durable_segment(attempt_id="a2"),
+        )
+        is True
+    )
+    rows = store.get_segments("j1")
+    assert len(rows) == 1
+    assert rows[0]["attempt_id"] == "a1"
+    assert store.next_event_seq("j1") == 3
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("text", "changed"),
+        ("start", 0.5),
+        ("end", 1.5),
+        ("text_sha256", "changed-hash"),
+        ("engine", "whisper"),
+        ("model", "large-v3"),
+        ("decode_params_hash", "changed-params"),
+    ],
+)
+def test_segment_content_conflict_rolls_back_event_and_snapshot(tmp_path: Path, field: str, value):
+    store = JobStore(tmp_path / "jobs.sqlite3")
+    store.upsert("j1", "u")
+    assert store.commit_event(
+        _durable_event(),
+        snapshot={"status": "running", "committed_segments": 1},
+        segment=_durable_segment(),
+    )
+    changed = _durable_segment(attempt_id="a2")
+    changed[field] = value
+
+    with pytest.raises(CheckpointConflict):
+        store.commit_event(
+            _durable_event("evt-2", attempt_id="a2", seq=2),
+            snapshot={"status": "failed", "committed_segments": 2},
+            segment=changed,
+        )
+
+    assert store.get_snapshot("j1")["status"] == "running"
+    assert store.get_snapshot("j1")["committed_segments"] == 1
+    assert store.get_segments("j1")[0]["text"] == "hello"
+    assert store.next_event_seq("j1") == 2
+
+
+def test_reused_event_sequence_is_reallocated_for_new_event_id(tmp_path: Path):
+    store = JobStore(tmp_path / "jobs.sqlite3")
+    store.upsert("j1", "u")
+    assert store.commit_event(_durable_event())
+
+    assert store.commit_event(_durable_event("evt-2")) is True
+    assert store.next_event_seq("j1") == 3
+
+
+def test_concurrent_store_instances_allocate_distinct_sequences(tmp_path: Path):
+    db = tmp_path / "jobs.sqlite3"
+    first = JobStore(db)
+    second = JobStore(db)
+    first.upsert("j1", "u")
+    barrier = threading.Barrier(2)
+
+    def commit(store, event):
+        barrier.wait()
+        return store.commit_event(event)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(
+            executor.map(
+                commit,
+                (first, second),
+                (_durable_event("evt-1"), _durable_event("evt-2")),
+            )
+        )
+
+    assert results == [True, True]
+    assert first.next_event_seq("j1") == 3
+
+
+def test_get_latest_event_payload_returns_none_for_missing_job_or_type(tmp_path: Path):
+    store = JobStore(tmp_path / "jobs.sqlite3")
+    store.upsert("j1", "u")
+    store.commit_event(_durable_event(payload={"status": "succeeded", "result": {"x": 1}}))
+
+    assert store.get_latest_event_payload("missing", "attempt_finished") is None
+    assert store.get_latest_event_payload("j1", "cancel_requested") is None
+    assert store.get_latest_event_payload("j1", "segment_committed") == {
+        "status": "succeeded",
+        "result": {"x": 1},
+    }
+
+
+def test_next_event_seq_starts_at_zero_and_tracks_commits(tmp_path: Path):
+    store = JobStore(tmp_path / "jobs.sqlite3")
+    assert store.next_event_seq("j1") == 0
+    store.upsert("j1", "u")
+    assert store.commit_event(_durable_event(seq=4))
+    assert store.next_event_seq("j1") == 5
 
 
 class TestJobStoreBasics(unittest.TestCase):
@@ -59,19 +316,63 @@ class TestJobStoreBasics(unittest.TestCase):
         self.store.mark_terminal("j2", finished=True)
         self.assertEqual(self.store.get("j2")["error"], "boom")
 
+    def test_recover_interrupted_preserves_checkpoint_and_marks_resumable(self):
+        store = JobStore(Path(self._tmp.name) / "jobs.sqlite3")
+        store.upsert("j1", "u", out_path="out/a.md")
+        store.commit_event(
+            JobEvent(
+                event_id="e1",
+                job_id="j1",
+                attempt_id="a1",
+                seq=1,
+                type="attempt_started",
+                payload={},
+                created_at=time.time(),
+            ),
+            snapshot={
+                "status": "running",
+                "attempt_id": "a1",
+                "audio_path": "audio/a.wav",
+                "audio_sha256": "hash",
+                "decode_params_hash": "params",
+                "selection_json": '{"engine":"faster-whisper","model":"small"}',
+            },
+        )
+        from mediascribe.progress import ProgressRegistry
+        from mediascribe.web.job_control import JobControl
+
+        count = JobControl(store, ProgressRegistry()).recover_interrupted()
+        row = store.get_snapshot("j1")
+        assert count == 1
+        assert row["status"] == "interrupted"
+        assert row["finished"] == 1
+        assert row["resumable"] == 1
+        assert row["audio_sha256"] == "hash"
+        assert row["attempt_id"] == "a1"
+        assert store.get_latest_event_payload("j1", "job_interrupted") == {"resumable": True}
+        assert store.next_event_seq("j1") == 3
+        assert JobControl(store, ProgressRegistry()).recover_interrupted() == 0
+        assert store.next_event_seq("j1") == 3
+
     def test_recover_unfinished_marks_lost(self):
+        from mediascribe.progress import ProgressRegistry
+        from mediascribe.web.job_control import JobControl
+
+        control = JobControl(self.store, ProgressRegistry())
         self.store.upsert("a", "u1")
         self.store.upsert("b", "u2")
         self.store.mark_terminal("b", finished=True)
-        n = self.store.recover_unfinished()
+        n = control.recover_interrupted()
         self.assertEqual(n, 1)
         a = self.store.get("a")
+        self.assertEqual(a["status"], "interrupted")
         self.assertEqual(a["finished"], 1)
+        self.assertEqual(a["resumable"], 0)
         self.assertIn("interrupted", a["error"])
         # 已终态的行不动
         self.assertIsNone(self.store.get("b")["error"])
         # 重放幂等
-        self.assertEqual(self.store.recover_unfinished(), 0)
+        self.assertEqual(control.recover_interrupted(), 0)
 
     def test_purge_keeps_running_jobs(self):
         self.store.upsert("old", "u1")
@@ -106,10 +407,21 @@ class _WritingPipeline:
     """transcribe 时把 markdown 落盘的假管线(模拟 with_progress 的 output 透传)。"""
 
     engine = "fake"
+    model = "small"
+    settings = SimpleNamespace(engine=engine, model=model, device="cpu")
+    transcriber = SimpleNamespace(vad_filter=True)
 
     def transcribe(self, url, output=None, **kwargs):
-        Path(output).write_text("# fake transcript\n", encoding="utf-8")
-        return SimpleNamespace(engine="fake", metadata={"title": "Fake Title"})
+        out_path = Path(output)
+        out_path.write_text("# fake transcript\n", encoding="utf-8")
+        return SimpleNamespace(
+            engine="fake",
+            model="small",
+            transcript_path=out_path,
+            duration_seconds=1.0,
+            source=SimpleNamespace(display_name="fake input"),
+            metadata={"title": "Fake Title", "engine": "fake", "model": "small"},
+        )
 
 
 @unittest.skipUnless(_HAS_FASTAPI, "fastapi not installed")
@@ -193,6 +505,73 @@ class TestRestartRecovery(unittest.TestCase):
                 store = getattr(app.state, "job_store", None)
                 if store is not None:
                     store.close()
+
+
+def test_get_segment_returns_one_indexed_entry(tmp_path: Path):
+    store = JobStore(tmp_path / "jobs.sqlite3")
+    store.upsert("j1", "u")
+    store.commit_event(
+        JobEvent("e1", "j1", "a1", 1, "segment_committed", {}, 1.0),
+        segment={
+            "job_id": "j1",
+            "segment_index": 0,
+            "attempt_id": "a1",
+            "start": 0.0,
+            "end": 1.0,
+            "text": "one",
+            "text_sha256": "hash",
+            "engine": "faster-whisper",
+            "model": "small",
+            "decode_params_hash": "params",
+        },
+    )
+    assert store.get_segment("j1", 0)["text"] == "one"
+    assert store.get_segment("j1", 1) is None
+
+
+def test_window_columns_and_words_are_additive_and_persisted(tmp_path: Path):
+    store = JobStore(tmp_path / "jobs.sqlite3")
+    store.upsert("j1", "u")
+    words = [{"word": "hello", "start": 0.0, "end": 0.5, "score": 0.9}]
+    assert store.commit_event(
+        _durable_event(),
+        snapshot={
+            "checkpoint_mode": "window",
+            "checkpoint_window_seconds": 60,
+            "checkpoint_overlap_seconds": 2,
+            "checkpoint_cursor": 60.0,
+            "checkpoint_window_index": 0,
+            "active_checkpoint_window": None,
+            "audio_duration": 119.0,
+            "runtime_auth_required": 0,
+        },
+        segment={**_durable_segment(), "words_json": json.dumps(words)},
+    )
+
+    snapshot = JobStore(tmp_path / "jobs.sqlite3").get_snapshot("j1")
+    segment = store.get_segments("j1")[0]
+    assert snapshot["checkpoint_cursor"] == 60.0
+    assert snapshot["checkpoint_window_index"] == 0
+    assert snapshot["audio_duration"] == 119.0
+    assert json.loads(segment["words_json"]) == words
+
+
+def test_existing_segment_table_gets_words_column_without_losing_rows(tmp_path: Path):
+    db = tmp_path / "jobs.sqlite3"
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "CREATE TABLE job_segments (job_id TEXT, segment_index INTEGER, attempt_id TEXT, "
+            "start REAL, end REAL, text TEXT, text_sha256 TEXT, engine TEXT, model TEXT, "
+            "decode_params_hash TEXT, created_at REAL, PRIMARY KEY(job_id, segment_index))"
+        )
+        conn.execute(
+            "INSERT INTO job_segments VALUES ('j1', 0, 'a1', 0, 1, 'hello', 'h', "
+            "'whisper', 'small', 'p', 1.0)"
+        )
+
+    store = JobStore(db)
+    assert store.get_segments("j1")[0]["text"] == "hello"
+    assert store.get_segments("j1")[0]["words_json"] is None
 
 
 if __name__ == "__main__":

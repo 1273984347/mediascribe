@@ -23,6 +23,12 @@ def _base_dep_names():
     return [d.split(">")[0].split("<")[0].strip() for d in _PYPROJECT["project"]["dependencies"]]
 
 
+def test_whisperx_floor_is_official_388():
+    extras = _PYPROJECT["project"]["optional-dependencies"]
+    whisperx_specs = [spec for spec in extras["whisperx"] if spec.startswith("whisperx")]
+    assert whisperx_specs == ["whisperx>=3.8.6,<4"]
+
+
 class TestEngineStackIsOptional(unittest.TestCase):
     def test_base_deps_have_no_engine_stack(self):
         names = _base_dep_names()

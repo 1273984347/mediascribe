@@ -17,14 +17,16 @@ There is no standalone `coverage` job since 2026-11-21: it duplicated
 the `unit` selection exactly, so `pytest --cov` now runs **inside**
 `unit` (one install, one test pass).
 
-Dependencies install via **`uv sync --locked`** since 2026-11-22
-(`uv.lock` pins 207 packages — CI fails if the lock is stale versus
-`pyproject.toml`).  `integration` no longer runs the whole unit suite
-on every push: it runs only the 15 real-URL E2E tests (`-m integration`),
-except the **Windows py3.11 cell which keeps the full suite** as the
-per-push Windows regression guard.  WhisperX is installed only in the
-nightly (schedule) run and the tag/develop matrix — no test imports it
-directly.
+Test jobs install through **pip + cache**. The integration job runs the
+`integration` selection on Ubuntu and Windows; those tests primarily exercise
+URL parsing and do not install Playwright Chromium. The Windows py3.11 cell
+keeps the full non-network suite as a regression guard. WhisperX is installed
+only for nightly/tag coverage.
+
+The release workflow builds sdist/wheel, prepares an offline wheelhouse and a
+fixed faster-whisper model revision, then runs
+`scripts/gates/first_success_gate.py` in a fresh venv against the golden local
+WAV. PyPI and GitHub publishing depend on that first-success gate.
 
 Measured wall times for main-push `Tests` runs (diagnosis report:
 `output/reports/ci-perf-diagnosis-2026-11-22.md`): 6m43s (pre-4811cff)

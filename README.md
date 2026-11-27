@@ -1,11 +1,11 @@
 <div align="center">
-  <img src="docs/assets/banner-c1-video-to-text.jpg" alt="MediaScribe — offline video transcription / 本地视频转文字" width="100%" />
+  <img src="docs/assets/banner-c1-video-to-text.jpg" alt="MediaScribe — local-ASR video transcription / 本地 ASR 视频转文字" width="100%" />
 </div>
 
 # MediaScribe
 
-> **Offline video transcription tool** - Convert videos to text using local AI models
-> **离线视频转文字工具** - 使用本地 AI 模型将视频转换为文字
+> **Local-ASR video transcription tool** - Convert videos to text using local AI models
+> **本地 ASR 视频转文字工具** - 使用本地 AI 模型将视频转换为文字
 
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -19,81 +19,96 @@
 [English](#english) | [中文](#中文)
 
 > 🤖 **Built for AI coding agents** — MCP server, stable JSON output mode
-> (schema `video2text.agent-output/v1`), and a Copilot instructions file.
+> (schema `mediascribe.agent-output/v1`), and a Copilot instructions file.
 > See [🤖 AI Agent Compatibility](#-ai-agent-compatibility).
 
 ---
 
 ## English
 
-**MediaScribe** is a powerful offline video transcription tool that downloads videos from multiple platforms (Bilibili, Douyin, YouTube, Xiaohongshu, WeChat MP) and transcribes them using local AI models (Whisper, WhisperX, whisper.cpp). Fully offline by default — no cloud services, no API keys, no data leaves your machine. (Optional LLM post-processing sends transcript text to the OpenAI-compatible API you configure; it is off by default — see the `[llm]` extra.)
+**MediaScribe** is a powerful local-ASR video transcription tool that downloads videos from multiple platforms (Bilibili, Douyin, YouTube, Xiaohongshu, WeChat MP) and transcribes them using local AI models (Whisper, faster-whisper, WhisperX, whisper.cpp). ASR inference runs on your machine by default. URL downloads and model-weight acquisition require network access; local files with pre-provisioned weights can run fully offline. Optional LLM post-processing is an explicit opt-in, off by default, and sends truncated transcript text plus the title and source URL to the OpenAI-compatible API you configure.
 
 ### ✨ Key Features
 
 - 🎬 **Multi-Platform Support** - Bilibili, Douyin, YouTube, Xiaohongshu, WeChat MP, local files
-- 🌍 **Offline by Default** - Local AI models, no data uploaded (LLM post-processing is an explicit opt-in, off by default)
+- 🌍 **Local ASR by Default** - Inference stays on your machine; URL downloads and model-weight acquisition need network access (LLM post-processing is an explicit opt-in, off by default)
 - 🚀 **No Cookies Required** - Smart URL extraction bypasses authentication
-- 🤖 **Multiple AI Engines** - Whisper, faster-whisper, WhisperX, whisper.cpp
+- 🤖 **Multiple AI Engines** - faster-whisper + small by default; whisper compatibility fallback with a notice; WhisperX is opt-in
 - 📝 **Markdown Output** - Structured transcripts with metadata
 - 🔄 **Batch Processing** - Download entire creator's content
 - 🛡️ **Production Ready** - Logging, error handling, resume support
-- 🎙️ **VAD chunking** (v3.2.0a) — `webrtcvad`-driven boundaries for long videos with 5 s overlap
-- 💾 **Cross-run cache** (v3.2.0a) — XDG-spec disk cache with LRU + TTL, `MEDIASCRIBE_CACHE_DIR` override
+- 🎙️ **Optional VAD chunking** (Python API) — `[vad]` enables `webrtcvad` boundaries only when a caller requests them; normal `transcribe` is unchanged
+- 💾 **Opt-in download cache** — persistent cross-run download caching is off by default; `MEDIASCRIBE_CACHE_DIR` sets the download/chunk cache root
 - 📊 **`profile` CLI** (v3.2.0a) — `python -m mediascribe profile <run.jsonl>` to Markdown / JSON
 - 🧠 **ASR 自动学习** (v3.2.0b) — `python -m mediascribe learn` 从用户校对累积术语库,越用越准
-- 📡 **WebSocket progress** (v3.2.0a) — `/ws/progress/{job_id}` streams 3-bar download / transcribe / assemble updates
+- 📡 **Six-stage WebSocket progress** (v3.4.0) — preflight / model prepare / download / extract audio / transcribe / assemble; stage-level, not measured intra-stage percentages
 
 ### 🚀 Quick Start
 
 #### Installation
 
 ```bash
-# Clone the repository
+# PyPI minimal install (default ASR engine)
+pip install "mediascribe[faster-whisper]"
+
+# Web UI / MCP minimal installs also include faster-whisper
+pip install "mediascribe[web,faster-whisper]"
+pip install "mediascribe[mcp,faster-whisper]"
+
+# Source install
 git clone https://github.com/1273984347/mediascribe.git
 cd mediascribe
+pip install -e ".[faster-whisper]"
 
-# Install dependencies (P2-4: base install is the orchestration layer only)
+# Full source/development shim (not a pure base-dependency list):
+# expands to -e .[web,faster-whisper,whisper,mcp]
 pip install -r requirements.txt
-
-# ASR engine stack — opt in (torch ≈ 2GB; faster-whisper is the default engine
-# when installed and ~3.5x faster than openai-whisper)
-pip install -e ".[whisper]"          # openai-whisper engine (torch stack)
-pip install -e ".[faster-whisper]"   # recommended default engine
 
 # Install Playwright browser (for Douyin/Bilibili)
 playwright install chromium
 
 # Optional extras:
-pip install -e ".[ocr]"    # WeChat MP image-article OCR (+~150 packages)
-pip install -e ".[vad]"    # smart chunking VAD
-pip install -e ".[llm]"    # LLM post-processing (OpenAI-compatible API)
+pip install "mediascribe[all]"    # ASR engines + OCR + MCP + Web + LLM; excludes [vad]
+pip install "mediascribe[vad]"    # Python API VAD chunking only; normal transcribe is unchanged
+pip install "mediascribe[ocr]"    # WeChat MP image-article OCR (+~150 packages)
+pip install "mediascribe[llm]"    # LLM post-processing (OpenAI-compatible API)
 
-# NVIDIA GPU: install CUDA torch for a multi-x speedup (PyPI default is CPU-only)
+# NVIDIA GPU for the optional OpenAI Whisper torch stack:
 pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
 # then run with: python -m mediascribe transcribe <URL> --device cuda
 ```
 
+Package installation does not download ASR model weights. Normal `transcribe`
+and `verify` also leave downloads off unless `--allow-model-download` is passed.
+
 #### Single Video Transcription
 
 ```bash
-# From URL
-python -m mediascribe transcribe "https://www.bilibili.com/video/BV1Nd596vEyU"
+# Online first use: explicitly authorize missing model weights
+python -m mediascribe transcribe "https://www.bilibili.com/video/BV1Nd596vEyU" \
+  --allow-model-download
 
-# From local file
+# From local file (weights must already be provisioned unless download is allowed)
 python -m mediascribe transcribe "video.mp4" --language zh
 
-# 指定模型 / 设备（默认模型 small；中文推荐 large-v3）
+# Offline path: pre-provision weights, verify readiness, then transcribe locally
+python -m mediascribe doctor --offline
+python -m mediascribe transcribe "video.mp4" --language zh
+
+# 指定模型 / 设备（默认 faster-whisper + small；large-v3 是模型，不是引擎）
 python -m mediascribe transcribe "video.mp4" --model large-v3 --device cuda
 
 # 模型按音频时长自动推荐（粤语 -l yue 恒选 large-v3）
 python -m mediascribe transcribe "video.mp4" --model auto
 
-# 分段 + 每段 [mm:ss] 时间戳
+# 默认按 ASR 语音边界分段；--timestamps 额外给每段加 [mm:ss]
 python -m mediascribe transcribe "video.mp4" --timestamps
 
 # 双模型交叉校对(生成 <转录稿>.crosscheck.md 复核清单)+ 成功后自动清理中间媒体
 # 存疑复核(审校场景): 第三采样重转同一条音频, 对 crosscheck 分歧逐条给出第三方证据
 python -m mediascribe verify output/transcripts/<转录稿>.md
+# 在线且缺少复核权重时显式授权下载：
+python -m mediascribe verify output/transcripts/<转录稿>.md --allow-model-download
 python -m mediascribe transcribe "https://..." --cross-check small --cleanup-media
 
 # 常用参数持久化到配置文件（CLI 显式参数优先）
@@ -105,11 +120,13 @@ python -m mediascribe doctor
 
 > **Output quality (v3.4.0).** Transcripts now use the platform's real
 > title as H1, aggregate author/duration/source-URL into a header block,
-> and split the body into paragraphs along ASR speech boundaries (no more
-> unpunctuated text walls). Add `--timestamps` for per-paragraph
-> `[mm:ss]` markers; enable `MEDIASCRIBE_LLM_ENABLED=1` for optional
-> LLM punctuation/paragraph polishing. The newest transcript path is
-> always written to `output/LATEST.txt`.
+> and split the body into paragraphs along ASR speech boundaries. Timestamp
+> prefixes are off by default; add `--timestamps` for per-paragraph `[mm:ss]`
+> markers. Optional LLM punctuation/paragraph polishing is an explicit opt-in:
+> it sends truncated transcript text plus the title and source URL to your
+> configured API. The newest default artifact path is written to
+> `output/LATEST.txt`; depending on the latest run, that may be a single
+> transcript or an archive summary report.
 
 #### Batch Transcription (Creator's Archive)
 
@@ -162,16 +179,17 @@ mediascribe/
     ├── audio/           # extracted audio
     ├── transcripts/     # <base>-<timestamp>.md transcripts
     ├── metadata/        # run metadata (json, one per transcript)
-    ├── LATEST.txt       # pointer to the newest transcript
+    ├── LATEST.txt       # pointer to newest transcript or archive summary
     └── wiki/            # human-reviewed deliverables (审校稿)
 ```
 
 > **Transcription output.** Local runs write flat, per-type artifacts under
-> `output/`: source media in `downloads/` (reused across runs), extracted
-> audio in `audio/`, the transcript in `transcripts/` — named after the
-> source (e.g. `douyin_<video_id>-<timestamp>.md`) — run metadata in
-> `metadata/`, and `LATEST.txt` pointing at the newest transcript.
-> Human-reviewed deliverables (审校稿) live in `output/wiki/`.
+> `output/`: source media in `downloads/`, extracted audio in `audio/`, the
+> transcript in `transcripts/` — named after the source with a timestamp
+> (e.g. `douyin_<video_id>-<timestamp>.md`) — and run metadata in `metadata/`.
+> `LATEST.txt` points at the newest default artifact, which may be a single
+> transcript or an archive summary. Persistent download caching is opt-in and
+> off by default. Human-reviewed deliverables (审校稿) live in `output/wiki/`.
 
 ### 🧪 Testing
 
@@ -214,8 +232,8 @@ designed to be machine-readable and deterministic.
 Expose MediaScribe to any MCP-aware agent as native tools:
 
 ```bash
-# Install MCP SDK (optional, the stdio server is dependency-free)
-pip install mcp
+# Minimal MCP install includes the default ASR engine
+pip install "mediascribe[mcp,faster-whisper]"
 
 # Register in your agent's MCP config
 # Claude Code / Cursor / Cline:
@@ -231,22 +249,25 @@ pip install mcp
 
 Tools exposed: `transcribe_video`, `batch_transcribe_creator`,
 `get_cache_stats`, `validate_url`, `sanitize_filename`, `detect_platform`,
-`get_transcript`, `transcribe_wechat_mp`. The server works over **stdio**
-(default) or **HTTP** (`--transport http --port 8765`) and uses the official
-MCP spec (`protocolVersion: 2024-11-05`).
+`get_transcript`, `wiki_list`, `wiki_read_note`, `transcribe_wechat_mp`. The
+server works over **stdio** (default) or **HTTP** (`--transport http --port 8765`)
+and uses the official MCP spec (`protocolVersion: 2024-11-05`). The minimal
+stdio transport can run without the official SDK; `[mcp]` installs it.
 
 #### MCP tools reference
 
 | Tool | Purpose | Required params | Optional params |
 |------|---------|-----------------|-----------------|
-| `transcribe_video` | Transcribe a single video URL or local file | `url_or_path` | `engine`, `language`, `output` |
-| `batch_transcribe_creator` | Batch-process a creator's videos | `creator_url` | `max_videos`, `engine` |
-| `transcribe_wechat_mp` | Extract text / OCR / video from a WeChat MP article | `url` | `ocr_engine`, `ocr_lang`, `save_images` |
+| `transcribe_video` | Transcribe a single video URL or local file | `source` | `engine`, `language`, `whisper_model`, `allow_model_download`, `output_dir` |
+| `batch_transcribe_creator` | Batch-process a creator's videos | `user_url` or `from_video` | `max_videos`, `language`, `engine`, `allow_model_download`, `output_dir` |
+| `transcribe_wechat_mp` | Extract text / OCR / video from a WeChat MP article | `url` | `cookies`, `cookies_file`, `whisper_model`, `engine`, `allow_model_download`, `output_dir`, `ocr_engine`, `ocr_lang`, `save_images` |
 | `detect_platform` | Identify platform from URL | `url` | – |
 | `validate_url` | Validate a URL is supported | `url` | – |
 | `get_transcript` | Read a previously written `.md` transcript | `path` | – |
-| `get_cache_stats` | Inspect local cache (size, hit rate) | – | – |
+| `get_cache_stats` | Inspect batch cache counts (total / success / failed / skipped) | – | – |
 | `sanitize_filename` | Convert arbitrary string to safe filename | `name` | – |
+| `wiki_list` | List local wiki-vault notes and index | – | – |
+| `wiki_read_note` | Read one sandboxed wiki note | `name` | – |
 
 ### Supported platforms
 
@@ -274,10 +295,10 @@ If every engine is missing on the host, the article is still saved with
 
 ### Bilingual JSON output (`--bilingual-json`)
 
-In addition to the stable English constants emitted by `--json`, the
-`--bilingual-json` flag attaches localised human labels alongside each
-constant. The locale is recorded per-field so downstream agents can
-detect language without parsing the label value:
+This flag is supported by `archive` / `mediascribe-batch` only. In addition to
+the stable English constants emitted by `--json`, it attaches localised human
+labels alongside each constant. The locale is recorded per-field so downstream
+agents can detect language without parsing the label value:
 
 ```json
 {
@@ -309,11 +330,13 @@ mediascribe-batch --user <URL> --platform youtube --platform wechat_mp --json
 
 ### Structured JSON output (`--json`)
 
-Every CLI invocation supports `--json` for agents that prefer to invoke the
-binary directly. Human-readable output is silenced and a single
-`mediascribe.agent-output/v1` document is emitted to stdout:
+`--json` is supported by **`archive` and `mediascribe-batch` only**; it is not a
+universal flag for every CLI command. In those two entry points, human-readable
+output is silenced and a single `mediascribe.agent-output/v1` document is
+emitted to stdout:
 
 ```bash
+python -m mediascribe archive --user <URL> --json
 mediascribe-batch --user <URL> --json
 # {
 #   "schema": "mediascribe.agent-output/v1",
@@ -336,11 +359,29 @@ mediascribe-batch --user <URL> --json
 The schema is **stable v1** and documented in
 [`mediascribe/agent_output.py`](mediascribe/agent_output.py).
 
+### Local events and metrics
+
+Privacy-whitelisted lifecycle events stay in a local SQLite database and are
+retained for **90 days** by default:
+
+```bash
+python -m mediascribe events list
+python -m mediascribe events export --output output/events.json
+python -m mediascribe events metrics
+python -m mediascribe events clear
+```
+
+`clear` removes history but preserves the install identity and first-run marker.
+Metrics count distinct installs: submission/success rates divide by new
+installations, open rate by successful installs, and recovery success rate by
+installs that selected a recovery action. Internal-test events are excluded;
+zero denominators produce `null`.
+
 ### Agent-friendly task runner
 
 ```bash
 make help        # list all targets
-make install     # pip install -r requirements.txt
+make install     # source/dev shim: pip install -r requirements.txt
 make test        # python scripts/run_tests.py
 make lint        # ruff check + ruff format --check
 make format      # ruff check --fix + ruff format
@@ -348,7 +389,8 @@ make verify      # syntax + imports + tests
 ```
 
 On Windows without `make`, the same commands work as plain
-`python -m pip install -r requirements.txt` etc. (see the
+`python -m pip install -r requirements.txt` etc.; that requirements file is the
+source/development shim, not a pure base install (see the
 [`Makefile`](Makefile) header comments).
 
 ### Full test surface, running in ~2 min (see the live CI badge above for the current count):
@@ -398,17 +440,20 @@ The library uses `pathlib` everywhere, normalises `~` and env-vars in user paths
 
 ## 中文
 
-**MediaScribe** 是一个强大的离线视频转文字工具，可以从多个平台（B站、抖音）下载视频，并使用本地 AI 模型（Whisper、WhisperX、whisper.cpp）进行转录。**默认完全离线**——无需云服务、无需 API 密钥、数据不离开您的设备。（可选的 LLM 后处理会把转录文本发往您自行配置的 OpenAI 兼容 API，默认关闭，见 `[llm]` extra。）
+**MediaScribe** 是一个强大的本地 ASR 视频转文字工具，可以从多个平台（B站、抖音、YouTube、小红书、微信公众号）下载视频，并使用本地 AI 模型（Whisper、faster-whisper、WhisperX、whisper.cpp）进行转录。**ASR 推理默认在本机执行**；URL 下载和模型权重获取需要网络，本地文件配合预置权重可完全离线运行。可选 LLM 后处理为显式 opt-in、默认关闭，启用后会把截断的转录文本及标题、来源 URL 发往您配置的 OpenAI 兼容 API。
 
 ### ✨ 核心特性
 
 - 🎬 **多平台支持** - B站、抖音、YouTube、小红书、微信公众号、本地文件
-- 🌍 **默认完全离线** - 本地 AI 模型，不上传数据（LLM 后处理为显式 opt-in，默认关闭）
+- 🌍 **ASR 默认本机** - 推理不上传；URL 下载和模型权重获取需要网络（LLM 后处理为显式 opt-in，默认关闭）
 - 🚀 **无需 Cookies** - 智能 URL 提取绕过认证
-- 🤖 **多种 AI 引擎** - Whisper、faster-whisper、WhisperX、whisper.cpp
+- 🤖 **多种 AI 引擎** - 默认 faster-whisper + small；未安装时回退 whisper 并提示；WhisperX 需显式选择
 - 📝 **Markdown 输出** - 结构化转录文档
 - 🔄 **批量处理** - 批量下载作者全部往期内容
 - 🛡️ **生产就绪** - 日志、错误处理、断点续传
+- 🎙️ **可选 VAD 分块** - 仅 Python API；安装 `[vad]` 不会改变普通 `transcribe`
+- 💾 **下载缓存默认关闭** - 显式开启后跨 run 复用；`MEDIASCRIBE_CACHE_DIR` 仅是下载/分块缓存根
+- 📡 **六阶段 WebSocket 进度** - preflight / model prepare / download / extract audio / transcribe / assemble；阶段级进度，不是阶段内实测百分比
 - 🧠 **ASR 自动学习** - `python -m mediascribe learn` 从用户校对累积术语库,越用越准
 
 ### 🚀 快速开始
@@ -416,38 +461,58 @@ The library uses `pathlib` everywhere, normalises `~` and env-vars in user paths
 #### 安装
 
 ```bash
-# 克隆仓库
+# PyPI 最小安装（含默认 ASR 引擎）
+pip install "mediascribe[faster-whisper]"
+
+# 源码安装
 git clone https://github.com/1273984347/mediascribe.git
 cd mediascribe
+pip install -e ".[faster-whisper]"
 
-# 安装依赖
+# 完整源码/开发安装 shim（不是纯基础依赖）：
+# 展开为 -e .[web,faster-whisper,whisper,mcp]
 pip install -r requirements.txt
+
+# Web / MCP 最小安装同样包含 faster-whisper
+pip install "mediascribe[web,faster-whisper]"
+pip install "mediascribe[mcp,faster-whisper]"
 
 # 安装 Playwright 浏览器（用于抖音/B站）
 playwright install chromium
 ```
 
+安装包不会自动下载 ASR 模型权重；普通 `transcribe` / `verify` 也只会在显式传入
+`--allow-model-download` 时下载缺失权重。`[all]` 包含 ASR、OCR、MCP、Web、LLM，
+但不包含 `[vad]`。
+
 #### 单个视频转录
 
 ```bash
-# 从 URL
-python -m mediascribe transcribe "https://www.bilibili.com/video/BV1Nd596vEyU"
+# 在线首次使用：显式授权下载缺失模型权重
+python -m mediascribe transcribe "https://www.bilibili.com/video/BV1Nd596vEyU" \
+  --allow-model-download
 
-# 从本地文件
+# 从本地文件（需已预置权重，或显式允许下载）
 python -m mediascribe transcribe "video.mp4" --language zh
 
-# 指定模型 / 设备（默认 small；中文推荐 large-v3）
+# 离线路径：先预置权重，再校验并就绪后转录
+python -m mediascribe doctor --offline
+python -m mediascribe transcribe "video.mp4" --language zh
+
+# 指定模型 / 设备（默认 faster-whisper + small；large-v3 是模型，不是引擎）
 python -m mediascribe transcribe "video.mp4" --model large-v3 --device cuda
 
 # 模型按音频时长自动推荐（粤语 -l yue 恒选 large-v3）
 python -m mediascribe transcribe "video.mp4" --model auto
 
-# 分段 + 每段 [mm:ss] 时间戳
+# 默认按 ASR 语音边界分段；--timestamps 额外给每段加 [mm:ss]
 python -m mediascribe transcribe "video.mp4" --timestamps
 
 # 双模型交叉校对(生成 .crosscheck.md 复核清单)+ 成功后自动清理中间媒体
 # 存疑复核(审校场景): 第三采样重转同一条音频, 对 crosscheck 分歧逐条给出第三方证据
 python -m mediascribe verify output/transcripts/<转录稿>.md
+# 在线且缺少复核权重时显式授权下载：
+python -m mediascribe verify output/transcripts/<转录稿>.md --allow-model-download
 python -m mediascribe transcribe "https://..." --cross-check small --cleanup-media
 
 # 常用参数持久化到配置文件（CLI 显式参数优先）
@@ -458,10 +523,11 @@ python -m mediascribe doctor
 ```
 
 > **输出质量（v3.4.0）。** 转录稿 H1 使用平台真实标题，「基本信息」
-> 聚合作者/时长/来源链接，正文沿 ASR 语音停顿自动分段（不再是无标点
-> 文字墙）。`--timestamps` 给每段加 `[mm:ss]` 标记；设置
-> `MEDIASCRIBE_LLM_ENABLED=1` 可选开启 LLM 标点/分段润色。
-> 最新一次输出的路径始终写入 `output/LATEST.txt`。
+> 聚合作者/时长/来源链接，正文沿 ASR 语音停顿自动分段。默认不带时间戳；
+> `--timestamps` 才给每段加 `[mm:ss]` 标记。LLM 标点/分段润色为显式
+> opt-in，启用后会把截断转录文本及标题、来源 URL 发往配置的 API。
+> 最新默认产物路径写入 `output/LATEST.txt`，可能是单份转录稿，也可能是
+> archive 汇总报告。
 
 #### 批量转录（作者往期内容）
 
@@ -475,6 +541,21 @@ python -m mediascribe archive --from-video "https://v.douyin.com/xxxxx/" -n 10
 # 旧脚本入口仍然可用
 mediascribe-batch --user "https://www.douyin.com/user/xxx" -n 20
 ```
+
+#### 本地事件与指标
+
+事件默认仅写入本地 SQLite，并保留 **90 天**：
+
+```bash
+python -m mediascribe events list
+python -m mediascribe events export --output output/events.json
+python -m mediascribe events metrics
+python -m mediascribe events clear
+```
+
+`clear` 清空历史但保留安装身份与首次运行标记。指标按安装 ID 去重：提交率/
+成功率的分母是新安装数，打开率的分母是成功安装数，恢复成功率的分母是选择过
+恢复动作的安装数；内部测试事件不计入，分母为零时返回 `null`。
 
 #### ASR 自动学习（learn）
 

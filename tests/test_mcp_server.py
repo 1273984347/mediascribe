@@ -64,6 +64,15 @@ class TestMCPServer(unittest.TestCase):
             self.assertIn("inputSchema", tool)
             self.assertEqual(tool["inputSchema"]["type"], "object")
 
+    def test_transcription_tools_expose_engine_choice(self):
+        from mediascribe.config import _VALID_ENGINES
+
+        tools = {tool["name"]: tool for tool in self._request("tools/list")["result"]["tools"]}
+        for name in ("transcribe_video", "transcribe_wechat_mp", "batch_transcribe_creator"):
+            engine = tools[name]["inputSchema"]["properties"].get("engine")
+            self.assertIsNotNone(engine, f"{name} 缺少 engine 参数")
+            self.assertEqual(set(engine["enum"]), set(_VALID_ENGINES))
+
     def test_ping(self):
         r = self._request("ping")
         self.assertIn("result", r)
@@ -289,6 +298,72 @@ class TestMCPServer(unittest.TestCase):
         )
         self.assertEqual(call_kwargs["language"], "zh")
 
+    def test_transcribe_video_auto_fallback_returns_notice(self):
+        from unittest import mock
+
+        fake_result = self._fake_transcript_result()
+
+        class FakePipeline:
+            def __init__(self, settings):
+                self.settings = settings
+                self._resource_notices = [settings.engine_notice] if settings.engine_notice else []
+
+            def transcribe(self, *args, **kwargs):
+                fake_result.engine = self.settings.engine
+                fake_result.model = self.settings.model
+                return fake_result
+
+        with (
+            mock.patch(
+                "mediascribe.config.find_spec",
+                side_effect=lambda name: object() if name == "whisper" else None,
+            ),
+            mock.patch("mediascribe.pipeline.Pipeline", FakePipeline),
+        ):
+            r = self._request(
+                "tools/call",
+                {
+                    "name": "transcribe_video",
+                    "arguments": {"source": "https://www.bilibili.com/video/BV1abc"},
+                },
+            )
+
+        self.assertFalse(r["result"]["isError"], r["result"])
+        body = json.loads(r["result"]["content"][0]["text"])
+        self.assertEqual(body["engine"], "whisper")
+        self.assertTrue(any("faster-whisper" in notice for notice in body.get("notices", [])))
+
+    def test_transcribe_video_explicit_engine_wins(self):
+        from unittest import mock
+
+        fake_result = self._fake_transcript_result(engine="whisperx")
+
+        class FakePipeline:
+            def __init__(self, settings):
+                self.settings = settings
+
+            def transcribe(self, *args, **kwargs):
+                return fake_result
+
+        with (
+            mock.patch("mediascribe.config.find_spec", return_value=None),
+            mock.patch("mediascribe.pipeline.Pipeline", FakePipeline),
+        ):
+            r = self._request(
+                "tools/call",
+                {
+                    "name": "transcribe_video",
+                    "arguments": {
+                        "source": "https://www.bilibili.com/video/BV1abc",
+                        "engine": "whisperx",
+                    },
+                },
+            )
+
+        self.assertFalse(r["result"]["isError"], r["result"])
+        body = json.loads(r["result"]["content"][0]["text"])
+        self.assertEqual(body["engine"], "whisperx")
+
     def test_transcribe_video_missing_source_raises(self):
         """The tool must surface a structured error when no source is given."""
         r = self._request(
@@ -301,6 +376,110 @@ class TestMCPServer(unittest.TestCase):
         # The MCP dispatcher wraps exceptions as isError=true.
         self.assertTrue(r["result"]["isError"])
         self.assertIn("source", r["result"]["content"][0]["text"].lower())
+
+    def test_transcribe_video_omitted_model_stays_auto(self):
+        from unittest.mock import MagicMock, patch
+
+        fake_result = self._fake_transcript_result()
+        fake_pipeline = MagicMock()
+        fake_pipeline.transcribe.return_value = fake_result
+
+        with (
+            patch("mediascribe.config.Settings") as MockSettings,
+            patch("mediascribe.pipeline.Pipeline", return_value=fake_pipeline),
+        ):
+            MockSettings.return_value = MagicMock()
+            r = self._request(
+                "tools/call",
+                {
+                    "name": "transcribe_video",
+                    "arguments": {"source": "https://www.bilibili.com/video/BV1abc"},
+                },
+            )
+
+        self.assertFalse(r["result"]["isError"], r["result"])
+        self.assertIsNone(MockSettings.call_args.kwargs["model"])
+
+    def test_transcribe_video_model_download_authorization_reaches_settings(self):
+        from unittest.mock import MagicMock, patch
+
+        fake_pipeline = MagicMock()
+        fake_pipeline.transcribe.return_value = self._fake_transcript_result()
+
+        with (
+            patch("mediascribe.config.Settings") as MockSettings,
+            patch("mediascribe.pipeline.Pipeline", return_value=fake_pipeline),
+        ):
+            MockSettings.return_value = MagicMock()
+            r = self._request(
+                "tools/call",
+                {
+                    "name": "transcribe_video",
+                    "arguments": {
+                        "source": "https://www.bilibili.com/video/BV1abc",
+                        "allow_model_download": True,
+                    },
+                },
+            )
+
+        self.assertFalse(r["result"]["isError"], r["result"])
+        self.assertTrue(MockSettings.call_args.kwargs["allow_model_download"])
+
+    def test_transcribe_video_missing_local_file_fails_before_pipeline(self):
+        from unittest.mock import MagicMock, patch
+
+        fake_pipeline = MagicMock()
+        fake_pipeline.transcribe.return_value = self._fake_transcript_result()
+
+        with patch("mediascribe.pipeline.Pipeline", return_value=fake_pipeline) as pipeline:
+            r = self._request(
+                "tools/call",
+                {
+                    "name": "transcribe_video",
+                    "arguments": {"source": "Z:/definitely/missing.wav"},
+                },
+            )
+
+        self.assertTrue(r["result"]["isError"])
+        self.assertIn("INPUT_INVALID", r["result"]["content"][0]["text"])
+        pipeline.assert_not_called()
+
+    def test_transcribe_video_missing_model_returns_error_code(self):
+        from unittest.mock import patch
+
+        from mediascribe.model_weights import WeightStatus
+
+        with (
+            patch(
+                "mediascribe.config.find_spec",
+                lambda name: object() if name == "whisper" else None,
+            ),
+            patch(
+                "mediascribe.model_weights.check_weights",
+                lambda engine, model: WeightStatus(
+                    engine=engine,
+                    model=model,
+                    ok=False,
+                    location="fake-cache",
+                    hint="provision model",
+                ),
+            ),
+            patch("mediascribe.pipeline.WhisperTranscriber") as transcriber,
+        ):
+            r = self._request(
+                "tools/call",
+                {
+                    "name": "transcribe_video",
+                    "arguments": {
+                        "source": "https://www.bilibili.com/video/BV1abc",
+                        "engine": "whisper",
+                    },
+                },
+            )
+
+        self.assertTrue(r["result"]["isError"])
+        self.assertIn("MODEL_NOT_READY", r["result"]["content"][0]["text"])
+        transcriber.assert_not_called()
 
     def test_transcribe_video_language_auto_normalised_to_none(self):
         """``language='auto'`` is a UI affordance — internally it's ``None``."""
@@ -634,6 +813,29 @@ class TestMCPBatchMaxVideosClamp(unittest.TestCase):
         self.assertFalse(r["result"]["isError"])
         cmd = captured["cmd"]
         self.assertEqual(cmd[cmd.index("-n") + 1], "10")
+
+    def test_explicit_engine_reaches_batch_subprocess(self):
+        import json as _json
+        from unittest import mock
+
+        from mediascribe import mcp_server
+
+        captured = {}
+
+        def fake_run(cmd, **kwargs):
+            captured["env"] = kwargs["env"]
+            proc = mock.MagicMock()
+            proc.stdout = _json.dumps({"ok": True})
+            return proc
+
+        with mock.patch("subprocess.run", side_effect=fake_run):
+            r = self._request_tool(
+                mcp_server,
+                {"user_url": "u", "engine": "whisperx"},
+            )
+
+        self.assertFalse(r["result"]["isError"])
+        self.assertEqual(captured["env"]["MEDIASCRIBE_BATCH_ENGINE"], "whisperx")
 
 
 class TestMCPWikiTools(unittest.TestCase):

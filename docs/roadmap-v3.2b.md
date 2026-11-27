@@ -1,5 +1,16 @@
 # MediaScribe v3.2.0b — Planning Draft
 
+!!! warning "Historical / Superseded"
+    This planning draft is retained as release history, not as a current
+    benchmark or API specification.  Several items below subsequently shipped
+    or changed shape.  Use [Benchmarking](benchmarking.md),
+    [Performance](performance.md), [Web UI](web-ui.md), and
+    [Engines](engines.md) for current behavior.  Implementation references:
+    [`pipeline_async.py`](https://github.com/1273984347/mediascribe/blob/main/mediascribe/pipeline_async.py),
+    [`pipeline.py`](https://github.com/1273984347/mediascribe/blob/main/mediascribe/pipeline.py),
+    [`bench_asr.py`](https://github.com/1273984347/mediascribe/blob/main/scripts/bench/asr/bench_asr.py), and
+    [`config.py`](https://github.com/1273984347/mediascribe/blob/main/mediascribe/config.py).
+
 > Status: **draft for community review**.  Last updated 2026-06-06.
 >
 > v3.2.0a just shipped (4 Tier 2 features · 612 tests · 75 % coverage).
@@ -64,6 +75,15 @@ propagation, exception in worker does not poison the pool, back-
 pressure kicks in at 0-byte cache, `await pipeline.run()` result
 matches the synchronous `pipeline.run()` result bit-for-bit.
 
+> **Current status (2026-11-26):** `AsyncPipeline` and the synchronous
+> `Pipeline` facade both exist.  Web submissions run one batch per executor
+> thread; `MEDIASCRIBE_JOB_EXECUTORS` controls concurrent batches, while
+> `MEDIASCRIBE_BATCH_CONCURRENCY` controls in-batch work.  The legacy
+> `MEDIASCRIBE_MAX_WORKERS` name is still a fallback for each setting when
+> its newer replacement is unset, so setting only the legacy name can scale
+> both limits; set the two current variables explicitly.  Web cancellation
+> targets one job / URL, not every sibling in the batch.
+
 ### 2. GPU acceleration end-to-end
 
 **Effort** M · **Impact** High
@@ -86,9 +106,43 @@ matches the synchronous `pipeline.run()` result bit-for-bit.
 Tests: device resolution table, `cuda` requested but missing →
 `cpu` + warning, model cache hit on second call, `/api/health` shape.
 
+> **Current status (2026-11-26):** device resolution and GPU health are
+> implemented.  Accepted device hints are `auto`, `cpu`, `cuda`, `cuda:N`,
+> `metal`, and `rocm`; an unavailable explicitly requested device is an
+> error rather than a silent CPU switch.  Transcriber model caches are
+> bounded (LRU 2 for faster-whisper / openai-whisper / whisperx).  Automatic
+> engine selection is `faster-whisper` → `whisper`, not WhisperX.  See
+> [Engines](engines.md).
+
 ### 3. Reproducible `whisperx` vs `faster-whisper` benchmark
 
 **Effort** M · **Impact** High (decides v3.3 default)
+
+> **Current status (2026-11-26):** the script below is a historical fake-data
+> smoke harness; its real-engine path still raises `NotImplementedError`.
+> Current real benchmarks use `scripts/bench/asr/bench_asr.py` for
+> `faster_whisper` and `openai_whisper`, with a separate
+> `scripts/bench/asr/bench_whispercpp.py` suite.  There is no current real
+> `whisperx` adapter in `bench_asr.py`.  The corpus is generated locally, not
+> shipped as a fixed one-hour WAV set.  See [Benchmarking](benchmarking.md).
+
+Current commands:
+
+```bash
+python scripts/bench/corpus/gen_corpus_real.py --out output/bench/corpus
+python scripts/bench/asr/bench_asr.py \
+    --corpus output/bench/corpus \
+    --out output/bench/asr \
+    --engines faster_whisper,openai_whisper \
+    --models small,medium,large-v3 \
+    --devices cpu
+```
+
+Use `--devices cuda` on a prepared GPU host.  The current CLI uses `--out`
+and `--devices`, not the historical `--output` / `--device` pair, and its
+result schema / metrics are those documented on the benchmarking page.
+
+Historical planned interface (retained below; not the current real benchmark):
 
 * Ship a fixed 1-hour corpus under
   [`scripts/bench/corpus/`](https://github.com/1273984347/mediascribe/tree/main/scripts/bench/corpus)
@@ -125,6 +179,13 @@ data so the CI does not need a GPU.
   the existing `@profile_step` decorator from `performance.py`,
   so the v3.2.0a `profile` CLI can be reused without code change.
 
+> **Current status (2026-11-26):** implemented as keyword-only Python
+> constructor parameters `Pipeline(profile=True, profile_log=Path(...))`.
+> Read JSONL with `python -m mediascribe profile <timings.jsonl>` or
+> `python -m mediascribe.profile_cli`; supported flags are `--top`,
+> `--by-stage`, `--since`, and `--json`.  There is no `--watch`, and ordinary
+> CLI / Web / MCP entry points do not expose `profile` / `profile_log`.
+
 ### 5. Web UI: per-job GPU pill
 
 **Effort** S · **Impact** Low (UX)
@@ -133,6 +194,10 @@ data so the CI does not need a GPU.
   pill ("GPU: RTX 4090 · 24 GiB · 41 % util") next to the existing
   health probe badge.
 
+> **Current status (2026-11-26):** the health response includes a cached
+> `gpu` block and the page renders GPU / readiness state.  The health route
+> uses a 1-second GPU cache; see [Web UI](web-ui.md).
+
 ### 6. Cooperative cancellation through `WebSocket`
 
 **Effort** S · **Impact** Medium
@@ -140,6 +205,11 @@ data so the CI does not need a GPU.
 * The browser's `cancel` button (already shipped in the v3.2.0a
   WS demo) is wired to the new `Pipeline.cancel()` so a long
   batch can be aborted cleanly from the dashboard.
+
+> **Current status (2026-11-26):** REST and WebSocket cancellation are
+> implemented per job.  A request emits `cancel_requested`; the worker emits
+> terminal `cancelled` only after a safe point.  It does not cancel the whole
+> batch, and sibling jobs continue.  See [Web UI](web-ui.md).
 
 ## Out of scope (won't-have in v3.2.0b)
 

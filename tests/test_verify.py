@@ -384,7 +384,8 @@ class TestFasterWhisperLoadOrder(unittest.TestCase):
             fw._load_whisper_model("large-v3", "cpu", "int8")
         self.assertEqual(calls, [True])
 
-    def test_non_cache_miss_error_propagates(self):
+    def test_non_cache_miss_error_is_classified_as_load_failure(self):
+        from mediascribe.model_weights import ModelLoadError
         from mediascribe.transcribers import faster_whisper as fw
 
         class FakeWM:
@@ -393,7 +394,7 @@ class TestFasterWhisperLoadOrder(unittest.TestCase):
 
         fake_mod = types.SimpleNamespace(WhisperModel=FakeWM)
         with mock.patch.dict(sys.modules, {"faster_whisper": fake_mod}):
-            with self.assertRaises(ValueError):
+            with self.assertRaises(ModelLoadError):
                 fw._load_whisper_model("nope", "cpu", "int8")
 
 

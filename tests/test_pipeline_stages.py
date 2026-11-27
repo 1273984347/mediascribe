@@ -83,6 +83,19 @@ def _url_fake_source() -> SourceRef:
 def _fake_transcriber(name: str = "fake") -> mock.MagicMock:
     t = mock.MagicMock(name=f"Transcriber<{name}>")
     t.name = name
+    t.checkpoint_capability.return_value = None
+    t.effective_decode_params.side_effect = lambda *, language, initial_prompt: {
+        "engine": t.name,
+        "model": getattr(t, "model_name", None),
+        "device": getattr(t, "device", "cpu"),
+        "compute_type": getattr(t, "compute_type", None),
+        "language": language,
+        "initial_prompt": initial_prompt,
+        "vad_filter": getattr(t, "vad_filter", False),
+        "vad_parameters": {"min_silence_duration_ms": 500},
+        "temperature": None,
+        "beam_size": 5,
+    }
     t.transcribe.return_value = {
         "text": "hello world",
         "model": "fake-tiny",
@@ -233,6 +246,18 @@ class TestExtractAudioStage(unittest.TestCase):
         ea.assert_called_once()
         self.assertEqual(ctx.audio_path, Path("/tmp/audio/yt-test.wav"))
 
+    def test_run_invokes_audio_ready_callback_once(self):
+        source = _audio_fake_source(Path("/tmp"))
+        seen = []
+        ctx = PipelineContext(
+            settings=_fake_settings(Path("/tmp")),
+            source_input="x",
+            audio_path_cb=seen.append,
+        )
+        ctx.source = source
+        ExtractAudioStage().run(ctx)
+        self.assertEqual(seen, [source.path])
+
 
 # ---------------------------------------------------------------------------
 # TranscribeStage
@@ -253,13 +278,103 @@ class TestTranscribeStage(unittest.TestCase):
         self.assertEqual(ctx.text, "hello world")
         self.assertEqual(ctx.transcription["model"], "fake-tiny")
 
+    def test_auto_prompt_for_source_matches_stage_prompt(self):
+        from mediascribe.models import SourceRef
+
+        source = SourceRef(raw_input="https://bilibili.com/video/BV1234567890", kind="bilibili")
+        ctx = PipelineContext(
+            settings=_fake_settings(Path("/tmp")), source_input=source.raw_input, source=source
+        )
+        self.assertEqual(
+            TranscribeStage.auto_prompt_for_source(source), TranscribeStage._auto_prompt(ctx)
+        )
+
+    def test_run_forwards_checkpoint_callbacks_and_effective_prompt(self):
+        transcriber = _fake_transcriber()
+        transcriber.model_name = "small"
+        transcriber.device = "cpu"
+        transcriber.compute_type = "int8"
+        transcriber.vad_filter = False
+        decoded = []
+        segments = []
+        ctx = PipelineContext(
+            settings=_fake_settings(Path("/tmp")),
+            source_input="x",
+            language="zh",
+            prompt="domain terms",
+            segment_cb=segments.append,
+            resume_start=3.0,
+            decode_params_cb=decoded.append,
+        )
+        ctx.audio_path = Path("/tmp/a.wav")
+        TranscribeStage(transcriber=transcriber).run(ctx)
+
+        kwargs = transcriber.transcribe.call_args.kwargs
+        self.assertEqual(kwargs["resume_start"], 3.0)
+        self.assertIs(kwargs["segment_cb"].__self__, segments)
+        self.assertEqual(kwargs["initial_prompt"], decoded[0]["initial_prompt"])
+        self.assertEqual(decoded[0]["compute_type"], "int8")
+        self.assertEqual(decoded[0]["vad_filter"], False)
+        self.assertEqual(decoded[0]["language"], "zh")
+
+    def test_run_forwards_cancel_event_to_window_adapter(self):
+        from mediascribe.checkpoint import capability_for
+
+        transcriber = _fake_transcriber()
+        transcriber.checkpoint_capability.return_value = capability_for("whisper")
+        cancel_event = threading.Event()
+        ctx = PipelineContext(
+            settings=_fake_settings(Path("/tmp")),
+            source_input="x",
+            audio_path=Path("/tmp/a.wav"),
+            cancel_event=cancel_event,
+        )
+
+        TranscribeStage(transcriber=transcriber).run(ctx)
+
+        self.assertIs(transcriber.transcribe.call_args.kwargs["cancel_event"], cancel_event)
+
     def test_run_raises_when_text_empty(self):
         t = _fake_transcriber()
         t.transcribe.return_value = {"text": "  "}
         s = TranscribeStage(transcriber=t)
         ctx = PipelineContext(settings=_fake_settings(Path("/tmp")), source_input="x")
         ctx.audio_path = Path("/tmp/a.wav")
-        with self.assertRaises(RuntimeError):
+        from mediascribe.pipeline_stages import TranscriptionEmptyError
+
+        with self.assertRaises(TranscriptionEmptyError) as exc:
+            s.run(ctx)
+        self.assertEqual(exc.exception.code, "TRANSCRIPTION_EMPTY")
+
+    def test_run_marks_vad_confirmed_silence_as_no_speech(self):
+        t = _fake_transcriber()
+        t.transcribe.return_value = {"text": ""}
+        s = TranscribeStage(transcriber=t)
+        ctx = PipelineContext(settings=_fake_settings(Path("/tmp")), source_input="x")
+        ctx.audio_path = Path("/tmp/a.wav")
+        from mediascribe.pipeline_stages import NoSpeechError
+
+        with (
+            mock.patch("mediascribe.audio_utils.vad_available", return_value=True),
+            mock.patch("mediascribe.audio_utils.detect_speech_segments", return_value=[]),
+            self.assertRaises(NoSpeechError) as exc,
+        ):
+            s.run(ctx)
+        self.assertEqual(exc.exception.code, "NO_SPEECH")
+
+    def test_run_empty_with_detected_speech_is_not_silence(self):
+        t = _fake_transcriber()
+        t.transcribe.return_value = {"text": ""}
+        s = TranscribeStage(transcriber=t)
+        ctx = PipelineContext(settings=_fake_settings(Path("/tmp")), source_input="x")
+        ctx.audio_path = Path("/tmp/a.wav")
+        from mediascribe.pipeline_stages import TranscriptionEmptyError
+
+        with (
+            mock.patch("mediascribe.audio_utils.vad_available", return_value=True),
+            mock.patch("mediascribe.audio_utils.detect_speech_segments", return_value=[(0.0, 2.0)]),
+            self.assertRaises(TranscriptionEmptyError),
+        ):
             s.run(ctx)
 
 
@@ -317,6 +432,49 @@ class TestAssembleStage(unittest.TestCase):
         self.assertEqual(ctx.metadata["language"], "en")
         wt.assert_called()  # _atomic_write_text 被调用
 
+    def test_run_rejects_blank_markdown(self):
+        s = AssembleStage(
+            resolve_output_path=lambda name, out: Path(f"{name}.md"),
+            resolve_metadata_path=lambda tp: tp.with_suffix(".json"),
+            build_markdown=lambda *a, **kw: "  \n",
+        )
+        from mediascribe.pipeline_stages import ResultValidationError
+
+        with (
+            mock.patch("mediascribe.pipeline_stages._atomic_write_text") as write,
+            self.assertRaises(ResultValidationError) as exc,
+        ):
+            s.run(self._ctx())
+        self.assertEqual(exc.exception.code, "RESULT_INVALID")
+        write.assert_not_called()
+
+    def test_run_rejects_engine_mismatch(self):
+        s = self._stage()
+        ctx = self._ctx()
+        ctx.engine_name = "whisper"
+        ctx.transcription["engine"] = "faster-whisper"
+        from mediascribe.pipeline_stages import ResultValidationError
+
+        with (
+            mock.patch("mediascribe.pipeline_stages._atomic_write_text"),
+            self.assertRaises(ResultValidationError) as exc,
+        ):
+            s.run(ctx)
+        self.assertEqual(exc.exception.code, "RESULT_INVALID")
+
+    def test_run_wraps_output_write_failure(self):
+        s = self._stage()
+        from mediascribe.pipeline_stages import ResultWriteError
+
+        with (
+            mock.patch(
+                "mediascribe.pipeline_stages._atomic_write_text", side_effect=OSError("disk full")
+            ),
+            self.assertRaises(ResultWriteError) as exc,
+        ):
+            s.run(self._ctx())
+        self.assertEqual(exc.exception.code, "RESULT_WRITE_FAILED")
+
     def test_run_uses_engine_name_from_ctx(self):
         s = self._stage()
         ctx = self._ctx()
@@ -325,6 +483,41 @@ class TestAssembleStage(unittest.TestCase):
             ctx = s.run(ctx)
         self.assertEqual(ctx.result.engine, "whisperx")
         self.assertEqual(ctx.metadata["engine"], "whisperx")
+
+    def test_run_records_resource_degrade_reasons(self):
+        s = self._stage()
+        ctx = self._ctx()
+        ctx.resource_notices = ["已降档 large-v3 → medium"]
+        ctx.resource_degrade_reasons = ["model-degraded"]
+        with mock.patch("mediascribe.pipeline_stages._atomic_write_text"):
+            ctx = s.run(ctx)
+        self.assertEqual(ctx.metadata["resource_notices"], ["已降档 large-v3 → medium"])
+        self.assertEqual(ctx.metadata["resource_degrade_reasons"], ["model-degraded"])
+
+    def test_run_records_requested_and_effective_selection(self):
+        from mediascribe.config import Settings
+
+        s = self._stage()
+        ctx = self._ctx()
+        ctx.settings = Settings(
+            workspace_root=Path("/tmp"),
+            engine="whisper",
+            model="large-v3",
+            device="cpu",
+        )
+        ctx.settings.model = "small"
+        ctx.engine_name = "whisper"
+        with mock.patch("mediascribe.pipeline_stages._atomic_write_text"):
+            ctx = s.run(ctx)
+
+        self.assertEqual(
+            ctx.metadata["selection_requested"],
+            {"engine": "whisper", "model": "large-v3", "device": "cpu"},
+        )
+        self.assertEqual(
+            ctx.metadata["selection_effective"],
+            {"engine": "whisper", "model": "tiny", "device": "cpu"},
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -409,6 +602,40 @@ class TestRunWithProgress(unittest.TestCase):
 # Pipeline.transcribe 走 stage chain
 # ---------------------------------------------------------------------------
 class TestPipelineTranscribeUsesChain(unittest.TestCase):
+    def test_resume_audio_skips_download_and_extract_stages(self):
+        calls = []
+
+        class RecordingStage(Stage):
+            def __init__(self, name):
+                self.name = name
+
+            def should_run(self, ctx):
+                return True
+
+            def run(self, ctx):
+                calls.append(self.name)
+                if self.name == "assemble":
+                    ctx.result = object()
+                return ctx
+
+        pipeline = Pipeline(settings=_fake_settings(Path("/tmp")), transcriber=_fake_transcriber())
+        pipeline._build_chain = mock.Mock(
+            return_value=[
+                RecordingStage("download"),
+                RecordingStage("extract_audio"),
+                RecordingStage("assemble"),
+            ]
+        )
+        audio = Path("/tmp/resume.wav")
+        ctx = PipelineContext(
+            settings=_fake_settings(Path("/tmp")),
+            source_input="https://example.com/v",
+            resume_audio_path=audio,
+        )
+        pipeline._run_stage_chain(ctx)
+        self.assertEqual(calls, ["assemble"])
+        self.assertEqual(ctx.audio_path, audio)
+
     def test_transcribe_local_audio_end_to_end(self):
         """本地 wav 走完整 chain,result 应该是 TranscriptResult。"""
         tmp = Path(self._temp_dir())
@@ -490,6 +717,10 @@ class TestCreateTranscriberResolvesDevice(unittest.TestCase):
     def test_faster_whisper_gets_resolved_device(self):
         with (
             mock.patch.dict("sys.modules", {"torch": self._torch_cuda()}),
+            mock.patch(
+                "mediascribe.pipeline.ensure_model_ready",
+                return_value=mock.MagicMock(ok=True),
+            ),
             mock.patch("mediascribe.pipeline.FasterWhisperTranscriber") as fwt,
         ):
             fwt.return_value = "SENTINEL"
@@ -503,6 +734,10 @@ class TestCreateTranscriberResolvesDevice(unittest.TestCase):
     def test_whisperx_gets_resolved_device_not_auto(self):
         with (
             mock.patch.dict("sys.modules", {"torch": self._torch_cuda()}),
+            mock.patch(
+                "mediascribe.pipeline.ensure_model_ready",
+                return_value=mock.MagicMock(ok=True),
+            ),
             mock.patch("mediascribe.pipeline.WhisperXTranscriber") as wx,
         ):
             wx.return_value = "SENTINEL"
@@ -515,6 +750,10 @@ class TestCreateTranscriberResolvesDevice(unittest.TestCase):
     def test_explicit_device_passthrough(self):
         with (
             mock.patch.dict("sys.modules", {"torch": self._torch_cuda()}),
+            mock.patch(
+                "mediascribe.pipeline.ensure_model_ready",
+                return_value=mock.MagicMock(ok=True),
+            ),
             mock.patch("mediascribe.pipeline.WhisperTranscriber") as wt,
         ):
             wt.return_value = "SENTINEL"
@@ -528,6 +767,10 @@ class TestCreateTranscriberResolvesDevice(unittest.TestCase):
         """device=None 也走归一化(torch 不可用 → cpu)。"""
         with (
             mock.patch.dict("sys.modules", {"torch": None}),
+            mock.patch(
+                "mediascribe.pipeline.ensure_model_ready",
+                return_value=mock.MagicMock(ok=True),
+            ),
             mock.patch("mediascribe.pipeline.WhisperTranscriber") as wt,
         ):
             wt.return_value = "SENTINEL"
@@ -831,6 +1074,166 @@ class TestAtomicWriteText(unittest.TestCase):
             p.write_text("OLD", encoding="utf-8")
             _atomic_write_text(p, "NEW", encoding="utf-8")
             self.assertEqual(p.read_text(encoding="utf-8"), "NEW")
+
+
+class TestPipelineStageProgress(unittest.TestCase):
+    def test_pipeline_emits_preflight_and_stage_callbacks(self):
+        import tempfile
+
+        from mediascribe.config import Settings
+        from mediascribe.models import SourceRef
+        from mediascribe.pipeline import Pipeline
+
+        class FakeStage(Stage):
+            def __init__(self, name):
+                self.name = name
+
+            def should_run(self, ctx):
+                return True
+
+            def run(self, ctx):
+                if self.name == "assemble":
+                    ctx.result = mock.MagicMock()
+                return ctx
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            audio = root / "a.wav"
+            audio.write_bytes(b"fake")
+            settings = Settings(workspace_root=root, engine="whisper")
+            pipeline = Pipeline(settings=settings, transcriber=mock.MagicMock())
+            pipeline._build_chain = lambda: [FakeStage("download"), FakeStage("assemble")]
+            events = []
+            with mock.patch(
+                "mediascribe.pipeline.preflight_source",
+                return_value=SourceRef(raw_input=str(audio), kind="audio", path=audio),
+            ):
+                pipeline.transcribe(
+                    str(audio), progress_cb=lambda stage, pct: events.append((stage, pct))
+                )
+
+        self.assertEqual(events[:2], [("preflight", 0.0), ("preflight", 100.0)])
+        self.assertIn(("download", 0.0), events)
+        self.assertIn(("download", 100.0), events)
+        self.assertIn(("assemble", 100.0), events)
+
+    def test_transcribe_stage_prepares_model_before_asr(self):
+        from mediascribe.config import Settings
+
+        transcriber = mock.MagicMock()
+        transcriber.name = "fake"
+        transcriber.transcribe.return_value = {"text": "hello", "model": "small"}
+        ctx = PipelineContext(
+            settings=Settings(engine="whisper"),
+            source_input="x",
+            audio_path=Path("/tmp/a.wav"),
+        )
+        events = []
+        ctx.progress_cb = lambda stage, pct: events.append((stage, pct))
+
+        TranscribeStage(transcriber).run(ctx)
+
+        transcriber.prepare.assert_called_once()
+        self.assertEqual(events[:2], [("model_prepare", 0.0), ("model_prepare", 100.0)])
+        calls = [call[0] for call in transcriber.mock_calls]
+        self.assertLess(calls.index("prepare"), calls.index("transcribe"))
+
+
+def test_transcribe_accepts_offline_resume_source_without_preflight_or_parse(tmp_path: Path):
+    from unittest import mock
+
+    from mediascribe.models import SourceRef
+
+    audio = tmp_path / "audio.wav"
+    audio.write_bytes(b"audio")
+    source = SourceRef(raw_input="https://example.com/v", kind="video", url="https://example.com/v")
+    result = object()
+
+    class ResumeStage(Stage):
+        name = "assemble"
+
+        def should_run(self, ctx):
+            return True
+
+        def run(self, ctx):
+            assert ctx.source is source
+            assert ctx.audio_path == audio
+            ctx.result = result
+            return ctx
+
+    pipeline = Pipeline(settings=_fake_settings(tmp_path), transcriber=_fake_transcriber())
+    pipeline._build_chain = mock.Mock(return_value=[ResumeStage()])
+    with (
+        mock.patch(
+            "mediascribe.pipeline.preflight_source", side_effect=AssertionError("preflight")
+        ),
+        mock.patch("mediascribe.pipeline_stages.parse_source", side_effect=AssertionError("parse")),
+    ):
+        assert (
+            pipeline.transcribe(
+                source.raw_input,
+                resume_source=source,
+                resume_audio_path=audio,
+                output=tmp_path / "out.md",
+            )
+            is result
+        )
+
+
+def test_transcribe_stage_resume_result_contains_durable_prefix(tmp_path: Path):
+    from types import SimpleNamespace
+
+    from mediascribe.checkpoint import CheckpointCapability, CheckpointCursor, capability_for
+    from mediascribe.pipeline_stages import PipelineContext, TranscribeStage
+
+    class SuffixTranscriber:
+        name = "faster-whisper"
+        model_name = "small"
+        device = "cpu"
+        compute_type = "int8"
+        vad_filter = False
+
+        def checkpoint_capability(self):
+            return capability_for(self.name)
+
+        def effective_decode_params(self, *, language, initial_prompt):
+            return {"engine": self.name, "model": self.model_name, "language": language}
+
+        def prepare(self, **kwargs):
+            return None
+
+        def transcribe(self, audio_path, *, checkpoint_session=None, **kwargs):
+            accepted = checkpoint_session.accept({"text": "next", "start": 10.0, "end": 12.0})
+            return {
+                "text": accepted["text"],
+                "segments": [accepted],
+                "language": "zh",
+                "model": self.model_name,
+            }
+
+    audio = tmp_path / "audio.wav"
+    audio.write_bytes(b"audio")
+    ctx = PipelineContext(
+        settings=SimpleNamespace(language="zh", device="cpu"),
+        source_input="local",
+        audio_path=audio,
+        prompt="",
+        checkpoint_capability=CheckpointCapability("faster-whisper", "segment"),
+        checkpoint_cursor=CheckpointCursor("segment", 9.0, 10.0, "two"),
+        prior_segments_cb=lambda: [
+            {"text": "one", "start": 0.0, "end": 5.0},
+            {"text": "two", "start": 5.0, "end": 10.0},
+        ],
+    )
+
+    result = TranscribeStage(SuffixTranscriber()).run(ctx)
+
+    assert [segment["text"] for segment in result.transcription["segments"]] == [
+        "one",
+        "two",
+        "next",
+    ]
+    assert result.transcription["text"] == "one two next"
 
 
 if __name__ == "__main__":

@@ -53,12 +53,25 @@ _FASTAPI_AVAILABLE = _fastapi_or_skip()
 
 
 def _fake_pipeline():
-    """Return a mock ``Pipeline`` whose ``transcribe`` succeeds synchronously."""
+    """Return a mock ``Pipeline`` that persists a valid result synchronously."""
     p = mock.MagicMock(name="Pipeline")
-    p.transcribe.return_value = SimpleNamespace(
-        engine="fake-engine",
-        metadata={"title": "fake title"},
-    )
+
+    def transcribe(url, **kwargs):
+        out_path = Path(kwargs["output"])
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text("# Transcript\n\nfake markdown\n", encoding="utf-8")
+        return SimpleNamespace(
+            engine="fake-engine",
+            model="small",
+            transcript_path=out_path,
+            duration_seconds=1.0,
+            source=SimpleNamespace(display_name="fake input"),
+            metadata={"title": "fake title", "engine": "fake-engine", "model": "small"},
+        )
+
+    p.transcribe.side_effect = transcribe
+    p.settings = SimpleNamespace(engine="fake-engine", model="small", device="cpu")
+    p.transcriber = SimpleNamespace(vad_filter=True)
     return p
 
 
@@ -273,6 +286,7 @@ class TestSubmitJobs(unittest.TestCase):
             with mock.patch("app._build_pipeline", return_value=fake):
                 r = client.post("/api/jobs", json={"urls": ["https://example.com/v"]})
             job_id = r.json()["jobs"][0]["job_id"]
+            _wait_store_terminal(app_obj, [job_id])
             # The background ThreadPoolExecutor runs the (mocked)
             # pipeline synchronously, so the result should be available
             # within a short poll loop.
@@ -289,10 +303,10 @@ class TestSubmitJobs(unittest.TestCase):
             self.assertTrue(data["finished"])
             self.assertFalse(data["cancelled"])
             self.assertEqual(data["engine"], "fake-engine")
-            # Markdown is read from the on-disk file; the fake pipeline
-            # does not write one, so this is expected to be "" but the
-            # call itself must succeed.
-            self.assertIn("markdown", data)
+            self.assertIn("fake markdown", data["markdown"])
+            self.assertEqual(data["summary"]["model"], "small")
+            self.assertTrue(data["artifact"]["name"].endswith(".md"))
+            self.assertIn("/artifact", data["artifact"]["url"])
             _wait_store_terminal(app_obj, [job_id])
 
     def test_result_404_for_unknown_job(self):
@@ -323,7 +337,9 @@ class TestCancelJob(unittest.TestCase):
             slow_fake = _fake_pipeline()
 
             def slow_transcribe(*a, **kw):
-                time.sleep(2.0)
+                event = kw.get("cancel_event")
+                if event is not None:
+                    event.wait(2.0)
                 return SimpleNamespace(engine="slow", metadata={})
 
             slow_fake.transcribe.side_effect = slow_transcribe
@@ -335,6 +351,14 @@ class TestCancelJob(unittest.TestCase):
             body = cr.json()
             self.assertEqual(body["job_id"], job_id)
             self.assertTrue(body["cancelled"])
+            self.assertEqual(body["status"], "cancelling")
+            deadline = time.time() + 2.0
+            while time.time() < deadline:
+                row = client.app.state.job_store.get(job_id)
+                if row and row.get("finished") and row.get("cancelled"):
+                    break
+                time.sleep(0.05)
+            self.assertTrue(client.app.state.jobs.get(job_id).finished)
 
     def test_cancel_calls_async_pipeline_cancel_when_registered(self):
         """When an AsyncPipeline is registered for a job, cancel_job calls cancel_one(url).
@@ -349,7 +373,9 @@ class TestCancelJob(unittest.TestCase):
             fake = _fake_pipeline()
 
             def slow_transcribe(*a, **kw):
-                time.sleep(2.0)
+                event = kw.get("cancel_event")
+                if event is not None:
+                    event.wait(2.0)
                 return SimpleNamespace(engine="slow", metadata={})
 
             fake.transcribe.side_effect = slow_transcribe
@@ -373,6 +399,7 @@ class TestCancelJob(unittest.TestCase):
                 "cancel_job must invoke AsyncPipeline.cancel_one(url) with the "
                 "submitted URL (per-URL cancel, P0-2)",
             )
+            app_obj.state.job_executor.shutdown(wait=True, cancel_futures=True)
 
 
 # ---------------------------------------------------------------------------
@@ -388,7 +415,9 @@ class TestWsCancelMessage(unittest.TestCase):
             fake = _fake_pipeline()
 
             def slow_transcribe(*a, **kw):
-                time.sleep(2.0)
+                event = kw.get("cancel_event")
+                if event is not None:
+                    event.wait(2.0)
                 return SimpleNamespace(engine="slow", metadata={})
 
             fake.transcribe.side_effect = slow_transcribe
@@ -401,13 +430,15 @@ class TestWsCancelMessage(unittest.TestCase):
                     ws.send_text('{"event": "cancel"}')
                     # Drain at least one event so the server-side cancel
                     # message has a chance to be processed.
-                    deadline = time.time() + 2.0
+                    deadline = time.time() + 3.0
                     seen_cancel = False
                     while time.time() < deadline:
                         try:
                             msg = ws.receive_json()
                         except Exception:
                             break
+                        if msg.get("event") == "cancel_requested":
+                            continue
                         if msg.get("event") in ("cancelled", "cancelled_done"):
                             seen_cancel = True
                             break
@@ -418,6 +449,15 @@ class TestWsCancelMessage(unittest.TestCase):
                     self.assertTrue(
                         job.cancelled, "registry.cancel must be called on WS cancel message"
                     )
+                    deadline = time.time() + 2.0
+                    while time.time() < deadline:
+                        row = client.app.state.job_store.get(job_id)
+                        if row and row.get("finished") and row.get("cancelled"):
+                            break
+                        time.sleep(0.05)
+                    self.assertTrue(job.finished, "worker must acknowledge cancellation")
+                    client.app.state.job_executor.shutdown(wait=True, cancel_futures=True)
+                    client.close()
             except Exception as exc:
                 # Some TestClient versions close the WS hard on cancel;
                 # check the registry flag directly.
@@ -663,9 +703,15 @@ class TestRunJobSafelyPurgeCheck(unittest.TestCase):
         import app as app_module
 
         from mediascribe.progress import ProgressRegistry
+        from mediascribe.web.job_control import JobControl
+        from mediascribe.web.job_store import JobStore
 
         registry = ProgressRegistry()
-        job = registry.create("https://example.com/x")
+        control = JobControl(JobStore(Path(tempfile.mkdtemp()) / "jobs.sqlite3"), registry)
+        job = control.submit(
+            "https://example.com/x", request={}, selection={}, out_path=Path("/nonexistent.md")
+        )
+        control.start_attempt(job.job_id)
         results_store: dict = {}
         lock = threading.Lock()
 
@@ -683,6 +729,7 @@ class TestRunJobSafelyPurgeCheck(unittest.TestCase):
             results_store=results_store,
             results_lock=lock,
             registry=registry,
+            control=control,
         )
         self.assertEqual(results_store, {}, "must NOT write results_store for a purged job")
 
@@ -691,24 +738,44 @@ class TestRunJobSafelyPurgeCheck(unittest.TestCase):
         import app as app_module
 
         from mediascribe.progress import ProgressRegistry
+        from mediascribe.web.job_control import JobControl
+        from mediascribe.web.job_store import JobStore
 
         registry = ProgressRegistry()
-        job = registry.create("https://example.com/x")
+        control = JobControl(JobStore(Path(tempfile.mkdtemp()) / "jobs.sqlite3"), registry)
+        job = control.submit(
+            "https://example.com/x",
+            request={},
+            selection={},
+            out_path=Path(tempfile.mkdtemp()) / "result.md",
+        )
+        control.start_attempt(job.job_id)
         results_store: dict = {}
         lock = threading.Lock()
 
-        def fake_runner():
-            return SimpleNamespace(engine="e", metadata={"title": "T"})
+        with tempfile.TemporaryDirectory() as td:
+            out_path = Path(td) / "result.md"
+            out_path.write_text("# Result\n", encoding="utf-8")
 
-        app_module._run_job_safely(
-            runner=fake_runner,
-            job_id=job.job_id,
-            out_path=Path("/nonexistent.md"),
-            url="https://example.com/x",
-            results_store=results_store,
-            results_lock=lock,
-            registry=registry,
-        )
+            def fake_runner():
+                return SimpleNamespace(
+                    engine="e",
+                    model="small",
+                    transcript_path=out_path,
+                    source=SimpleNamespace(display_name="input"),
+                    metadata={"title": "T", "engine": "e", "model": "small"},
+                )
+
+            app_module._run_job_safely(
+                runner=fake_runner,
+                job_id=job.job_id,
+                out_path=out_path,
+                url="https://example.com/x",
+                results_store=results_store,
+                results_lock=lock,
+                registry=registry,
+                control=control,
+            )
         self.assertIn(job.job_id, results_store)
         self.assertEqual(results_store[job.job_id]["engine"], "e")
         self.assertEqual(results_store[job.job_id]["title"], "T")

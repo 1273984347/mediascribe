@@ -28,9 +28,13 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-STAGES = ("download", "extract_audio", "transcribe", "merge")
+from .checkpoint import CheckpointCapability, CheckpointCursor
+from .models import SourceRef
+
+STAGES = ("preflight", "model_prepare", "download", "extract_audio", "transcribe", "assemble")
 
 # P2-9: events 队列上限 — 旧实现是无界 ``queue.Queue``, 慢/无消费者时
 # 事件无限堆积 (内存泄漏)。满时丢弃**最旧**事件, 保证最新事件(尤其是
@@ -64,14 +68,28 @@ class JobProgress:
     job_id: str
     url: str
     created_at: float = field(default_factory=time.time)
+    attempt_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    retry_of: Optional[str] = None
     cancelled: bool = False
     finished: bool = False
     stage: Optional[str] = None
     stage_index: int = 0
     stage_current: int = 0
     stage_total: int = 0
+    progress_known: bool = False
     error: Optional[str] = None
+    error_code: Optional[str] = None
+    recovery: Optional[Dict[str, Any]] = None
     result: Optional[Dict[str, Any]] = None
+    status: str = "queued"
+    resumable: bool = False
+    resume_block_reason: Optional[str] = None
+    cancel_requested: bool = False
+    last_segment_index: int = -1
+    last_segment_end: float = 0.0
+    committed_segments: int = 0
+    resume_count: int = 0
+    checkpoint_mode: Optional[str] = None
     # The events queue is consumed by the WebSocket layer.  New
     # listeners are not auto-attached; use ProgressRegistry.subscribe()
     # to obtain a fresh iterator over a snapshot.
@@ -98,6 +116,7 @@ class JobProgress:
             "current": current if current is not None else self.stage_current,
             "total": total if total is not None else self.stage_total,
             "stage_index": self.stage_index,
+            "progress_known": self.progress_known,
             "cancelled": self.cancelled,
             "finished": self.finished,
         }
@@ -105,13 +124,14 @@ class JobProgress:
         if _put_bounded(self.events, payload):
             self.dropped_events += 1
 
-    def start_stage(self, stage: str, total: int) -> None:
+    def start_stage(self, stage: str, total: int, *, known: bool = True) -> None:
         if stage not in STAGES:
             raise ValueError(f"unknown stage {stage!r}")
         self.stage = stage
         self.stage_index = STAGES.index(stage)
         self.stage_current = 0
         self.stage_total = total
+        self.progress_known = known
         self.emit("stage_start", stage=stage, current=0, total=total)
 
     def advance(self, current: int) -> None:
@@ -123,24 +143,38 @@ class JobProgress:
         self.emit("stage_done", current=self.stage_total, total=self.stage_total)
 
     def cancel(self) -> None:
+        if self.finished or self.cancelled:
+            return
         self.cancelled = True
-        # v3.2.0c-fix: cancelled is a terminal state — finished must be
-        # True so the WS loop (``while not job.finished``), REST
-        # ``/api/jobs/{id}/result`` (``finished`` field) and
-        # ``ProgressRegistry.purge`` (filters on ``j.finished``) all
-        # observe the job as done. Previously ``finished`` stayed
-        # False forever for cancelled jobs, causing the WS loop to
-        # spin forever on non-browser clients and the registry to
-        # leak memory.
-        self.finished = True
-        self.emit("cancelled")
+        self.emit("cancel_requested")
 
-    def fail(self, error: str) -> None:
+    def cancel_done(self) -> None:
+        self.cancelled = True
+        if not self.finished:
+            self.finished = True
+            self.emit("cancelled")
+
+    def fail(
+        self,
+        error: str,
+        *,
+        error_code: Optional[str] = None,
+        recovery: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if self.cancelled:
+            self.cancel_done()
+            return
         self.error = error
+        self.error_code = error_code
+        self.recovery = recovery
         self.finished = True
-        self.emit("failed", error=error)
+        safe_error = recovery.get("reason") if recovery else None
+        self.emit("failed", error=safe_error or error, error_code=error_code, recovery=recovery)
 
     def succeed(self, result: Dict[str, Any]) -> None:
+        if self.cancelled:
+            self.cancel_done()
+            return
         self.result = result
         self.finished = True
         self.emit("succeeded")
@@ -148,14 +182,34 @@ class JobProgress:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "job_id": self.job_id,
+            "attempt_id": self.attempt_id,
+            "retry_of": self.retry_of,
             "url": self.url,
+            "status": self.status,
             "stage": self.stage,
             "stage_index": self.stage_index,
             "stage_current": self.stage_current,
             "stage_total": self.stage_total,
+            "progress_known": self.progress_known,
             "cancelled": self.cancelled,
             "finished": self.finished,
-            "error": self.error,
+            "error": (self.recovery or {}).get("reason") or self.error,
+            "error_code": self.error_code,
+            "recovery": self.recovery,
+            "result": self.result,
+            "resumable": self.resumable,
+            "resume_block_reason": self.resume_block_reason,
+            "cancel_requested": self.cancel_requested,
+            "last_segment_index": self.last_segment_index,
+            "last_segment_end": self.last_segment_end,
+            "committed_segments": self.committed_segments,
+            "resume_count": self.resume_count,
+            "checkpoint": {
+                "committed_segments": self.committed_segments,
+                "last_segment_index": self.last_segment_index,
+                "last_segment_end": self.last_segment_end,
+                "mode": self.checkpoint_mode,
+            },
         }
 
 
@@ -180,6 +234,43 @@ class ProgressRegistry:
     def get(self, job_id: str) -> Optional[JobProgress]:
         with self._lock:
             return self._jobs.get(job_id)
+
+    def upsert(self, snapshot: Dict[str, Any]) -> JobProgress:
+        """Restore a durable snapshot without replaying historical events."""
+        with self._lock:
+            job = self._jobs.get(snapshot["job_id"])
+            if job is None:
+                job = JobProgress(job_id=snapshot["job_id"], url=snapshot["url"])
+                self._jobs[job.job_id] = job
+        for key in (
+            "attempt_id",
+            "retry_of",
+            "status",
+            "stage",
+            "stage_index",
+            "stage_current",
+            "stage_total",
+            "progress_known",
+            "cancelled",
+            "finished",
+            "error",
+            "error_code",
+            "recovery",
+            "result",
+            "resumable",
+            "resume_block_reason",
+            "cancel_requested",
+            "last_segment_index",
+            "last_segment_end",
+            "committed_segments",
+            "resume_count",
+            "checkpoint_mode",
+        ):
+            if key in snapshot:
+                setattr(job, key, snapshot[key])
+        if "created_at" in snapshot:
+            job.created_at = float(snapshot["created_at"])
+        return job
 
     def cancel(self, job_id: str) -> bool:
         job = self.get(job_id)
@@ -215,6 +306,20 @@ def with_progress(
     *,
     out_path: Any = None,
     cancel_event: Optional[threading.Event] = None,
+    segment_cb: Optional[Callable[[dict[str, Any]], None]] = None,
+    resume_start: Optional[float] = None,
+    resume_source: Optional[SourceRef] = None,
+    resume_audio_path: Optional[Path] = None,
+    audio_path_cb: Optional[Callable[[Path], None]] = None,
+    decode_params_cb: Optional[Callable[[dict[str, Any]], None]] = None,
+    progress_sink: Optional[Callable[[str, float], None]] = None,
+    checkpoint_capability: Optional[CheckpointCapability] = None,
+    checkpoint_cursor: Optional[CheckpointCursor] = None,
+    prior_segments_cb: Optional[Callable[[], list[dict[str, Any]]]] = None,
+    checkpoint_window_started_cb: Optional[Callable[[int, float, float], None]] = None,
+    checkpoint_window_committed_cb: Optional[
+        Callable[[int, float, float, str | None], None]
+    ] = None,
 ) -> Callable[[], Any]:
     """Run ``pipeline.transcribe(url, ...)`` while emitting stage events.
 
@@ -232,53 +337,72 @@ def with_progress(
         if job.cancelled or (cancel_event is not None and cancel_event.is_set()):
             raise JobCancelled(f"job {job.job_id} cancelled")
 
+    def _on_progress(stage: str, percent: float) -> None:
+        if stage not in STAGES:
+            return
+        if progress_sink is not None:
+            progress_sink(stage, percent)
+        if percent <= 0:
+            if job.stage != stage or job.stage_current > 0:
+                job.start_stage(stage, total=1, known=False)
+            return
+        if percent >= 100:
+            if job.stage != stage:
+                job.start_stage(stage, total=1, known=False)
+            if job.stage_current < job.stage_total:
+                job.advance(1)
+                job.finish_stage()
+            return
+        if job.stage != stage or not job.progress_known or job.stage_total != 100:
+            job.start_stage(stage, total=100, known=True)
+        job.advance(max(1, min(100, round(percent))))
+
     def runner() -> Any:
         try:
-            # 1. download
-            job.start_stage("download", total=1)
             _check_cancel()
-            # We can't introspect real download progress from the
-            # pipeline today, so we report 0→1 with the pipeline
-            # doing the actual work inside the call.
-            job.advance(1)
-            # 2. extract_audio + 3. transcribe happen together in
-            # the pipeline.transcribe() call.  We model them as a
-            # single "transcribe" stage with progress emitted
-            # before/after.
-            job.start_stage("transcribe", total=1)
-            _check_cancel()
-            kwargs: Dict[str, Any] = {}
+            kwargs: Dict[str, Any] = {"progress_cb": _on_progress}
             if out_path is not None:
                 kwargs["output"] = out_path
             if cancel_event is not None:
                 kwargs["cancel_event"] = cancel_event
+            if segment_cb is not None:
+                kwargs["segment_cb"] = segment_cb
+            if resume_start is not None:
+                kwargs["resume_start"] = resume_start
+            if resume_source is not None:
+                kwargs["resume_source"] = resume_source
+            if resume_audio_path is not None:
+                kwargs["resume_audio_path"] = resume_audio_path
+            if audio_path_cb is not None:
+                kwargs["audio_path_cb"] = audio_path_cb
+            if decode_params_cb is not None:
+                kwargs["decode_params_cb"] = decode_params_cb
+            if checkpoint_capability is not None:
+                kwargs["checkpoint_capability"] = checkpoint_capability
+            if checkpoint_cursor is not None:
+                kwargs["checkpoint_cursor"] = checkpoint_cursor
+            if prior_segments_cb is not None:
+                kwargs["prior_segments_cb"] = prior_segments_cb
+            if checkpoint_window_started_cb is not None:
+                kwargs["checkpoint_window_started_cb"] = checkpoint_window_started_cb
+            if checkpoint_window_committed_cb is not None:
+                kwargs["checkpoint_window_committed_cb"] = checkpoint_window_committed_cb
             result = pipeline.transcribe(url, **kwargs)
-            job.advance(1)
-            job.finish_stage()
-            # 4. merge (a no-op today; emit a stage for forward-compat)
-            job.start_stage("merge", total=1)
-            job.advance(1)
-            job.finish_stage()
-            job.succeed(
-                {
-                    "engine": getattr(result, "engine", None),
-                    "out_path": str(out_path) if out_path else None,
-                }
+            _check_cancel()
+            from mediascribe.pipeline_stages import (
+                ResultWriteError,
+                validate_transcript_result,
             )
+
+            artifact_path = Path(out_path or result.transcript_path)
+            try:
+                markdown = artifact_path.read_text(encoding="utf-8", errors="replace")
+            except OSError as exc:
+                raise ResultWriteError(str(exc)) from exc
+            validate_transcript_result(result, markdown)
         except JobCancelled:
-            # v3.2.0c-note: ``cancelled_done`` is emitted for direct
-            # ``job.events`` subscribers (e.g. tests, in-process
-            # consumers) as the "worker has acknowledged the cancel"
-            # signal.  Note that WS clients (``/ws/progress/{id}``)
-            # will NOT receive this event — ``cancel()`` now sets
-            # ``finished=True`` synchronously, so the WS loop exits
-            # right after delivering ``cancelled`` and never drains
-            # the subsequent ``cancelled_done``.  This is intentional;
-            # the ``cancelled`` event already conveys terminal state.
-            job.emit("cancelled_done")
             raise
-        except Exception as exc:  # noqa: BLE001
-            job.fail(f"{exc.__class__.__name__}: {exc}")
+        except Exception:
             raise
         return result
 

@@ -58,6 +58,8 @@
       <p class="lede">粘贴 Bilibili / 抖音 / YouTube / 小红书 / 微信公众号 链接(单次最多 20 条)。服务端按 <code>下载 → 提取音频 → 转写 → 合并</code> 四级信号链逐级处理,实时进度经 WebSocket 推送,随时可取消,产出可复制的 Markdown 文稿。</p>
     </section>
 
+    <div id="readiness" class="readiness loading" role="status" aria-live="polite">正在检查环境…</div>
+
     <form id="form" class="panel">
       <div class="fld">
         <label for="urls">视频链接 <span class="hint">每行一条</span></label>
@@ -71,6 +73,7 @@ https://www.youtube.com/watch?v=…" required></textarea>
         <div class="fld">
           <label for="engine">识别引擎 <span class="hint">可选</span></label>
           <select id="engine">
+            <option value="" selected>自动（推荐）</option>
             <option value="whisper">whisper</option>
             <option value="faster-whisper">faster-whisper(推荐)</option>
             <option value="whisperx">whisperx</option>
@@ -78,12 +81,13 @@ https://www.youtube.com/watch?v=…" required></textarea>
           </select>
         </div>
         <div class="fld">
-          <label for="model">模型 <span class="hint">默认 small</span></label>
+          <label for="model">模型 <span class="hint">自动默认 small</span></label>
           <select id="model">
+            <option value="" selected>自动（默认 small）</option>
             <optgroup label="快速预览">
               <option value="tiny">tiny</option>
               <option value="base">base</option>
-              <option value="small" selected>small</option>
+              <option value="small">small</option>
             </optgroup>
             <optgroup label="准确率优先">
               <option value="medium">medium</option>
@@ -120,6 +124,11 @@ https://www.youtube.com/watch?v=…" required></textarea>
           <input type="text" id="cookies" autocomplete="off" placeholder="wxuin=abc; pass_ticket=xyz">
         </div>
         <div class="fld">
+          <label for="allow-model-download">模型下载 <span class="hint">默认关闭</span></label>
+          <input type="checkbox" id="allow-model-download">
+          <span class="hint">允许下载缺失模型，不会上传转录内容</span>
+        </div>
+        <div class="fld">
           <label>输出选项</label>
           <label class="switch">
             <input type="checkbox" id="bilingual">
@@ -144,7 +153,7 @@ https://www.youtube.com/watch?v=…" required></textarea>
         </div>
       </div>
 
-      <button class="run" id="submit" type="submit"><span class="run-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.54.84l10-6.5a1 1 0 0 0 0-1.68l-10-6.5A1 1 0 0 0 8 5.5Z"/></svg></span> 运行转写 <kbd>Ctrl + ⏎</kbd></button>
+      <button class="run" id="submit" type="submit" disabled><span class="run-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.54.84l10-6.5a1 1 0 0 0 0-1.68l-10-6.5A1 1 0 0 0 8 5.5Z"/></svg></span> 运行转写 <kbd>Ctrl + ⏎</kbd></button>
       <p class="status" id="status" aria-live="polite">就绪,等待输入。</p>
     </form>
 

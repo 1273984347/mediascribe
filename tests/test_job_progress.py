@@ -3,12 +3,26 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+
+
+def _valid_result(path: Path) -> SimpleNamespace:
+    path.write_text("# Transcript\n\nhello\n", encoding="utf-8")
+    return SimpleNamespace(
+        engine="whisper",
+        model="small",
+        transcript_path=path,
+        metadata={"engine": "whisper", "model": "small"},
+        source=SimpleNamespace(display_name="clip"),
+        duration_seconds=1.0,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -28,6 +42,15 @@ class TestJobProgress(unittest.TestCase):
         self.assertIsNone(job.stage)
         self.assertEqual(job.stage_index, 0)
         self.assertEqual(job.stage_current, 0)
+        self.assertFalse(job.progress_known)
+        self.assertEqual(job.status, "queued")
+        self.assertFalse(job.resumable)
+        self.assertIsNone(job.resume_block_reason)
+        self.assertFalse(job.cancel_requested)
+        self.assertEqual(job.last_segment_index, -1)
+        self.assertEqual(job.last_segment_end, 0.0)
+        self.assertEqual(job.committed_segments, 0)
+        self.assertEqual(job.resume_count, 0)
 
     def test_start_stage_emits_event(self):
         from mediascribe.progress import JobProgress
@@ -35,7 +58,7 @@ class TestJobProgress(unittest.TestCase):
         job = JobProgress(job_id="j1", url="u")
         job.start_stage("download", total=10)
         self.assertEqual(job.stage, "download")
-        self.assertEqual(job.stage_index, 0)
+        self.assertEqual(job.stage_index, 2)
         self.assertEqual(job.stage_total, 10)
         ev = job.events.get_nowait()
         self.assertEqual(ev["event"], "stage_start")
@@ -67,7 +90,7 @@ class TestJobProgress(unittest.TestCase):
         from mediascribe.progress import JobProgress
 
         job = JobProgress(job_id="j1", url="u")
-        job.start_stage("merge", total=1)
+        job.start_stage("assemble", total=1)
         job.events.get_nowait()
         job.finish_stage()
         ev = job.events.get_nowait()
@@ -75,15 +98,20 @@ class TestJobProgress(unittest.TestCase):
         self.assertEqual(ev["current"], 1)
         self.assertEqual(ev["total"], 1)
 
-    def test_cancel_sets_flag_and_emits(self):
+    def test_cancel_requests_then_waits_for_worker_ack(self):
         from mediascribe.progress import JobProgress
 
         job = JobProgress(job_id="j1", url="u")
         job.cancel()
         self.assertTrue(job.cancelled)
-        ev = job.events.get_nowait()
-        self.assertEqual(ev["event"], "cancelled")
-        self.assertTrue(ev["cancelled"])
+        self.assertFalse(job.finished)
+        requested = job.events.get_nowait()
+        self.assertEqual(requested["event"], "cancel_requested")
+
+        job.cancel_done()
+        self.assertTrue(job.finished)
+        done = job.events.get_nowait()
+        self.assertEqual(done["event"], "cancelled")
 
     def test_fail_marks_finished(self):
         from mediascribe.progress import JobProgress
@@ -110,19 +138,33 @@ class TestJobProgress(unittest.TestCase):
         from mediascribe.progress import JobProgress
 
         job = JobProgress(job_id="j1", url="u")
-        job.start_stage("transcribe", total=10)
+        job.start_stage("transcribe", total=10, known=False)
+        job.result = {"out_path": "x.md"}
         d = job.to_dict()
         self.assertEqual(d["job_id"], "j1")
         self.assertEqual(d["stage"], "transcribe")
-        self.assertEqual(d["stage_index"], 2)
+        self.assertEqual(d["stage_index"], 4)
         self.assertEqual(d["stage_total"], 10)
+        self.assertFalse(d["progress_known"])
         self.assertEqual(d["cancelled"], False)
         self.assertEqual(d["finished"], False)
+        self.assertEqual(d["status"], "queued")
+        self.assertFalse(d["resumable"])
+        self.assertIsNone(d["resume_block_reason"])
+        self.assertFalse(d["cancel_requested"])
+        self.assertEqual(d["last_segment_index"], -1)
+        self.assertEqual(d["last_segment_end"], 0.0)
+        self.assertEqual(d["committed_segments"], 0)
+        self.assertEqual(d["resume_count"], 0)
+        self.assertEqual(d["result"], {"out_path": "x.md"})
 
     def test_stages_in_order(self):
         from mediascribe.progress import STAGES
 
-        self.assertEqual(STAGES, ("download", "extract_audio", "transcribe", "merge"))
+        self.assertEqual(
+            STAGES,
+            ("preflight", "model_prepare", "download", "extract_audio", "transcribe", "assemble"),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -138,6 +180,54 @@ class TestProgressRegistry(unittest.TestCase):
         job = r.create("https://example.com")
         self.assertIsNotNone(r.get(job.job_id))
         self.assertIsNone(r.get("nonexistent"))
+
+    def test_upsert_hydrates_projection_without_replaying_events(self):
+        from mediascribe.progress import ProgressRegistry
+
+        registry = ProgressRegistry()
+        snapshot = {
+            "job_id": "persisted",
+            "url": "https://example.com/persisted",
+            "created_at": 123.5,
+            "attempt_id": "attempt-2",
+            "retry_of": "attempt-1",
+            "status": "interrupted",
+            "stage": "transcribe",
+            "stage_index": 4,
+            "stage_current": 8,
+            "stage_total": 10,
+            "progress_known": True,
+            "cancelled": False,
+            "finished": True,
+            "error": "interrupted",
+            "error_code": "INTERRUPTED",
+            "recovery": {"reason": "interrupted"},
+            "result": {"out_path": "x.md"},
+            "resumable": True,
+            "resume_block_reason": None,
+            "cancel_requested": False,
+            "last_segment_index": 7,
+            "last_segment_end": 12.5,
+            "committed_segments": 8,
+            "resume_count": 1,
+        }
+
+        job = registry.upsert(snapshot)
+
+        self.assertIs(registry.get("persisted"), job)
+        self.assertEqual(job.created_at, 123.5)
+        for key, value in snapshot.items():
+            if key not in {"job_id", "url", "created_at"}:
+                self.assertEqual(getattr(job, key), value)
+        self.assertTrue(job.events.empty())
+
+        snapshot["status"] = "running"
+        snapshot["finished"] = False
+        updated = registry.upsert(snapshot)
+        self.assertIs(updated, job)
+        self.assertEqual(updated.status, "running")
+        self.assertFalse(updated.finished)
+        self.assertTrue(updated.events.empty())
 
     def test_unique_ids(self):
         from mediascribe.progress import ProgressRegistry
@@ -228,30 +318,36 @@ class TestWithProgress(unittest.TestCase):
         from mediascribe.progress import JobProgress, with_progress
 
         job = JobProgress(job_id="j1", url="u")
-        result = mock.MagicMock()
-        result.engine = "whisper"
         pipeline = mock.MagicMock()
-        pipeline.transcribe.return_value = result
+        from mediascribe.progress import STAGES
 
-        runner = with_progress(pipeline, job, "u", out_path=Path("/tmp/x.md"))
-        out = runner()
+        def fake_transcribe(url, **kwargs):
+            callback = kwargs["progress_cb"]
+            for stage in STAGES:
+                callback(stage, 0.0)
+                callback(stage, 100.0)
+            return result
+
+        pipeline.transcribe.side_effect = fake_transcribe
+
+        with tempfile.TemporaryDirectory() as td:
+            artifact = Path(td) / "x.md"
+            result = _valid_result(artifact)
+            runner = with_progress(pipeline, job, "u", out_path=artifact)
+            out = runner()
 
         self.assertEqual(out, result)
-        self.assertTrue(job.finished)
+        self.assertFalse(job.finished)
         # Drain the events queue
         events = []
         while not job.events.empty():
             events.append(job.events.get_nowait())
-        # We should see 4 stage_start + 4 stage_done + 1 succeeded = 9
         starts = [e for e in events if e["event"] == "stage_start"]
         dones = [e for e in events if e["event"] == "stage_done"]
-        # download stage_start is emitted, but finish_stage is not
-        # called for it — the pipeline.transcribe() call below is
-        # what produces the audio.  Only the transcribe + merge
-        # stages end with finish_stage().
-        self.assertEqual([e["stage"] for e in starts], ["download", "transcribe", "merge"])
-        self.assertEqual([e["stage"] for e in dones], ["transcribe", "merge"])
-        self.assertTrue(any(e["event"] == "succeeded" for e in events))
+        self.assertEqual([e["stage"] for e in starts], list(STAGES))
+        self.assertEqual([e["stage"] for e in dones], list(STAGES))
+        self.assertTrue(all(e["progress_known"] is False for e in starts))
+        self.assertFalse(any(e["event"] == "succeeded" for e in events))
 
     def test_cancellation_raises_and_marks_job(self):
         from mediascribe.progress import JobCancelled, JobProgress, with_progress
@@ -263,15 +359,71 @@ class TestWithProgress(unittest.TestCase):
         runner = with_progress(pipeline, job, "u")
         with self.assertRaises(JobCancelled):
             runner()
-        # Job is still marked as finished in the sense that
-        # cancellation_done was emitted.
+        self.assertFalse(job.finished)
         ev_types = []
         while not job.events.empty():
             ev_types.append(job.events.get_nowait()["event"])
-        self.assertIn("stage_start", ev_types)
-        self.assertIn("cancelled_done", ev_types)
+        self.assertNotIn("cancelled", ev_types)
+        self.assertNotIn("succeeded", ev_types)
 
-    def test_pipeline_exception_records_error(self):
+    def test_first_measured_progress_upgrades_boundary_only_stage(self):
+        import tempfile
+
+        from mediascribe.progress import JobProgress, with_progress
+
+        job = JobProgress(job_id="j", url="u")
+        job.start_stage("transcribe", total=1, known=False)
+        while not job.events.empty():
+            job.events.get_nowait()
+
+        class FakePipeline:
+            def transcribe(self, url, **kwargs):
+                kwargs["progress_cb"]("transcribe", 50.0)
+                return _valid_result(Path(tempfile.mkdtemp()) / "x.md")
+
+        with_progress(FakePipeline(), job, "u")()
+        self.assertEqual(job.stage_total, 100)
+        self.assertTrue(job.progress_known)
+        event = job.events.get_nowait()
+        while not job.events.empty():
+            event = job.events.get_nowait()
+        self.assertEqual(event["event"], "stage_progress")
+        self.assertEqual(event["current"], 50)
+        self.assertEqual(event["total"], 100)
+        self.assertTrue(event["progress_known"])
+
+    def test_with_progress_forwards_checkpoint_callbacks_and_resume_start(self):
+        import tempfile
+
+        from mediascribe.progress import JobProgress, with_progress
+
+        job = JobProgress(job_id="j", url="u")
+        seen = {}
+
+        class FakePipeline:
+            def transcribe(self, url, **kwargs):
+                seen.update(kwargs)
+                kwargs["audio_path_cb"](Path("audio.wav"))
+                kwargs["decode_params_cb"]({"initial_prompt": "terms"})
+                kwargs["segment_cb"]({"text": "hello", "start": 0.0, "end": 1.0})
+                return _valid_result(Path(tempfile.mkdtemp()) / "x.md")
+
+        runner = with_progress(
+            FakePipeline(),
+            job,
+            "u",
+            segment_cb=lambda segment: None,
+            resume_start=4.0,
+            audio_path_cb=lambda path: None,
+            decode_params_cb=lambda payload: None,
+        )
+        runner()
+        assert seen["resume_start"] == 4.0
+        assert callable(seen["segment_cb"])
+        assert callable(seen["audio_path_cb"])
+        assert callable(seen["decode_params_cb"])
+
+    def test_pipeline_exception_propagates_without_terminal_write(self):
         from mediascribe.progress import JobProgress, with_progress
 
         job = JobProgress(job_id="j1", url="u")
@@ -280,8 +432,8 @@ class TestWithProgress(unittest.TestCase):
         runner = with_progress(pipeline, job, "u")
         with self.assertRaises(RuntimeError):
             runner()
-        self.assertTrue(job.finished)
-        self.assertIn("boom", job.error)
+        self.assertFalse(job.finished)
+        self.assertIsNone(job.error)
 
 
 # ---------------------------------------------------------------------------
@@ -359,13 +511,16 @@ class TestWithProgressCancelEvent(unittest.TestCase):
         evt = threading.Event()
         seen = []
 
-        class FakePipeline:
-            def transcribe(self, url, **kw):
-                seen.append(kw)
-                return "OK"
+        with tempfile.TemporaryDirectory() as td:
+            result = _valid_result(Path(td) / "result.md")
 
-        runner = with_progress(FakePipeline(), job, "u", cancel_event=evt)
-        runner()
+            class FakePipeline:
+                def transcribe(self, url, **kw):
+                    seen.append(kw)
+                    return result
+
+            runner = with_progress(FakePipeline(), job, "u", cancel_event=evt)
+            runner()
         self.assertIs(seen[0].get("cancel_event"), evt)
 
 

@@ -88,11 +88,20 @@ def _register_ws_progress_route(app: "FastAPI") -> None:
             return
         job = registry.get(job_id)
         if job is None:
-            await websocket.send_json({"event": "error", "message": "unknown job"})
-            await websocket.close(code=4404)
-            return
+            job = app.state.job_control.hydrate(job_id)
+            if job is None:
+                await websocket.send_json({"event": "error", "message": "unknown job"})
+                await websocket.close(code=4404)
+                return
+            if job.finished:
+                await websocket.send_json({"event": "snapshot", **job.to_dict()})
+                await websocket.close(code=1000)
+                return
         # Replay current state, then drain new events
         await websocket.send_json({"event": "snapshot", **job.to_dict()})
+        if job.finished:
+            await websocket.close(code=1000)
+            return
 
         import json as _json
 
@@ -138,15 +147,17 @@ def _register_ws_progress_route(app: "FastAPI") -> None:
             if not (isinstance(parsed, dict) and parsed.get("event") == "cancel"):
                 return True
             if ws_authenticated:
-                registry.cancel(job_id)
-                # Also cancel any registered AsyncPipeline so
-                # in-flight ``asyncio.Task``s are torn down.
-                ap = app.state.async_pipelines.get(job_id)
-                if ap is not None and hasattr(ap, "cancel"):
-                    try:
-                        ap.cancel()
-                    except Exception:
-                        pass
+                result = app.state.job_control.cancel(job_id)
+                if result["accepted"]:
+                    ap = app.state.async_pipelines.get(job_id)
+                    if ap is not None and hasattr(ap, "cancel_one"):
+                        try:
+                            ap.cancel_one(app.state.job_sources.get(job_id, ""))
+                        except Exception as exc:  # pragma: no cover - defensive
+                            logger.debug("AsyncPipeline.cancel_one 异常: %r", exc)
+                snapshot = app.state.job_control.hydrate(job_id)
+                if snapshot is not None:
+                    await websocket.send_json({"event": "snapshot", **snapshot.to_dict()})
                 return True
             # P1-1: 未鉴权连接不允许驱动 cancel。
             try:

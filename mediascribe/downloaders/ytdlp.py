@@ -189,7 +189,7 @@ class YtDlpDownloader(Downloader):
                 status = data.get("status")
                 if status != "downloading":
                     return
-                total = data.get("total_bytes") or data.get("total_bytes_estimate") or 0
+                total = data.get("total_bytes") or 0
                 downloaded = data.get("downloaded_bytes") or 0
                 if total > 0:
                     bucket = int(downloaded / total * 100 // 5)
@@ -201,6 +201,10 @@ class YtDlpDownloader(Downloader):
                             downloaded,
                             total,
                         )
+                        try:
+                            progress(downloaded, total)
+                        except Exception:
+                            logger.debug("download progress callback failed", exc_info=True)
                 else:
                     logger.info("下载进度: %d 字节", downloaded)
 

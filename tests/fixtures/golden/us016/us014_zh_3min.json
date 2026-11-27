@@ -1,0 +1,77 @@
+{
+  "schema_version": "mediascribe-benchmark-corpus/v1",
+  "file": "us014_zh_3min.wav",
+  "language": "zh",
+  "duration_s": 179.837,
+  "voice": "Microsoft Huihui Desktop",
+  "topic": "科技播报稿（普通话标准女声）",
+  "speakers": 1,
+  "wer_notes": "Offline SAPI synthesis. Reference text is exact by construction (TTS reads the text verbatim), so CER/WER measures pure ASR error with no human annotation noise. Caveat: synthetic speech is cleaner and more uniform than real recordings, so absolute error rates are optimistic; use it for RELATIVE comparison between engines.",
+  "transcript": [
+    {
+      "start": 0.0,
+      "end": 14.763,
+      "speaker": "S1",
+      "text": "各位观众大家好，欢迎收看本期的科技观察节目。"
+    },
+    {
+      "start": 14.763,
+      "end": 36.907,
+      "speaker": "S1",
+      "text": "今天我们讨论的话题是，人工智能模型正在怎样改变软件开发的工作方式。"
+    },
+    {
+      "start": 36.907,
+      "end": 54.354,
+      "speaker": "S1",
+      "text": "过去五年间，大语言模型从实验室走进了日常的工程流程。"
+    },
+    {
+      "start": 54.354,
+      "end": 76.498,
+      "speaker": "S1",
+      "text": "越来越多的团队开始用模型辅助编写代码，编写测试，甚至参与系统设计。"
+    },
+    {
+      "start": 76.498,
+      "end": 105.352,
+      "speaker": "S1",
+      "text": "但与此同时，一个现实的问题也随之出现，速度提升的同时，代码的可维护性是否也在同步提升。"
+    },
+    {
+      "start": 105.352,
+      "end": 127.496,
+      "speaker": "S1",
+      "text": "有研究者指出，模型生成的代码越容易被接受，评审环节就越容易被跳过。"
+    },
+    {
+      "start": 127.496,
+      "end": 143.601,
+      "speaker": "S1",
+      "text": "而一旦跳过评审，隐藏的技术债就会在后期集中爆发。"
+    },
+    {
+      "start": 143.601,
+      "end": 161.719,
+      "speaker": "S1",
+      "text": "我们认为，工具可以改变效率，但很难替人承担判断的责任。"
+    },
+    {
+      "start": 161.719,
+      "end": 179.837,
+      "speaker": "S1",
+      "text": "这就是本期节目的全部内容，感谢您的观看，我们下期再见。"
+    }
+  ],
+  "full_text": "各位观众大家好，欢迎收看本期的科技观察节目。\n今天我们讨论的话题是，人工智能模型正在怎样改变软件开发的工作方式。\n过去五年间，大语言模型从实验室走进了日常的工程流程。\n越来越多的团队开始用模型辅助编写代码，编写测试，甚至参与系统设计。\n但与此同时，一个现实的问题也随之出现，速度提升的同时，代码的可维护性是否也在同步提升。\n有研究者指出，模型生成的代码越容易被接受，评审环节就越容易被跳过。\n而一旦跳过评审，隐藏的技术债就会在后期集中爆发。\n我们认为，工具可以改变效率，但很难替人承担判断的责任。\n这就是本期节目的全部内容，感谢您的观看，我们下期再见。",
+  "full_text_nopunct": "各 位 观 众 大 家 好 欢 迎 收 看 本 期 的 科 技 观 察 节 目 今 天 我 们 讨 论 的 话 题 是 人 工 智 能 模 型 正 在 怎 样 改 变 软 件 开 发 的 工 作 方 式 过 去 五 年 间 大 语 言 模 型 从 实 验 室 走 进 了 日 常 的 工 程 流 程 越 来 越 多 的 团 队 开 始 用 模 型 辅 助 编 写 代 码 编 写 测 试 甚 至 参 与 系 统 设 计 但 与 此 同 时 一 个 现 实 的 问 题 也 随 之 出 现 速 度 提 升 的 同 时 代 码 的 可 维 护 性 是 否 也 在 同 步 提 升 有 研 究 者 指 出 模 型 生 成 的 代 码 越 容 易 被 接 受 评 审 环 节 就 越 容 易 被 跳 过 而 一 旦 跳 过 评 审 隐 藏 的 技 术 债 就 会 在 后 期 集 中 爆 发 我 们 认 为 工 具 可 以 改 变 效 率 但 很 难 替 人 承 担 判 断 的 责 任 这 就 是 本 期 节 目 的 全 部 内 容 感 谢 您 的 观 看 我 们 下 期 再 见",
+  "generation": {
+    "method": "Windows SAPI + ffmpeg atempo",
+    "source_duration_s": 67.924,
+    "target_duration_s": 180.0,
+    "tempo_factors": [
+      0.5,
+      0.7547111111111112
+    ]
+  }
+}

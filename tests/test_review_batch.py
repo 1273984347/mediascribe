@@ -190,9 +190,7 @@ class TestTranscriberPoolConfig:
         cfg = SimpleNamespace(whisper_model="medium", language="en")
         with patch("mediascribe.Pipeline") as pipe_cls, patch("mediascribe.Settings") as set_cls:
             pool = tmod.TranscriberPool(config=cfg)
-            from mediascribe.config import default_engine
-
-            set_cls.assert_called_once_with(model="medium", engine=default_engine())
+            set_cls.assert_called_once_with(model="medium", engine=None, allow_model_download=False)
             pool.transcribe(Path("/tmp/a.wav"))
             args, kwargs = pipe_cls.return_value.transcribe.call_args
         assert kwargs.get("language") == "en"
@@ -203,9 +201,7 @@ class TestTranscriberPoolConfig:
 
         with patch("mediascribe.Pipeline") as pipe_cls, patch("mediascribe.Settings") as set_cls:
             pool = tmod.TranscriberPool()
-            from mediascribe.config import default_engine
-
-            set_cls.assert_called_once_with(model="small", engine=default_engine())
+            set_cls.assert_called_once_with(model=None, engine=None, allow_model_download=False)
             pool.transcribe(Path("/tmp/a.wav"))
             _, kwargs = pipe_cls.return_value.transcribe.call_args
         assert kwargs.get("language") == "zh"
@@ -425,21 +421,114 @@ class TestBatchEngineField:
 
     def test_engine_default_none_follows_probe(self):
         from mediascribe.batch_config import BatchConfig
-        from mediascribe.config import default_engine
 
         assert BatchConfig().engine is None
-        # TranscriberPool 侧: config.engine 缺省 → default_engine() 探测
+        # TranscriberPool 侧: config.engine 缺省 → Settings 内统一解析
         from types import SimpleNamespace
 
         from mediascribe import transcribe as tmod
 
-        cfg = SimpleNamespace(whisper_model="small", language="zh")
+        cfg = SimpleNamespace(language="zh")
         with (
             mock.patch("mediascribe.Pipeline"),
             mock.patch("mediascribe.Settings") as SetCls,
         ):
             tmod.TranscriberPool(config=cfg)
-        SetCls.assert_called_once_with(model="small", engine=default_engine())
+        SetCls.assert_called_once_with(model=None, engine=None, allow_model_download=False)
+
+    def test_batch_config_default_model_is_auto(self):
+        from mediascribe.batch_config import BatchConfig
+
+        assert BatchConfig().whisper_model is None
+
+    def test_batch_model_download_defaults_off(self):
+        from mediascribe.batch_config import BatchConfig
+
+        assert BatchConfig().allow_model_download is False
+
+    def test_batch_cli_model_download_flag_overrides_config(self):
+        from types import SimpleNamespace
+
+        from mediascribe.batch_config import BatchConfig
+
+        args = SimpleNamespace(
+            engine=None,
+            allow_model_download=True,
+            num=None,
+            workers=None,
+            no_headless=False,
+            retries=None,
+            output_dir=None,
+            keep_audio=False,
+            log_level=None,
+        )
+
+        assert BatchConfig().merge_cli_args(args).allow_model_download is True
+
+    def test_archive_missing_model_fails_before_discovery(self, caplog, monkeypatch):
+        from mediascribe import batch_cli
+        from mediascribe.model_weights import WeightStatus
+
+        monkeypatch.setattr(
+            "mediascribe.config.find_spec",
+            lambda name: object() if name == "whisper" else None,
+        )
+        monkeypatch.setattr(
+            "mediascribe.model_weights.check_weights",
+            lambda engine, model: WeightStatus(
+                engine=engine,
+                model=model,
+                ok=False,
+                location="fake-cache",
+                hint="provision model",
+            ),
+        )
+
+        with mock.patch("mediascribe.batch_cli._resolve_user_url", return_value=None) as resolve:
+            assert batch_cli.main(["--user", "u", "--engine", "whisper"]) == 1
+
+        resolve.assert_not_called()
+        assert "MODEL_NOT_READY" in caplog.text
+
+    def test_cli_engine_overrides_config(self):
+        from types import SimpleNamespace
+
+        from mediascribe.batch_config import BatchConfig
+
+        args = SimpleNamespace(
+            engine="whisperx",
+            num=None,
+            workers=None,
+            no_headless=False,
+            retries=None,
+            output_dir=None,
+            keep_audio=False,
+            log_level=None,
+        )
+        cfg = BatchConfig(engine="whisper")
+
+        cfg.merge_cli_args(args)
+
+        assert cfg.engine == "whisperx"
+
+    def test_batch_parser_accepts_engine(self):
+        from mediascribe.batch_cli import build_parser
+
+        parser = build_parser(lambda key: key)
+        args = parser.parse_args(["--engine", "whisperx"])
+
+        assert args.engine == "whisperx"
+
+    def test_archive_without_engine_fails_before_discovery(self, caplog, monkeypatch):
+        from mediascribe import batch_cli
+
+        monkeypatch.setattr("mediascribe.config.find_spec", lambda _name: None)
+
+        with mock.patch("mediascribe.batch_cli._resolve_user_url", return_value=None) as resolve:
+            assert batch_cli.main(["--user", "u"]) == 1
+
+        resolve.assert_not_called()
+        assert "ENGINE_UNAVAILABLE" in caplog.text
 
 
 # ---------------------------------------------------------------------------

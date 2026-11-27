@@ -37,6 +37,7 @@ from typing import Any, Dict, List, Optional
 
 from mediascribe.web.cors import _resolve_cors_origins
 from mediascribe.web.ratelimit import _build_rate_limiter
+from mediascribe.web.route_events import _register_event_routes
 from mediascribe.web.route_extension import _register_extension_routes
 from mediascribe.web.route_health import _register_health_routes
 from mediascribe.web.route_jobs import (
@@ -214,6 +215,14 @@ def build_app(
     # 标注 —— mypy 限制,局部变量声明后挂载。)
     job_sources: Dict[str, str] = {}
     app.state.job_sources = job_sources
+    job_requests: Dict[str, Dict[str, Any]] = {}
+    app.state.job_requests = job_requests
+    from mediascribe.events import EventRecorder
+    from mediascribe.events.identity import event_retention_status
+    from mediascribe.events.schema import is_internal_test
+
+    app.state.events_enabled = not is_internal_test() and event_retention_status()["enabled"]
+    app.state.event_recorder = EventRecorder(surface="web")
 
     # 附加修复: Docker 镜像已设 ``MEDIASCRIBE_WORKSPACE=/workspace`` 且
     # compose 已挂卷, 但代码此前不读该变量, 导致容器内数据不落卷。
@@ -222,14 +231,16 @@ def build_app(
         workspace = Path(env_ws) if env_ws else Path.cwd() / "web-workspace"
 
     # P1-3(2026-11-20 评审): SQLite 任务表 — 任务态不再 100% 进程内存。
-    # 启动时把上次进程遗留的 unfinished 任务标记为 lost(重启可观测);
-    # /api/jobs 合并历史;/api/jobs/{id}/result 未命中内存时回源本表 +
-    # out_path 文件 —— 重启与 1h purge 之后成果仍可取回。
+    # 启动时把上次进程遗留的 unfinished 任务标记为 interrupted(重启可观测,
+    # 不自动续跑);/api/jobs 合并历史;/api/jobs/{id}/result 未命中内存时回源
+    # 本表 + out_path 文件 —— 重启与 1h purge 之后成果仍可取回。
+    from mediascribe.web.job_control import JobControl
     from mediascribe.web.job_store import JobStore
 
     job_store = JobStore(workspace / "jobs.sqlite3")
-    job_store.recover_unfinished()
     app.state.job_store = job_store
+    app.state.job_control = JobControl(job_store, app.state.jobs)
+    app.state.job_control.recover_interrupted()
 
     # Karpathy 式知识库 vault (mediascribe.wiki) — 每次任务成功后
     # 把转写稿归档进 <workspace>/vault/; MEDIASCRIBE_WIKI=0 停用。
@@ -247,4 +258,5 @@ def build_app(
     _register_job_control_routes(app)
     _register_submit_jobs_route(app, workspace, pipeline_factory)
     _register_job_result_route(app)
+    _register_event_routes(app)
     return app

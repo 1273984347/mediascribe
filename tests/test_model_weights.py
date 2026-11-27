@@ -137,6 +137,108 @@ class TestCheckWeights(unittest.TestCase):
         self.assertIn("未知引擎", status.hint)
 
 
+class TestModelPreparation(unittest.TestCase):
+    def _status(self, *, ok):
+        from mediascribe.model_weights import WeightStatus
+
+        return WeightStatus(
+            engine=ENGINE_FASTER,
+            model="small",
+            ok=ok,
+            location="fake-cache",
+            hint="provision model",
+        )
+
+    def test_cached_model_is_ready_without_download(self):
+        from mediascribe.model_weights import ensure_model_ready
+
+        status = self._status(ok=True)
+        with mock.patch("mediascribe.model_weights.check_weights", return_value=status):
+            result = ensure_model_ready(ENGINE_FASTER, "small", allow_download=False)
+
+        self.assertIs(result, status)
+
+    def test_missing_model_requires_explicit_download_authorization(self):
+        from mediascribe.model_weights import ModelNotReadyError, ensure_model_ready
+
+        with mock.patch(
+            "mediascribe.model_weights.check_weights", return_value=self._status(ok=False)
+        ):
+            with self.assertRaises(ModelNotReadyError) as exc_info:
+                ensure_model_ready(ENGINE_FASTER, "small", allow_download=False)
+
+        self.assertEqual(exc_info.exception.code, "MODEL_NOT_READY")
+
+    def test_missing_model_can_be_downloaded_when_authorized(self):
+        from mediascribe.model_weights import ensure_model_ready
+
+        status = self._status(ok=False)
+        with mock.patch("mediascribe.model_weights.check_weights", return_value=status):
+            result = ensure_model_ready(ENGINE_FASTER, "small", allow_download=True)
+
+        self.assertIs(result, status)
+
+    def test_whisper_cpp_never_auto_downloads(self):
+        from mediascribe.model_weights import ModelNotReadyError, WeightStatus, ensure_model_ready
+
+        status = WeightStatus(
+            engine=ENGINE_WHISPER_CPP,
+            model="small",
+            ok=False,
+            location="fake-cache",
+            hint="provision model",
+        )
+        with mock.patch("mediascribe.model_weights.check_weights", return_value=status):
+            with self.assertRaises(ModelNotReadyError) as exc_info:
+                ensure_model_ready(ENGINE_WHISPER_CPP, "small", allow_download=True)
+
+        self.assertEqual(exc_info.exception.code, "MODEL_NOT_READY")
+
+    def test_error_codes_are_stable(self):
+        from mediascribe.model_weights import ModelDownloadError, ModelLoadError
+
+        self.assertEqual(ModelDownloadError("x").code, "MODEL_DOWNLOAD_FAILED")
+        self.assertEqual(ModelLoadError("x").code, "MODEL_LOAD_FAILED")
+
+    def test_faster_whisper_prepare_loads_model(self):
+        from mediascribe.transcribers.faster_whisper import FasterWhisperTranscriber
+
+        transcriber = FasterWhisperTranscriber("small", "cpu")
+        with mock.patch.object(transcriber, "_ensure_model", return_value="MODEL") as load:
+            self.assertEqual(transcriber.prepare(), "MODEL")
+        load.assert_called_once()
+
+    def test_whisper_prepare_loads_model(self):
+        from mediascribe.transcribers.whisper import WhisperTranscriber
+
+        transcriber = WhisperTranscriber("small", "cpu")
+        with mock.patch.object(transcriber, "_ensure_model", return_value="MODEL") as load:
+            self.assertEqual(transcriber.prepare(), "MODEL")
+        load.assert_called_once()
+
+    def test_whisper_cpp_prepare_resolves_runtime_and_weights(self):
+        from mediascribe.transcribers.whisper_cpp import WhisperCppTranscriber
+
+        transcriber = WhisperCppTranscriber("small", "cpu")
+        with (
+            mock.patch.object(transcriber, "_resolve_binary", return_value=Path("whisper-cli")),
+            mock.patch.object(transcriber, "_resolve_model", return_value=Path("ggml-small.bin")),
+        ):
+            transcriber.prepare()
+
+    def test_whisperx_prepare_loads_main_model(self):
+        from mediascribe.transcribers import whisperx as wx
+
+        fake_module = mock.MagicMock()
+        transcriber = wx.WhisperXTranscriber("small", "cpu")
+        with (
+            mock.patch.dict(sys.modules, {"whisperx": fake_module}),
+            mock.patch.object(wx, "_get_cached_model", return_value="MODEL") as load,
+        ):
+            self.assertEqual(transcriber.prepare(language="zh"), "MODEL")
+        load.assert_called_once_with(fake_module, "small", "cpu", "zh", None)
+
+
 class TestLoadFailureGuidance(unittest.TestCase):
     """加载失败时必须给出带指引的错误，而不是 HuggingFace 原始异常。"""
 
@@ -159,6 +261,22 @@ class TestLoadFailureGuidance(unittest.TestCase):
         msg = str(cm.exception)
         self.assertIn("medium", msg)
         self.assertIn("预置", msg)
+        self.assertEqual(getattr(cm.exception, "code", None), "MODEL_DOWNLOAD_FAILED")
+
+    def test_faster_whisper_non_cache_load_failure_is_not_missing_weight(self):
+        from mediascribe.transcribers import faster_whisper as fw
+
+        class FakeWhisperModel:
+            def __init__(self, *a, **kw):
+                raise RuntimeError("corrupted model binary")
+
+        fake_module = mock.MagicMock()
+        fake_module.WhisperModel = FakeWhisperModel
+        with mock.patch.dict(sys.modules, {"faster_whisper": fake_module}):
+            with self.assertRaises(RuntimeError) as cm:
+                fw._load_whisper_model("medium", "cpu", "int8")
+
+        self.assertEqual(getattr(cm.exception, "code", None), "MODEL_LOAD_FAILED")
 
 
 def tempfile_dir():

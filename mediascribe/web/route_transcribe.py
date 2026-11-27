@@ -61,7 +61,12 @@ def _register_transcribe_route(app: "FastAPI", workspace: Path, pipeline_factory
         try:
             _validate_submitted_urls(req.urls, workspace)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            from mediascribe.inputs import PreflightError
+
+            raise _pipeline_init_error(
+                PreflightError("INPUT_INVALID", str(exc)),
+                extra_reason=str(exc),
+            ) from exc
         try:
             pipeline = pipeline_factory(req, workspace)
         except Exception as exc:
@@ -69,6 +74,37 @@ def _register_transcribe_route(app: "FastAPI", workspace: Path, pipeline_factory
             logger.exception("pipeline init failed")
             raise _pipeline_init_error(exc) from exc
         items: List[TranscribeItem] = []
+        from mediascribe.web.route_events import _event_recorder
+
+        recorder = _event_recorder(app)
         for url in req.urls:
-            items.append(_run_one(pipeline, url, workspace / "out", req))
+            try:
+                recorder.record_input(
+                    input_value=url,
+                    selection_mode="explicit"
+                    if req.engine is not None or req.model is not None
+                    else "auto",
+                    engine=pipeline.settings.engine,
+                    model=pipeline.settings.model,
+                    device=pipeline.settings.device,
+                )
+            except Exception:
+                logger.debug("input_submitted event recording failed", exc_info=True)
+            item = _run_one(pipeline, url, workspace / "out", req)
+            if item.ok:
+                result_value = "success"
+            elif item.error_code == "NO_SPEECH":
+                result_value = "no_speech"
+            else:
+                result_value = "failed"
+            try:
+                recorder.record_finished(
+                    result=result_value,
+                    error_code=item.error_code,
+                    engine=item.engine or pipeline.settings.engine,
+                    model=pipeline.settings.model,
+                )
+            except Exception:
+                logger.debug("transcription_finished event recording failed", exc_info=True)
+            items.append(item)
         return TranscribeResponse(results=items)

@@ -112,6 +112,219 @@ class TestPydanticModelsIfAvailable(unittest.TestCase):
         with self.assertRaises(Exception):  # noqa: B017 — pydantic 版本间异常类型不同
             TranscribeRequest(urls=[], engine="whisper", model="small")
 
+    def test_request_without_engine_stays_auto(self):
+        from app import TranscribeRequest
+
+        req = TranscribeRequest(urls=["https://example.com/v"], model="small")
+
+        self.assertIsNone(req.engine)
+
+    def test_request_without_model_stays_auto(self):
+        from app import TranscribeRequest
+
+        req = TranscribeRequest(urls=["https://example.com/v"])
+
+        self.assertIsNone(req.model)
+
+    def test_model_download_authorization_defaults_off(self):
+        from app import TranscribeRequest
+
+        req = TranscribeRequest(urls=["https://example.com/v"])
+
+        self.assertFalse(req.allow_model_download)
+
+    def test_model_download_authorization_can_be_enabled(self):
+        from app import TranscribeRequest
+
+        req = TranscribeRequest(urls=["https://example.com/v"], allow_model_download=True)
+
+        self.assertTrue(req.allow_model_download)
+
+    def test_auto_engine_fallback_notice_reaches_pipeline(self):
+        import tempfile
+        from unittest import mock
+
+        from mediascribe.pipeline import Pipeline
+        from mediascribe.web.models import TranscribeRequest
+        from mediascribe.web.pipeline_bridge import _PIPELINE_CACHE, _build_pipeline
+
+        _PIPELINE_CACHE.clear()
+        with (
+            tempfile.TemporaryDirectory() as tmp_dir,
+            mock.patch(
+                "mediascribe.config.find_spec",
+                side_effect=lambda name: object() if name == "whisper" else None,
+            ),
+            mock.patch.object(Pipeline, "_create_transcriber", lambda self, settings: object()),
+        ):
+            req = TranscribeRequest(urls=["https://example.com/v"])
+            pipeline = _build_pipeline(req, Path(tmp_dir))
+
+        self.assertEqual(pipeline.settings.engine, "whisper")
+        self.assertEqual(pipeline.settings.model, "small")
+        self.assertFalse(pipeline.settings.model_explicit)
+        self.assertIn("faster-whisper", pipeline.settings.engine_notice)
+        self.assertEqual(pipeline._resource_notices, [pipeline.settings.engine_notice])
+
+    def test_jobs_returns_engine_unavailable_code(self):
+        from unittest import mock
+
+        from fastapi.testclient import TestClient
+
+        from mediascribe.web.app import create_app
+
+        with (
+            mock.patch("mediascribe.config.find_spec", return_value=None),
+            TestClient(create_app()) as client,
+        ):
+            resp = client.post(
+                "/api/jobs",
+                json={"urls": ["https://www.bilibili.com/video/BV1abc"]},
+            )
+
+        self.assertEqual(resp.status_code, 503)
+        self.assertIn("ENGINE_UNAVAILABLE", resp.text)
+
+    def test_jobs_missing_local_file_returns_preflight_code(self):
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+
+        from fastapi.testclient import TestClient
+
+        from mediascribe.web.app import create_app
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace = Path(tmp_dir)
+            missing = workspace / "missing.wav"
+            with (
+                mock.patch("mediascribe.pipeline.Pipeline") as pipeline,
+                TestClient(create_app(workspace=workspace)) as client,
+            ):
+                resp = client.post("/api/jobs", json={"urls": [str(missing)]})
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("INPUT_INVALID", resp.text)
+        pipeline.assert_not_called()
+
+    def test_jobs_missing_model_returns_preflight_code(self):
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+
+        from fastapi.testclient import TestClient
+
+        from mediascribe.model_weights import WeightStatus
+        from mediascribe.web.app import create_app
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with (
+                mock.patch(
+                    "mediascribe.config.find_spec",
+                    lambda name: object() if name == "whisper" else None,
+                ),
+                mock.patch(
+                    "mediascribe.model_weights.check_weights",
+                    lambda engine, model: WeightStatus(
+                        engine=engine,
+                        model=model,
+                        ok=False,
+                        location="fake-cache",
+                        hint="provision model",
+                    ),
+                ),
+                TestClient(create_app(workspace=Path(tmp_dir))) as client,
+            ):
+                resp = client.post(
+                    "/api/jobs",
+                    json={
+                        "urls": ["https://www.bilibili.com/video/BV1abc"],
+                        "engine": "whisper",
+                    },
+                )
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("MODEL_NOT_READY", resp.text)
+
+    def test_health_reports_ready_when_engine_and_model_are_available(self):
+        from unittest import mock
+
+        from fastapi.testclient import TestClient
+
+        from mediascribe.model_weights import WeightStatus
+        from mediascribe.web.app import create_app
+
+        with (
+            mock.patch(
+                "mediascribe.config.find_spec",
+                lambda name: object() if name == "faster_whisper" else None,
+            ),
+            mock.patch(
+                "mediascribe.model_weights.check_weights",
+                lambda engine, model: WeightStatus(
+                    engine=engine,
+                    model=model,
+                    ok=True,
+                    location="fake-cache",
+                ),
+            ),
+            TestClient(create_app()) as client,
+        ):
+            readiness = client.get("/api/health").json()["readiness"]
+
+        self.assertEqual(readiness["status"], "READY")
+        self.assertEqual(readiness["engine"], "faster-whisper")
+        self.assertEqual(readiness["model"], "small")
+        self.assertEqual(readiness["blockers"], [])
+
+    def test_health_blocks_when_no_engine_is_available(self):
+        from unittest import mock
+
+        from fastapi.testclient import TestClient
+
+        from mediascribe.web.app import create_app
+
+        with (
+            mock.patch("mediascribe.config.find_spec", return_value=None),
+            TestClient(create_app()) as client,
+        ):
+            readiness = client.get("/api/health").json()["readiness"]
+
+        self.assertEqual(readiness["status"], "BLOCKED")
+        self.assertIn("ENGINE_UNAVAILABLE", readiness["blockers"])
+        self.assertTrue(readiness["actions"])
+
+    def test_health_warns_for_whisper_fallback_and_missing_model(self):
+        from unittest import mock
+
+        from fastapi.testclient import TestClient
+
+        from mediascribe.model_weights import WeightStatus
+        from mediascribe.web.app import create_app
+
+        with (
+            mock.patch(
+                "mediascribe.config.find_spec",
+                lambda name: object() if name == "whisper" else None,
+            ),
+            mock.patch(
+                "mediascribe.model_weights.check_weights",
+                lambda engine, model: WeightStatus(
+                    engine=engine,
+                    model=model,
+                    ok=False,
+                    location="fake-cache",
+                    hint="provision model",
+                ),
+            ),
+            TestClient(create_app()) as client,
+        ):
+            readiness = client.get("/api/health").json()["readiness"]
+
+        self.assertEqual(readiness["status"], "READY_WITH_WARNINGS")
+        self.assertIn("ENGINE_FALLBACK_WHISPER", readiness["warnings"])
+        self.assertIn("MODEL_NOT_READY", readiness["warnings"])
+
 
 ###########################################################################
 # 迁入自 tests/test_coverage_gaps.py —— TestWebAppInstallMd(mediascribe.web.app)
@@ -241,13 +454,15 @@ class TestWebAppJobEndpoints:
             os.environ.pop("MEDIASCRIBE_API_TOKEN", None)
 
     def test_api_jobs_cancel_known_returns_200(self, tmp_path: Path) -> None:
-        """POST /api/jobs/{id}/cancel on a real job → 200 + cancelled=True."""
-        from mediascribe.progress import ProgressRegistry
-
+        """POST /api/jobs/{id}/cancel on a durable job → 200 + accepted=True."""
         app = self._build_app(tmp_path / "api-cancel-known")
-        reg = ProgressRegistry()
-        job = reg.create("https://example.com/v")
-        app.state.jobs = reg
+        job = app.state.job_control.submit(
+            "https://example.com/v",
+            request={},
+            selection={},
+            out_path=tmp_path / "api-cancel-known" / "out.md",
+        )
+        app.state.job_control.start_attempt(job.job_id)
         os.environ["MEDIASCRIBE_API_TOKEN"] = "test-token-xyz"
         try:
             with TestClient(app) as client:
@@ -257,7 +472,9 @@ class TestWebAppJobEndpoints:
                 )
                 assert r.status_code == 200
                 data = r.json()
+                assert data["accepted"] is True
                 assert data["cancelled"] is True
+                assert data["status"] == "cancelling"
         finally:
             os.environ.pop("MEDIASCRIBE_API_TOKEN", None)
 

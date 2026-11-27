@@ -88,7 +88,7 @@ whisper = [
 ]
 # Higher-accuracy ASR engines (optional, user chooses)
 whisperx = [
-    "whisperx>=3.1.1,<4",
+    "whisperx>=3.8.6,<4",
     "pyannote.audio>=3.0.0,<4",
 ]
 faster-whisper = [
@@ -165,6 +165,8 @@ packages = [
         "mediascribe.downloaders",
         "mediascribe.transcribers",
         "mediascribe.web",
+        "mediascribe.events",
+        "mediascribe.mcp_server",
         "mediascribe.plugins",
         "examples",
         "examples.plugins",
@@ -172,6 +174,7 @@ packages = [
 
 [tool.setuptools.package-data]
 mediascribe = ["py.typed"]
+"mediascribe.web" = ["static/*", "static/**/*"]
 
 [tool.mypy]
 # 3.8 已不是 mypy >=1.15 支持的检查目标（此前配置直接报错、被

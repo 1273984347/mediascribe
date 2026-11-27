@@ -11,7 +11,7 @@
 口径约定（故意的，不是漂移）：
 - ``config._VALID_MODELS`` = 具体档位（10 个，无 ``auto``）
 - CLI choices / index.html 首选项 = ``auto`` + 具体档位（入口层支持自动推荐）
-- web pydantic pattern = 仅具体档位（提交时已由后端解析 auto）
+- web pydantic = 省略/``None`` 表示自动，显式值仅接受具体档位
 """
 
 from __future__ import annotations
@@ -33,15 +33,6 @@ def _cli_model_choices() -> set:
     match = re.search(r'"--model".*?choices=\[(.*?)\]', source, re.S)
     assert match, "未能在 __main__.py 里定位 --model 的 choices"
     return set(re.findall(r'"([^"]+)"', match.group(1)))
-
-
-def _web_model_pattern() -> set:
-    """从 ``mediascribe/web/models.py`` 解析 model 的 pydantic 正则。"""
-    source = (ROOT / "mediascribe" / "web" / "models.py").read_text(encoding="utf-8")
-    match = re.search(r'model: str = Field\(\s*"small",\s*pattern="\^?(.*?)\$"', source, re.S)
-    assert match, "未能在 web/models.py 里定位 model 的 pattern"
-    raw = match.group(1).replace("(", "").replace(")", "")
-    return {part for part in raw.split("|") if part}
 
 
 def _index_html_model_options() -> set:
@@ -75,8 +66,15 @@ class TestModelNameConsistency(unittest.TestCase):
     def test_cli_choices_are_auto_plus_valid(self):
         self.assertEqual(_cli_model_choices(), {"auto"} | set(_VALID_MODELS))
 
-    def test_web_pattern_matches_valid_models(self):
-        self.assertEqual(_web_model_pattern(), set(_VALID_MODELS))
+    def test_web_accepts_valid_models_and_auto_default(self):
+        from mediascribe.web.models import TranscribeRequest
+
+        for model in _VALID_MODELS:
+            req = TranscribeRequest(urls=["https://example.com/v"], model=model)
+            self.assertEqual(req.model, model)
+        self.assertIsNone(TranscribeRequest(urls=["https://example.com/v"]).model)
+        with self.assertRaises(Exception):  # noqa: B017 - pydantic 版本间异常类型不同
+            TranscribeRequest(urls=["https://example.com/v"], model="bogus")
 
     def test_index_html_dropdown_covers_valid_models(self):
         options = _index_html_model_options()

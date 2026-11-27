@@ -12,21 +12,34 @@ MediaScribe 命令行工具
 - ``learn`` (v3.2.0b)：ASR 术语自动学习
 - ``doctor`` (v3.4.0)：环境自检（ffmpeg / GPU / 引擎 / 模型缓存）
 - ``archive`` (v3.4.0)：创作者主页批量转录（实现见 :mod:`mediascribe.batch_cli`）
+- ``cache``：查看或清除持久下载/分块缓存
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import json
+import logging
 import sys
+import time
 from pathlib import Path, PurePath
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from .atomic_io import atomic_write_text
-from .config import _VALID_ENGINES, Settings
+from .config import (
+    _VALID_ENGINES,
+    DeviceUnavailableError,
+    EngineUnavailableError,
+    Settings,
+    is_engine_available,
+)
 from .i18n import t
+from .inputs import PreflightError, preflight_source
+from .model_weights import ModelNotReadyError
 from .pipeline import Pipeline
 from .pipeline_async import AsyncPipeline, _FailedResult
+from .recovery import format_recovery
 
 # 通用转录选项：供 transcribe / batch 子命令继承，支持放在子命令前或后。
 # 例如 `transcribe x.mp4 --model large` 与 `--model large transcribe x.mp4` 等价。
@@ -95,7 +108,7 @@ _common_transcribe_opts.add_argument(
     metavar="FILE",
     default=argparse.SUPPRESS,
     help=(
-        "JSON 配置文件（可含 model/engine/language/device/workspace/"
+        "JSON 配置文件（可含 model/engine/language/device/workspace/cache_dir/"
         "hf_token/diarization/timestamps）。"
         "CLI 显式参数优先于配置文件。"
     ),
@@ -133,6 +146,18 @@ _common_transcribe_opts.add_argument(
         "与 --cross-check 同用时清理自动推迟到交叉校对完成之后。"
         "环境变量 MEDIASCRIBE_CLEANUP_MEDIA=1 同效"
     ),
+)
+_common_transcribe_opts.add_argument(
+    "--allow-model-download",
+    action="store_true",
+    default=argparse.SUPPRESS,
+    help=t("CLI_HELP_ALLOW_MODEL_DOWNLOAD"),
+)
+_common_transcribe_opts.add_argument(
+    "--cache-dir",
+    type=Path,
+    default=argparse.SUPPRESS,
+    help=t("CLI_HELP_CACHE_DIR"),
 )
 
 
@@ -185,6 +210,17 @@ def _print_next_steps(result) -> None:
     try:
         if not Path(result.transcript_path).exists():
             return
+        duration = getattr(result, "duration_seconds", None)
+        print(
+            t(
+                "CLI_RESULT_SUMMARY",
+                input=result.source.display_name,
+                engine=result.engine,
+                model=result.model,
+                duration=f"{duration:.1f}" if duration is not None else "—",
+                path=result.transcript_path,
+            )
+        )
         print(t("CLI_NEXT_STEPS_TITLE"))
         print(t("CLI_NEXT_LEARN"))
         print(t("CLI_NEXT_VERIFY"))
@@ -203,6 +239,7 @@ def _build_legacy_parser() -> argparse.ArgumentParser:
         epilog="""
 📦 更多命令：
   python -m mediascribe doctor    环境自检（ffmpeg/GPU/引擎/模型缓存）
+  python -m mediascribe cache info 查看持久缓存占用
   python -m mediascribe archive   批量转录创作者主页
   python -m mediascribe learn     ASR 术语自动学习（越用越准）
   python -m mediascribe profile   渲染性能 profile 报告
@@ -386,7 +423,8 @@ def _settings_from_args(args, file_cfg: dict) -> Settings:
 
     return Settings(
         workspace_root=_from_cli_or_cfg(args.workspace, "workspace", None) or None,
-        model=_from_cli_or_cfg(getattr(args, "model", None), "model", "small"),
+        cache_dir=_from_cli_or_cfg(getattr(args, "cache_dir", None), "cache_dir", None),
+        model=_from_cli_or_cfg(getattr(args, "model", None), "model", None),
         device=_from_cli_or_cfg(getattr(args, "device", None), "device", None),
         # P1-2: None → Settings 内做安装探测(faster-whisper 优先)
         engine=_from_cli_or_cfg(getattr(args, "engine", None), "engine", None),
@@ -399,6 +437,8 @@ def _settings_from_args(args, file_cfg: dict) -> Settings:
         audio_only=_audio_only,
         cleanup_media=bool(getattr(args, "cleanup_media", False))
         or bool(file_cfg.get("cleanup_media", False)),
+        allow_model_download=bool(getattr(args, "allow_model_download", False))
+        or bool(file_cfg.get("allow_model_download", False)),
         zh_simplify=(
             False if bool(getattr(args, "no_zh_simplify", False)) else file_cfg.get("zh_simplify")
         ),
@@ -407,7 +447,7 @@ def _settings_from_args(args, file_cfg: dict) -> Settings:
     )
 
 
-def _execute_transcribe(pipeline: Pipeline, args, settings: Settings) -> int:
+def _execute_transcribe(pipeline: Pipeline, args, settings: Settings, *, events: Any = None) -> int:
     """执行 transcribe 子命令: 转录 → LATEST 指针 → 交叉校对 → 延迟清理。"""
     # v3.4.3: --cross-check 要用同一条音频重转第二遍, 若开了
     # cleanup_media 则先在 Settings 上临时关闭(清理推迟到校对
@@ -422,12 +462,32 @@ def _execute_transcribe(pipeline: Pipeline, args, settings: Settings) -> int:
         language=getattr(args, "language", None),
         timestamps=bool(getattr(args, "timestamps", False)),
     )
+    from .pipeline_stages import ResultWriteError, validate_transcript_result
+
+    artifact_path = Path(args.output or result.transcript_path)
+    try:
+        markdown = artifact_path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise ResultWriteError(str(exc)) from exc
+    validate_transcript_result(result, markdown)
     _write_latest_pointer(settings, result, output=args.output)
     _run_cross_check(pipeline, result, cross_check_model)
     if deferred_cleanup:
         from .pipeline_stages import cleanup_after_success
 
         cleanup_after_success(settings, result.source.url, result.audio_path, result.video_path)
+    if events is not None:
+        try:
+            events.record_finished(
+                result="success",
+                engine=result.engine,
+                model=result.model,
+                artifact_exists=artifact_path.is_file(),
+                text_nonempty=bool(markdown.strip()),
+                metadata_consistent=True,
+            )
+        except Exception:
+            logging.getLogger(__name__).debug("CLI success event failed", exc_info=True)
     _print_next_steps(result)
     return 0
 
@@ -480,28 +540,166 @@ def _execute_batch(pipeline: Pipeline, args) -> int:
     return 0
 
 
+def _device_available(device: str) -> bool:
+    if device in {"auto", "cpu"}:
+        return True
+    try:
+        import torch
+    except Exception:  # pragma: no cover - torch is optional
+        return False
+    if device == "cuda":
+        return bool(torch.cuda.is_available())
+    if device.startswith("cuda:"):
+        index = int(device.split(":", 1)[1])
+        return bool(torch.cuda.is_available()) and index < torch.cuda.device_count()
+    if device == "metal":
+        return bool(hasattr(torch.backends, "mps") and torch.backends.mps.is_available())
+    if device == "rocm":
+        return bool(getattr(torch.version, "hip", None))
+    return False
+
+
+def _engine_install_hint(engine: str) -> str:
+    return {
+        "whisper": 'pip install "mediascribe[whisper]"',
+        "faster-whisper": 'pip install "mediascribe[faster-whisper]"',
+        "whisperx": 'pip install "mediascribe[whisperx]"',
+        "whisper-cpp": "预置 whisper.cpp 二进制与 GGML 权重（见 docs/engines.md）",
+    }.get(engine, "查看 docs/engines.md")
+
+
+def _print_selection_plan(
+    settings: Settings,
+    *,
+    source_input: str,
+    output: Path,
+    requested_engine: str,
+    requested_model: str,
+    requested_device: str,
+    effective_device: str,
+) -> None:
+    print(
+        t(
+            "CLI_SELECTION_PLAN",
+            input=source_input,
+            output=str(output),
+            requested_engine=requested_engine,
+            effective_engine=settings.engine,
+            engine_mode="explicit" if requested_engine != "auto" else "auto",
+            requested_model=requested_model,
+            effective_model=settings.model,
+            requested_device=requested_device,
+            effective_device=effective_device,
+        )
+    )
+
+
 def _run_legacy(argv: Optional[List[str]]) -> int:
     """Original v3.1.0 CLI — ``transcribe`` / ``batch`` subcommands."""
     parser = _build_legacy_parser()
     args = parser.parse_args(argv)
 
     file_cfg = _load_json_config(getattr(args, "config", None))
-    settings = _settings_from_args(args, file_cfg)
-    pipeline = Pipeline(settings)
+    try:
+        settings = _settings_from_args(args, file_cfg)
+    except EngineUnavailableError as exc:
+        print(format_recovery(exc), file=sys.stderr)
+        return 1
+    except ValueError as exc:
+        print(t("CLI_CONFIG_INVALID", error=str(exc)), file=sys.stderr)
+        return 1
+
+    requested_engine = getattr(args, "engine", None) or file_cfg.get("engine") or "auto"
+    requested_model = getattr(args, "model", None) or file_cfg.get("model") or "small"
+    requested_device = getattr(args, "device", None) or file_cfg.get("device") or "auto"
+
+    if requested_engine != "auto" and not is_engine_available(requested_engine):
+        print(format_recovery(EngineUnavailableError()), file=sys.stderr)
+        print(_engine_install_hint(requested_engine), file=sys.stderr)
+        return 1
+    if requested_device != "auto" and not _device_available(requested_device):
+        print(
+            format_recovery(DeviceUnavailableError(requested_device)),
+            file=sys.stderr,
+        )
+        return 1
+
+    if args.command in ("transcribe", "t"):
+        try:
+            preflight_source(args.input, settings, getattr(args, "output", None))
+        except PreflightError as exc:
+            print(format_recovery(exc), file=sys.stderr)
+            return 1
+
+    from .events import EventRecorder
+    from .pipeline import resolve_device
+
+    cli_events = EventRecorder(surface="cli")
+    if settings.engine_notice:
+        print(settings.engine_notice, file=sys.stderr)
+    if args.command in ("transcribe", "t"):
+        try:
+            cli_events.record_input(
+                input_value=args.input,
+                selection_mode="explicit"
+                if requested_engine != "auto"
+                or getattr(args, "model", None)
+                or requested_device != "auto"
+                else "auto",
+                engine=requested_engine if requested_engine != "auto" else settings.engine,
+                model=requested_model,
+                device=requested_device,
+            )
+        except Exception:
+            logging.getLogger(__name__).debug("CLI input event failed", exc_info=True)
+    try:
+        pipeline = Pipeline(settings)
+    except ModelNotReadyError as exc:
+        if args.command in ("transcribe", "t"):
+            try:
+                cli_events.record_finished(result="failed", error_code="MODEL_NOT_READY")
+            except Exception:
+                logging.getLogger(__name__).debug("CLI model terminal event failed", exc_info=True)
+        print(format_recovery(exc), file=sys.stderr)
+        return 1
+    for notice in list(getattr(pipeline, "_resource_notices", [])):
+        if notice != settings.engine_notice:
+            print(notice, file=sys.stderr)
+    _print_selection_plan(
+        settings,
+        source_input=getattr(args, "input", None) or "batch",
+        output=getattr(args, "output", None) or settings.transcripts_dir,
+        requested_engine=requested_engine,
+        requested_model=requested_model,
+        requested_device=requested_device,
+        effective_device=resolve_device(settings.device),
+    )
 
     try:
         if args.command in ["transcribe", "t"]:
-            return _execute_transcribe(pipeline, args, settings)
+            return _execute_transcribe(pipeline, args, settings, events=cli_events)
         elif args.command == "batch":
             return _execute_batch(pipeline, args)
     except KeyboardInterrupt:
+        try:
+            cli_events.record_finished(result="cancelled")
+        except Exception:
+            logging.getLogger(__name__).debug("CLI cancelled event failed", exc_info=True)
         print(t("CLI_INTERRUPTED"))
         sys.exit(130)
     except Exception as e:
-        print(t("CLI_ERROR", e=e))
-        import traceback
+        try:
+            from .recovery import recovery_for_exception
 
-        traceback.print_exc()
+            code = recovery_for_exception(e)["code"]
+            cli_events.record_finished(
+                result="no_speech" if code == "NO_SPEECH" else "failed",
+                error_code=code,
+            )
+        except Exception:
+            logging.getLogger(__name__).debug("CLI terminal event failed", exc_info=True)
+        print(format_recovery(e), file=sys.stderr)
+        logging.getLogger(__name__).exception("transcription failed")
         sys.exit(1)
     return 0
 
@@ -526,6 +724,114 @@ def _force_utf8_stdio() -> None:
 def _print_quickstart() -> None:
     """无参数调用时打印的快速开始引导（exit 0，不吓退新用户）。"""
     print(t("CLI_QUICKSTART"))
+
+
+def _run_events(argv: List[str]) -> int:
+    """``python -m mediascribe events`` — inspect local-only first-run events."""
+    parser = argparse.ArgumentParser(prog="python -m mediascribe events")
+    sub = parser.add_subparsers(dest="action", required=True)
+    sub.add_parser("list")
+    export = sub.add_parser("export")
+    export.add_argument("--output", "-o", required=True, type=Path)
+    sub.add_parser("clear")
+    sub.add_parser("metrics")
+    args = parser.parse_args(argv)
+
+    from .events import EventStore
+
+    store = EventStore()
+    if args.action == "list":
+        rows = store.list_events()
+        if not rows:
+            print(t("EVENTS_LIST_EMPTY"))
+            return 0
+        for row in rows:
+            print(
+                t(
+                    "EVENTS_LIST_ITEM",
+                    ts=time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(row["ts"])),
+                    event=row["event"],
+                    surface=row["surface"],
+                    properties=json.dumps(row["properties"], ensure_ascii=False, sort_keys=True),
+                )
+            )
+        return 0
+    if args.action == "export":
+        payload = store.export(args.output)
+        print(t("EVENTS_EXPORTED", count=len(store.export_payload()["events"]), path=payload))
+        return 0
+    if args.action == "metrics":
+        from .metrics import calculate_metrics
+
+        print(json.dumps(calculate_metrics(store.list_events(limit=100_000)), indent=2))
+        return 0
+    count = store.clear()
+    print(t("EVENTS_CLEARED", count=count))
+    return 0
+
+
+def _run_cache(argv: List[str]) -> int:
+    """Inspect or clear persistent download/chunk caches."""
+    parser = argparse.ArgumentParser(prog="python -m mediascribe cache")
+    sub = parser.add_subparsers(dest="action", required=True)
+    info = sub.add_parser("info")
+    info.add_argument("--json", action="store_true")
+    info.add_argument("--cache-dir", type=Path)
+    clear = sub.add_parser("clear")
+    clear.add_argument("--yes", action="store_true")
+    clear.add_argument("--cache-dir", type=Path)
+    args = parser.parse_args(argv)
+
+    from .cache import clear_persistent_caches, inspect_persistent_caches
+    from .pipeline_stages import _download_cache_enabled
+
+    if args.action == "info":
+        payload = inspect_persistent_caches(override=args.cache_dir)
+        payload["download_cache_enabled"] = _download_cache_enabled()
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+        else:
+            print(t("CACHE_INFO_ROOT", path=payload["root"]))
+            print(
+                t(
+                    "CACHE_INFO_ENABLED",
+                    state="on" if payload["download_cache_enabled"] else "off",
+                )
+            )
+            for kind in ("downloads", "chunks"):
+                entry = payload[kind]
+                print(
+                    t(
+                        "CACHE_INFO_ENTRY",
+                        kind=kind,
+                        status=entry["status"],
+                        entries=entry["entries"],
+                        bytes=entry["bytes"],
+                        wired=entry["wired"],
+                    )
+                )
+        bad = {"invalid", "unsafe", "error"}
+        return 1 if any(payload[kind]["status"] in bad for kind in ("downloads", "chunks")) else 0
+
+    if not args.yes:
+        print(t("CACHE_CLEAR_CONFIRM_REQUIRED"), file=sys.stderr)
+        return 2
+    payload = clear_persistent_caches(override=args.cache_dir)
+    for kind in ("downloads", "chunks"):
+        entry = payload[kind]
+        print(
+            t(
+                "CACHE_CLEAR_ENTRY",
+                kind=kind,
+                status=entry["status"],
+                removed=entry["removed"],
+            )
+        )
+        if entry.get("error"):
+            print(entry["error"], file=sys.stderr)
+    print(t("CACHE_CLEAR_SUMMARY"))
+    bad = {"invalid", "unsafe", "error"}
+    return 1 if any(payload[kind]["status"] in bad for kind in ("downloads", "chunks")) else 0
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -559,6 +865,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         return _run_archive(argv[1:])
     if argv and argv[0] == "verify":
         return _run_verify(argv[1:])
+    if argv and argv[0] == "events":
+        return _run_events(argv[1:])
+    if argv and argv[0] == "cache":
+        return _run_cache(argv[1:])
     if not argv or argv[0] in ("-h", "--help"):
         if not argv:
             _print_quickstart()
@@ -611,6 +921,11 @@ def _run_verify(argv: List[str]) -> int:
         type=Path,
         help="工作目录(默认: ./output 或 MEDIASCRIBE_WORKSPACE)",
     )
+    parser.add_argument(
+        "--allow-model-download",
+        action="store_true",
+        help="Allow downloading missing verification model weights (default: off)",
+    )
     args = parser.parse_args(argv)
 
     from .config import Settings
@@ -618,6 +933,7 @@ def _run_verify(argv: List[str]) -> int:
     from .verify import run_verify
 
     settings = Settings()
+    settings.allow_model_download = args.allow_model_download
     if args.workspace:
         settings.workspace_root = args.workspace
     device = resolve_device(args.device)
@@ -647,10 +963,15 @@ def _run_doctor_cli(argv: List[str]) -> int:
         type=Path,
         help="工作目录（默认: ./output 或 MEDIASCRIBE_WORKSPACE）",
     )
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help=t("CLI_HELP_OFFLINE"),
+    )
     args = parser.parse_args(argv)
     from .doctor import run_doctor
 
-    return run_doctor(workspace=args.workspace)
+    return run_doctor(workspace=args.workspace, offline=args.offline)
 
 
 def _run_archive(argv: List[str]) -> int:

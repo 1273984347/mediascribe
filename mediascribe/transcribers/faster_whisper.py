@@ -23,9 +23,11 @@ import logging
 import tempfile
 import threading
 from collections import OrderedDict
+from importlib import metadata
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
+from ..checkpoint import CheckpointSession
 from ..gpu_budget import (
     ensure_resident_capacity,
     estimate_model_mb,
@@ -35,9 +37,9 @@ from ..gpu_budget import (
     unregister_resident,
 )
 from ..i18n import t
-from ..model_weights import missing_hint
+from ..model_weights import ModelDownloadError, ModelLoadError, check_weights, missing_hint
 from ..zh_normalize import simplified_initial_prompt
-from .base import Transcriber
+from .base import SegmentCallback, Transcriber
 
 logger = logging.getLogger(__name__)
 
@@ -149,28 +151,47 @@ def _load_whisper_model(model_name: str, device: str, compute_type: str) -> Any:
     """
     from faster_whisper import WhisperModel
 
+    print(t("MODEL_PREPARE_START", engine="faster-whisper", model=model_name))
     try:
-        return WhisperModel(
+        model = WhisperModel(
             model_name, device=device, compute_type=compute_type, local_files_only=True
         )
     except Exception as exc:
         if not _is_local_cache_miss(exc):
-            raise
+            raise ModelLoadError(
+                t(
+                    "MODEL_LOAD_FAILED",
+                    engine="faster-whisper",
+                    model=model_name,
+                    exc=exc,
+                )
+            ) from exc
         logger.info("本地缓存未命中 %s，尝试联网下载模型", model_name)
         try:
-            return WhisperModel(model_name, device=device, compute_type=compute_type)
+            model = WhisperModel(model_name, device=device, compute_type=compute_type)
         except Exception as exc2:
             # 联网也不成 ⇒ 多半是「权重没预置 + 机器离线」。
             # HuggingFace 的原始异常（LocalEntryNotFound / SSL 噪音）对用户
             # 没有可操作性 —— 换成带预置指引的中文错误。
-            raise RuntimeError(
-                t(
-                    "FW_WEIGHTS_MISSING",
-                    model=model_name,
-                    exc=exc2,
-                    hint=missing_hint("faster-whisper", model_name),
-                )
-            ) from exc2
+            message = t(
+                "FW_WEIGHTS_MISSING",
+                model=model_name,
+                exc=exc2,
+                hint=missing_hint("faster-whisper", model_name),
+            )
+            if check_weights("faster-whisper", model_name).ok:
+                raise ModelLoadError(
+                    t(
+                        "MODEL_LOAD_FAILED",
+                        engine="faster-whisper",
+                        model=model_name,
+                        exc=exc2,
+                    )
+                ) from exc2
+            raise ModelDownloadError(message) from exc2
+
+    print(t("MODEL_PREPARE_DONE", engine="faster-whisper", model=model_name))
+    return model
 
 
 def _get_cached_model(model_name: str, device: str, compute_type: str) -> Any:
@@ -260,12 +281,42 @@ class FasterWhisperTranscriber(Transcriber):
             self._model = _get_cached_model(self.model_name, self.device, self.compute_type)
         return self._model
 
+    def prepare(self, **kwargs) -> Any:
+        return self._ensure_model()
+
+    def effective_decode_params(
+        self, *, language: str | None, initial_prompt: str | None
+    ) -> dict[str, Any]:
+        """Return decode inputs used by the main transcription call."""
+        try:
+            package_version = metadata.version("faster-whisper")
+        except metadata.PackageNotFoundError:
+            package_version = "unknown"
+        return {
+            "engine": self.name,
+            "package_version": package_version,
+            "model": self.model_name,
+            "device": self.device,
+            "compute_type": self.compute_type,
+            "language": language,
+            "initial_prompt": initial_prompt,
+            "vad_filter": self.vad_filter,
+            "vad_parameters": {"min_silence_duration_ms": 500},
+            "runtime_defaults": {
+                "temperature": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+                "beam_size": 5,
+            },
+        }
+
     def transcribe(
         self,
         audio_path: Path,
         *,
         prompt: Optional[str] = None,
         progress: Optional[Any] = None,
+        segment_cb: Optional[SegmentCallback] = None,
+        resume_start: Optional[float] = None,
+        checkpoint_session: Optional[CheckpointSession] = None,
         **kwargs,
     ) -> dict[str, Any]:
         model = self._ensure_model()
@@ -283,7 +334,11 @@ class FasterWhisperTranscriber(Transcriber):
         # （让用户能自定义专有名词 prompt）。共用实现见
         # ``mediascribe.zh_normalize.simplified_initial_prompt``（与
         # openai-whisper / whisperx / whisper.cpp 共用同一口径）。
-        initial_prompt = simplified_initial_prompt(prompt, language)
+        initial_prompt = (
+            kwargs["initial_prompt"]
+            if "initial_prompt" in kwargs
+            else simplified_initial_prompt(prompt, language)
+        )
         transcribe_kwargs: dict[str, Any] = {
             "language": language,
             "initial_prompt": initial_prompt,
@@ -292,6 +347,11 @@ class FasterWhisperTranscriber(Transcriber):
         }
         if temperature is not None:
             transcribe_kwargs["temperature"] = temperature
+        if resume_start is not None:
+            duration = _probe_duration_seconds(audio_path)
+            if duration is None or duration <= resume_start:
+                raise ValueError("resume window is outside the audio timeline")
+            transcribe_kwargs["clip_timestamps"] = [resume_start, duration]
         segments, info = model.transcribe(str(audio_path), **transcribe_kwargs)
 
         seg_list = []
@@ -302,16 +362,27 @@ class FasterWhisperTranscriber(Transcriber):
                 "start": seg.start,
                 "end": seg.end,
             }
-            seg_list.append(seg_dict)
-            text_parts.append(seg.text)
+            accepted = (
+                checkpoint_session.accept(seg_dict) if checkpoint_session is not None else seg_dict
+            )
+            if accepted is None:
+                continue
+            seg_list.append(accepted)
+            text_parts.append(accepted["text"])
+            if checkpoint_session is None and segment_cb is not None:
+                segment_cb(dict(accepted))
 
-        rescued = self._rescue_tail_if_truncated(
-            audio_path,
-            seg_list,
-            text_parts,
-            language=language,
-            initial_prompt=initial_prompt,
-        )
+        rescued = []
+        if resume_start is None:
+            rescued = self._rescue_tail_if_truncated(
+                audio_path,
+                seg_list,
+                text_parts,
+                language=language,
+                initial_prompt=initial_prompt,
+                segment_cb=segment_cb,
+                checkpoint_session=checkpoint_session,
+            )
         if rescued:
             text_parts.extend(rescued)
 
@@ -330,6 +401,8 @@ class FasterWhisperTranscriber(Transcriber):
         *,
         language: Optional[str],
         initial_prompt: Optional[str],
+        segment_cb: Optional[SegmentCallback] = None,
+        checkpoint_session: Optional[CheckpointSession] = None,
     ) -> list:
         """尾部覆盖守卫: 缺口超阈值时对尾部切片无 VAD 重转并合并。
 
@@ -367,25 +440,37 @@ class FasterWhisperTranscriber(Transcriber):
                 initial_prompt=initial_prompt,
                 vad_filter=False,  # 无 VAD: 兜住 VAD 漏检的收尾语音
             )
-            appended_text = []
+            rescued_segments = []
             for seg in tail_segments:
                 seg_dict = {
                     "text": seg.text,
                     "start": seg.start + slice_start,
                     "end": seg.end + slice_start,
                 }
-                if float(seg_dict["start"]) < last_end - 0.5:
-                    continue  # 与已有段重叠(回退区), 跳过
-                seg_list.append(seg_dict)
-                appended_text.append(seg.text)
+                if float(seg_dict["start"]) >= last_end - 0.5:
+                    rescued_segments.append(seg_dict)
+        except Exception as e:  # noqa: BLE001 — 守卫绝不能破坏主转录结果
+            logger.warning("尾部补录失败(不影响主转录): %s", e)
+            return []
+        else:
+            appended_text = []
+            for seg_dict in rescued_segments:
+                accepted = (
+                    checkpoint_session.accept(seg_dict)
+                    if checkpoint_session is not None
+                    else seg_dict
+                )
+                if accepted is None:
+                    continue
+                seg_list.append(accepted)
+                appended_text.append(accepted["text"])
+                if checkpoint_session is None and segment_cb is not None:
+                    segment_cb(dict(accepted))
             if appended_text:
                 logger.info(
                     "尾部补录: 追加 %d 段(至 %.1fs)", len(appended_text), seg_list[-1]["end"]
                 )
             return appended_text
-        except Exception as e:  # noqa: BLE001 — 守卫绝不能破坏主转录结果
-            logger.warning("尾部补录失败(不影响主转录): %s", e)
-            return []
         finally:
             try:
                 tmp_name.unlink()

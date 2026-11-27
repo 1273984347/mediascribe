@@ -443,6 +443,13 @@ def run_verify(
     )
 
     if transcriber is None:
+        from .model_weights import ensure_model_ready
+
+        ensure_model_ready(
+            "faster-whisper",
+            model,
+            allow_download=bool(getattr(settings, "allow_model_download", False)),
+        )
         transcriber = FasterWhisperTranscriber(model, device=device)
     print(t("VERIFY_PRINT_SAMPLING", name=transcriber.name, model=model))
     transcription = transcribe_third_sample(audio_path, transcriber, language=language)

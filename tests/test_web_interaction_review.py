@@ -746,5 +746,33 @@ class TestNavigationAndButtonFeedback(unittest.TestCase):
         self.assertIn("stopHeartbeat();", apply_body, msg="applyFinished 未停心跳")
 
 
+def test_frontend_uses_assemble_and_resume_endpoint():
+    source = (MODULES / "jobs.js").read_text(encoding="utf-8")
+    assert 'setStage("merge"' not in source
+    assert 'setStage("assemble"' in source
+    assert "/resume" in source
+    assert "progress_known" in source
+
+
+def test_frontend_resume_replaces_attempt_without_checkpoint_merge():
+    code = "\n".join(_code_lines(MODULES / "jobs.js"))
+    resume_handler = code.split('const resumeBtn = card.querySelector("[data-resume]");', 1)[1]
+    resume_handler = resume_handler.split("// 终态任务", 1)[0]
+    assert "`/api/jobs/${job.job_id}/resume`" in resume_handler
+    assert "card.__wsState.stopped = true" in resume_handler
+    assert "card.__resultRendered = false" in resume_handler
+    assert "card.dataset.attemptId = next.attempt_id" in resume_handler
+    assert "connectWs(card," in resume_handler
+    connect_body = _function_body(code, "function connectWs")
+    assert "checkpoint" not in connect_body
+    assert "Object.assign" not in connect_body
+
+
+def test_frontend_does_not_auto_resume_on_restore():
+    source = (MODULES / "jobs.js").read_text(encoding="utf-8")
+    restore = source.split("async function restoreQueue()", 1)[1]
+    assert "/resume" not in restore
+
+
 if __name__ == "__main__":
     unittest.main()

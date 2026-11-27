@@ -21,6 +21,7 @@ from __future__ import annotations
 import re
 import sys
 import unittest
+from html.parser import HTMLParser
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
@@ -43,6 +44,25 @@ def _page_refs(html: str) -> list:
         if path not in seen:
             seen.append(path)
     return seen
+
+
+class _EngineSelectParser(HTMLParser):
+    def __init__(self, select_id: str = "engine") -> None:
+        super().__init__()
+        self.select_id = select_id
+        self.in_engine_select = False
+        self.selected_value = None
+
+    def handle_starttag(self, tag, attrs) -> None:
+        attrs_dict = dict(attrs)
+        if tag == "select" and attrs_dict.get("id") == self.select_id:
+            self.in_engine_select = True
+        elif tag == "option" and self.in_engine_select and "selected" in attrs_dict:
+            self.selected_value = attrs_dict.get("value")
+
+    def handle_endtag(self, tag) -> None:
+        if tag == "select" and self.in_engine_select:
+            self.in_engine_select = False
 
 
 class TestStaticAssetsServed(unittest.TestCase):
@@ -123,12 +143,57 @@ class TestStaticAssetsServed(unittest.TestCase):
         for engine in _VALID_ENGINES:
             self.assertIn(engine, options, msg=f"引擎下拉缺少 {engine}")
 
+    def test_engine_selector_defaults_to_auto(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        parser = _EngineSelectParser()
+        parser.feed(html)
+
+        self.assertEqual(
+            parser.selected_value,
+            "",
+            msg="引擎下拉必须默认选择自动（推荐），不能把 whisper 当显式默认",
+        )
+
+    def test_model_selector_defaults_to_auto(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        parser = _EngineSelectParser("model")
+        parser.feed(html)
+
+        self.assertEqual(
+            parser.selected_value,
+            "",
+            msg="模型下拉必须默认选择自动（有效值 small），不能把 small 伪装成显式选择",
+        )
+
+    def test_readiness_banner_and_initial_submit_state(self):
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="readiness"', html)
+        self.assertRegex(html, r'<button[^>]+id="submit"[^>]+disabled')
+
+    def test_frontend_controls_submit_from_readiness(self):
+        source = (STATIC / "modules" / "gpu.js").read_text(encoding="utf-8")
+        jobs = (STATIC / "modules" / "jobs.js").read_text(encoding="utf-8")
+        self.assertIn("readiness", source)
+        self.assertIn("submit.disabled", source)
+        self.assertIn("submit.dataset.readiness", jobs)
+
+    def test_result_actions_and_summary_contract(self):
+        source = (STATIC / "modules" / "jobs.js").read_text(encoding="utf-8")
+        self.assertIn("data-open", source)
+        self.assertIn("artifact_opened", source)
+        self.assertIn("summary.duration_seconds", source)
+        self.assertIn("summary.engine", source)
+        self.assertIn("summary.model", source)
+        self.assertIn("no_speech", source)
+        self.assertIn("result-summary", source)
+
     def test_submit_response_carries_resource_notices(self):
         """提交响应必须带回资源守卫的降档说明 —— 用户**当场**就该知道。
 
         用 mock 顶掉 pipeline 构建,避免测试真的去下载视频。
         """
         from importlib import util
+        from types import SimpleNamespace
         from unittest import mock
 
         if util.find_spec("fastapi") is None:
@@ -138,7 +203,25 @@ class TestStaticAssetsServed(unittest.TestCase):
         from mediascribe.web.app import create_app
 
         fake_pipeline = mock.MagicMock()
+        fake_pipeline.settings = SimpleNamespace(
+            engine="faster-whisper", model="small", device="cpu"
+        )
+        fake_pipeline.transcriber = SimpleNamespace(vad_filter=True)
         fake_pipeline._resource_notices = ["测试降档说明：已降档 large-v3 → medium"]
+
+        def fake_transcribe(source, **kwargs):
+            output = Path(kwargs["output"])
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text("# Transcript\n\nfixture\n", encoding="utf-8")
+            return SimpleNamespace(
+                engine="faster-whisper",
+                model="small",
+                transcript_path=output,
+                source=SimpleNamespace(display_name="fixture"),
+                metadata={"engine": "faster-whisper", "model": "small"},
+            )
+
+        fake_pipeline.transcribe.side_effect = fake_transcribe
 
         with mock.patch("mediascribe.web.app._build_pipeline", return_value=fake_pipeline):
             with TestClient(create_app()) as client:
@@ -165,6 +248,15 @@ class TestStaticAssetsServed(unittest.TestCase):
         """前端必须真的把 notices 显示出来（否则字段传了也白传）。"""
         jobs_js = (STATIC / "modules" / "jobs.js").read_text(encoding="utf-8")
         self.assertIn("notices", jobs_js, msg="jobs.js 未处理提交响应的 notices")
+
+    def test_generic_resume_contract_is_engine_agnostic(self):
+        """四种引擎共用既有继续按钮，不按 checkpoint 模式改 UI。"""
+        source = (STATIC / "modules" / "jobs.js").read_text(encoding="utf-8")
+        self.assertIn("`/api/jobs/${job.job_id}/resume`", source)
+        self.assertIn('data-resume class="ghost"', source)
+        self.assertNotIn("checkpoint_mode", source)
+        for engine in ("faster-whisper", "whisperx", "whisper-cpp"):
+            self.assertNotIn(engine, source)
 
 
 class TestSecondaryTextContrast(unittest.TestCase):

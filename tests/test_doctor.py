@@ -71,6 +71,14 @@ def test_cache_dir_home_default(monkeypatch):
     assert _model_cache_dir() == Path.home() / ".cache" / "mediascribe"
 
 
+def test_empty_model_cache_does_not_promise_automatic_download(monkeypatch, capsys):
+    monkeypatch.setattr(doctor, "_list_downloaded_models", lambda _cache: [])
+    doctor._check_model_cache()
+    output = capsys.readouterr().out
+    assert "自动下载模型" not in output
+    assert "显式授权" in output or "explicitly authorize" in output
+
+
 # ---------------------------------------------------------------------------
 # _list_downloaded_models
 # ---------------------------------------------------------------------------
@@ -96,6 +104,44 @@ def test_list_models_dirs_only_skips_dotfiles(tmp_path):
 def clean_doctor_env(monkeypatch):
     monkeypatch.delenv("MEDIASCRIBE_WECHAT_COOKIE", raising=False)
     monkeypatch.delenv("MEDIASCRIBE_WORKSPACE", raising=False)
+
+
+@pytest.fixture()
+def isolated_doctor(monkeypatch, clean_doctor_env):
+    monkeypatch.setattr(doctor, "_check_device", lambda: None)
+    monkeypatch.setattr(doctor, "_check_gpu_budget", lambda: None)
+    monkeypatch.setattr(doctor, "_check_model_cache", lambda: None)
+    monkeypatch.setattr(doctor, "_check_cookies", lambda: None)
+    monkeypatch.setattr(doctor, "_check_terms", lambda: None)
+    monkeypatch.setattr(doctor, "_check_env_config", lambda: None)
+    monkeypatch.setattr(
+        shutil,
+        "which",
+        lambda name: f"C:/fake/{name}.exe" if name in {"ffmpeg", "ffprobe"} else None,
+    )
+
+
+def _patch_engine_probe(monkeypatch, available):
+    def fake_find_spec(name):
+        return object() if name in available else None
+
+    monkeypatch.setattr(doctor.importlib.util, "find_spec", fake_find_spec)
+    monkeypatch.setattr("mediascribe.config.find_spec", fake_find_spec)
+
+
+def _patch_weight_check(monkeypatch, *, ready):
+    from mediascribe.model_weights import WeightStatus
+
+    monkeypatch.setattr(
+        "mediascribe.model_weights.check_weights",
+        lambda engine, model: WeightStatus(
+            engine=engine,
+            model=model,
+            ok=ready,
+            location="fake-cache",
+            hint="provision model",
+        ),
+    )
 
 
 def test_run_doctor_ok_with_ffmpeg(tmp_path, monkeypatch, capsys, clean_doctor_env):
@@ -133,3 +179,108 @@ def test_run_doctor_reports_wechat_cookie_env(tmp_path, monkeypatch, capsys, cle
     run_doctor(workspace=tmp_path)
     out = capsys.readouterr().out
     assert "已配置" in out
+
+
+def test_doctor_blocks_without_any_engine(tmp_path, monkeypatch, capsys, isolated_doctor):
+    _patch_engine_probe(monkeypatch, available=set())
+
+    rc = run_doctor(workspace=tmp_path)
+
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "BLOCKED" in out
+    assert "ENGINE_UNAVAILABLE" in out
+
+
+def test_doctor_ready_when_engine_and_model_are_available(
+    tmp_path, monkeypatch, capsys, isolated_doctor
+):
+    _patch_engine_probe(monkeypatch, available={"faster_whisper"})
+    _patch_weight_check(monkeypatch, ready=True)
+
+    rc = run_doctor(workspace=tmp_path)
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "READY" in out
+    assert "READY_WITH_WARNINGS" not in out
+    assert "BLOCKED" not in out
+
+
+def test_doctor_warns_when_model_can_be_prepared_online(
+    tmp_path, monkeypatch, capsys, isolated_doctor
+):
+    _patch_engine_probe(monkeypatch, available={"faster_whisper"})
+    _patch_weight_check(monkeypatch, ready=False)
+
+    rc = run_doctor(workspace=tmp_path)
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "READY_WITH_WARNINGS" in out
+
+
+def test_doctor_warns_when_event_retention_is_invalid(
+    tmp_path, monkeypatch, capsys, isolated_doctor
+):
+    _patch_engine_probe(monkeypatch, available={"faster_whisper"})
+    _patch_weight_check(monkeypatch, ready=True)
+    monkeypatch.setenv("MEDIASCRIBE_EVENT_DB", str(tmp_path / "events.sqlite3"))
+    monkeypatch.setenv("MEDIASCRIBE_EVENT_RETENTION_DAYS", "-1")
+
+    rc = run_doctor(workspace=tmp_path)
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "READY_WITH_WARNINGS" in out
+    assert "EVENT_RETENTION_INVALID" in out
+
+
+def test_doctor_blocks_missing_model_in_offline_mode(
+    tmp_path, monkeypatch, capsys, isolated_doctor
+):
+    _patch_engine_probe(monkeypatch, available={"faster_whisper"})
+    _patch_weight_check(monkeypatch, ready=False)
+
+    rc = run_doctor(workspace=tmp_path, offline=True)
+
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "BLOCKED" in out
+    assert "MODEL_NOT_READY" in out
+
+
+def test_doctor_blocks_unsupported_python(tmp_path, monkeypatch, capsys, isolated_doctor):
+    from collections import namedtuple
+
+    _patch_engine_probe(monkeypatch, available={"faster_whisper"})
+    _patch_weight_check(monkeypatch, ready=True)
+    version_info = namedtuple("version_info", "major minor micro")
+    monkeypatch.setattr(doctor.sys, "version_info", version_info(3, 10, 0))
+
+    rc = run_doctor(workspace=tmp_path)
+
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "BLOCKED" in out
+    assert "PYTHON_VERSION" in out
+
+
+def test_doctor_blocks_unwritable_workspace(tmp_path, monkeypatch, capsys, isolated_doctor):
+    _patch_engine_probe(monkeypatch, available={"faster_whisper"})
+    _patch_weight_check(monkeypatch, ready=True)
+
+    def fail_probe(self, *args, **kwargs):
+        if self.name == ".doctor_write_probe":
+            raise PermissionError("read-only")
+        return original_write_text(self, *args, **kwargs)
+
+    original_write_text = Path.write_text
+    monkeypatch.setattr(Path, "write_text", fail_probe)
+
+    rc = run_doctor(workspace=tmp_path)
+
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "BLOCKED" in out
+    assert "OUTPUT_WRITE_FAILED" in out

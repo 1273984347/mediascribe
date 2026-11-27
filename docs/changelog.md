@@ -4,6 +4,18 @@ All notable changes to this project are documented in
 `CHANGELOG.md` in the repo root.  This page is a curated
 summary; for the full per-commit history see GitHub.
 
+!!! warning "Historical / Superseded entries"
+    These highlights describe what shipped at the time, not necessarily the
+    current interface.  VAD and `PersistentChunkCache` remain Python-level
+    building blocks and are not wired into ordinary CLI / Web / MCP
+    transcription ([Long videos](chunking.md)).  The profile CLI supports
+    `--top`, `--by-stage`, `--since`, and `--json`; old `--watch`, `--format`,
+    `--tz-aware`, and CSV claims are superseded ([Performance](performance.md)).
+    The OTel mini-SDK / `otel` extra were removed on 2026-10-03.  The factory
+    now has no fallback chain: automatic selection prefers installed
+    `faster-whisper`, then `whisper`, while `whisperx` is opt-in
+    ([Engines](engines.md)).
+
 ## Recent highlights
 
 ### v3.0.0 — Plugin system + long-video chunking + OTel
@@ -17,7 +29,8 @@ summary; for the full per-commit history see GitHub.
   `parallel_map`, `DownloadCache`.
 * **Observability**: a zero-deps OpenTelemetry-compatible mini-SDK
   that can be upgraded to the real `opentelemetry-sdk` with one
-  call.
+  call.  **Historical / superseded:** the module and extra were removed on
+  2026-10-03; current local events / metrics are not an OTel exporter.
 * **Browser extension**: Chrome / Edge Manifest v3 popup that
   posts the active tab URL to a self-hosted Web UI.
 * **E2E recording**: `scripts/e2e/capture_e2e_recording.py` bundles
@@ -29,10 +42,17 @@ summary; for the full per-commit history see GitHub.
 ### v3.2.x — Async pipeline + GPU acceleration + LLM post-processing
 
 * **v3.2.0a** — VAD chunking, persistent cache, `profile` CLI,
-  WebSocket progress.
+  WebSocket progress.  **Current boundary:** VAD / chunk caching are not
+  wired into ordinary CLI / Web / MCP paths; use the documented Python API.
+  Web progress now has six stage identifiers and boundary-only counters,
+  not real intra-stage percentages.
 * **v3.2.0b** — `AsyncPipeline` with `asyncio.Semaphore`-capped
   worker pool; `resolve_device()` / `gpu_health()` probes;
-  `MEDIASCRIBE_MAX_WORKERS` env var.
+  `MEDIASCRIBE_MAX_WORKERS` env var.  **Current naming:** use
+  `MEDIASCRIBE_JOB_EXECUTORS` for concurrent Web batches and
+  `MEDIASCRIBE_BATCH_CONCURRENCY` for in-batch work.  The old name remains a
+  fallback for each when its replacement is unset, so setting only the legacy
+  name can scale both limits.
 * **v3.2.0c** — `@profile_step` decorator, UI GPU pill,
   cancel WebSocket bridge, hidden memory-leak fixes.
 * **v3.2.0d** — LLM post-processing skeleton
@@ -69,7 +89,9 @@ summary; for the full per-commit history see GitHub.
 * Detector fixes for `/s/abc` and `/s?__biz=` URL shapes.
 * Real-URL E2E suite (opt-in via `MEDIASCRIBE_E2E=1`).
 * WhisperX support with auto-fallback to `faster-whisper`
-  then `whisper`.
+  then `whisper`.  **Historical / superseded:** current automatic selection
+  is `faster-whisper` → `whisper`; WhisperX is explicitly opt-in and the
+  factory has no fallback chain.
 
 ### v1.x — Initial 6-platform support
 

@@ -33,21 +33,70 @@ _VALID_MODELS = frozenset(
 )
 
 
-def default_engine() -> str:
-    """默认 ASR 引擎（P1-2，2026-11-20 架构评审）：装了 faster-whisper 就用它。
+class EngineUnavailableError(RuntimeError):
+    """No supported ASR engine is installed for automatic selection."""
 
-    openai-whisper（torch 全精度）是四引擎中最慢的路径，把它当全局默认
-    会让 CLI / Web / MCP / batch 四条入口全部慢 2-4×。改为安装探测：
-    ``faster-whisper`` 可导入即默认之，否则回退 ``whisper``。
-    显式传入的 engine 参数永远优先。用 ``find_spec`` 只查元数据、
-    不真正导入包（ctranslate2 导入是秒级）。
-    """
+    code = "ENGINE_UNAVAILABLE"
+
+    def __init__(self) -> None:
+        super().__init__(t("ENGINE_UNAVAILABLE"))
+
+
+class DeviceUnavailableError(RuntimeError):
+    """An explicitly requested compute device cannot be used."""
+
+    code = "DEVICE_UNAVAILABLE"
+
+    def __init__(self, device: str) -> None:
+        super().__init__(device)
+        self.device = device
+
+
+def _module_available(module: str) -> bool:
     try:
-        if find_spec("faster_whisper") is not None:
-            return "faster-whisper"
+        return find_spec(module) is not None
     except (ImportError, ValueError):  # pragma: no cover - defensive
-        pass
-    return "whisper"
+        return False
+
+
+def resolve_default_engine() -> tuple[str, str]:
+    """Resolve the automatic engine and its user-visible notice."""
+    if _module_available("faster_whisper"):
+        return "faster-whisper", ""
+    if _module_available("whisper"):
+        return "whisper", t("ENGINE_FALLBACK_WHISPER")
+    raise EngineUnavailableError()
+
+
+def default_engine() -> str:
+    """Return the automatic ASR engine, raising when none is available."""
+    return resolve_default_engine()[0]
+
+
+def is_engine_available(engine: str) -> bool:
+    """Return whether an explicit engine can be constructed on this host."""
+    modules = {
+        "whisper": "whisper",
+        "faster-whisper": "faster_whisper",
+        "whisperx": "whisperx",
+    }
+    if engine in modules:
+        return _module_available(modules[engine])
+    if engine == "whisper-cpp":
+        try:
+            from .transcribers.whisper_cpp import is_available
+        except Exception:  # pragma: no cover - optional dependency
+            return False
+        return is_available()
+    return False
+
+
+def _valid_device(device: str) -> bool:
+    if not isinstance(device, str):
+        return False
+    if device in {"auto", "cpu", "cuda", "metal", "rocm"}:
+        return True
+    return device.startswith("cuda:") and device[5:].isdigit()
 
 
 class Settings:
@@ -56,7 +105,7 @@ class Settings:
     def __init__(
         self,
         workspace_root: Optional[Path] = None,
-        model: str = "small",
+        model: Optional[str] = None,
         device: Optional[str] = None,
         engine: Optional[str] = None,
         language: Optional[str] = None,
@@ -69,6 +118,7 @@ class Settings:
         timestamps: bool = False,
         audio_only: Optional[bool] = None,
         cleanup_media: bool = False,
+        allow_model_download: bool = False,
         zh_simplify: Optional[bool] = None,
     ):
         # workspace 根目录：显式参数 > MEDIASCRIBE_WORKSPACE 环境变量 > 默认 ./output
@@ -80,10 +130,14 @@ class Settings:
             env_workspace = os.environ.get("MEDIASCRIBE_WORKSPACE", "").strip()
             self.workspace_root = Path(env_workspace) if env_workspace else Path.cwd() / "output"
 
-        # P1-2（2026-11-20 评审）：engine 缺省不再硬编码 "whisper"（四引擎中
-        # 最慢的 torch 路径），改为安装探测 —— faster-whisper 已装即默认之。
-        # 显式传入的 engine 永远优先。
-        resolved_engine = engine if engine else default_engine()
+        # 显式传入的 engine 永远优先；自动模式由统一解析器处理可用性与回退提示。
+        self.engine_notice = ""
+        self.requested_engine = engine or "auto"
+        self.engine_explicit = bool(engine)
+        if engine:
+            resolved_engine = engine
+        else:
+            resolved_engine, self.engine_notice = resolve_default_engine()
         # 引擎 / 模型尽早校验：非法值立即 ValueError，避免转录中途才失败
         if resolved_engine not in _VALID_ENGINES:
             raise ValueError(
@@ -91,9 +145,19 @@ class Settings:
             )
         # "auto" = 按音频时长自动选模型（v3.4.0，CLI --model auto），
         # 由 Pipeline._AutoModelTranscriber 拿到真实音频时长后惰性解析。
-        if model != "auto" and model not in _VALID_MODELS:
+        self.requested_model = model or "auto"
+        self.model_explicit = model not in (None, "auto")
+        resolved_model = model or "small"
+        if resolved_model != "auto" and resolved_model not in _VALID_MODELS:
             raise ValueError(
                 f"Unknown model {model!r}. Allowed: auto, {', '.join(sorted(_VALID_MODELS))}."
+            )
+        self.requested_device = device or os.environ.get("MEDIASCRIBE_DEVICE", "auto") or "auto"
+        self.device_explicit = self.requested_device != "auto"
+        resolved_device = self.requested_device
+        if not _valid_device(resolved_device):
+            raise ValueError(
+                f"Unknown device {resolved_device!r}. Allowed: auto, cpu, cuda, cuda:N, metal, rocm."
             )
 
         # 目录配置
@@ -107,10 +171,10 @@ class Settings:
         self.cache_dir: Optional[Path] = Path(cache_dir) if cache_dir else None
 
         # 模型配置（已通过上方 _VALID_ENGINES / _VALID_MODELS 校验）
-        self.model = model
+        self.model = resolved_model
         self.engine = resolved_engine
         # device 默认 auto-resolve (CUDA > Metal > ROCm > CPU)
-        self.device = device if device else os.environ.get("MEDIASCRIBE_DEVICE", "auto")
+        self.device = resolved_device
         self.language = language
 
         # 高级功能
@@ -162,6 +226,7 @@ class Settings:
         self.cleanup_media = bool(cleanup_media) or os.environ.get(
             "MEDIASCRIBE_CLEANUP_MEDIA", ""
         ).lower() in ("1", "true", "yes", "on")
+        self.allow_model_download = bool(allow_model_download)
 
         # 微信公众号 cookies：dict 优先，文件兜底
         self.wechat_cookies: Dict[str, str] = dict(wechat_cookies or {})

@@ -62,6 +62,8 @@ class DownloadError(Exception):
         message 里携带)。
     """
 
+    code = "DOWNLOAD_FAILED"
+
     def __init__(self, category: str, message: str, *, status: Optional[int] = None):
         super().__init__(message)
         self.category = category if category in _CATEGORIES else CATEGORY_FATAL

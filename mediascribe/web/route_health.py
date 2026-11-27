@@ -9,12 +9,49 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any, Dict
 
+from mediascribe import model_weights
+from mediascribe.config import EngineUnavailableError, resolve_default_engine
+from mediascribe.i18n import t
 from mediascribe.web.gpu_health import _cached_gpu_health
 
 if TYPE_CHECKING:  # pragma: no cover - 仅类型检查用
     from fastapi import FastAPI
 
 logger = logging.getLogger(__name__)
+
+
+def _readiness() -> Dict[str, Any]:
+    blockers: list[str] = []
+    warnings: list[str] = []
+    actions: list[str] = []
+    engine = None
+    notice = ""
+    try:
+        engine, notice = resolve_default_engine()
+    except EngineUnavailableError:
+        blockers.append("ENGINE_UNAVAILABLE")
+        actions.append(t("READINESS_ACTION_ENGINE"))
+
+    model_cached = False
+    if engine is not None:
+        if notice:
+            warnings.append("ENGINE_FALLBACK_WHISPER")
+        status = model_weights.check_weights(engine, "small")
+        model_cached = status.ok
+        if not status.ok:
+            warnings.append("MODEL_NOT_READY")
+            actions.append(t("READINESS_ACTION_MODEL"))
+
+    readiness_status = "BLOCKED" if blockers else ("READY_WITH_WARNINGS" if warnings else "READY")
+    return {
+        "status": readiness_status,
+        "engine": engine,
+        "model": "small",
+        "model_cached": model_cached,
+        "blockers": blockers,
+        "warnings": warnings,
+        "actions": actions,
+    }
 
 
 def _register_health_routes(app: "FastAPI") -> None:
@@ -49,6 +86,7 @@ def _register_health_routes(app: "FastAPI") -> None:
                 orphan_ids = [k for k in app.state.job_results if k not in live_ids]
                 for orphan_id in orphan_ids:
                     app.state.job_results.pop(orphan_id, None)
+                    getattr(app.state, "job_requests", {}).pop(orphan_id, None)
         except Exception as exc:  # v3.2.0c-fix (R2): surface purge failures
             # Pre-R6 the swallowed surface was smaller; R6 widened it
             # to cover the new lock acquisition + orphan cleanup loop.
@@ -69,6 +107,19 @@ def _register_health_routes(app: "FastAPI") -> None:
         # polls every few seconds, and each ``torch.cuda.*`` probe
         # costs ~30 ms.
         gpu = _cached_gpu_health(ttl_seconds=1.0)
+        readiness = _readiness()
+        try:
+            from mediascribe.web.route_events import _event_recorder
+
+            _event_recorder(app).record_readiness(
+                status=readiness["status"],
+                engine=readiness.get("engine"),
+                blockers=readiness.get("blockers"),
+                warnings=readiness.get("warnings"),
+                cache_state="warm" if readiness.get("model_cached") else "cold",
+            )
+        except Exception:
+            logger.debug("web readiness event recording failed", exc_info=True)
         return {
             "ok": True,
             "version": app.version,
@@ -78,4 +129,5 @@ def _register_health_routes(app: "FastAPI") -> None:
             "rate_limit_window": app.state.rate_limiter.window_seconds,
             "device_hint": resolve_device(os.environ.get("MEDIASCRIBE_DEVICE", "auto")),
             "gpu": gpu,
+            "readiness": readiness,
         }

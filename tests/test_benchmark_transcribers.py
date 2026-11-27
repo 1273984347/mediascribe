@@ -7,6 +7,7 @@ the parts that are easy to break: cost profile integrity, table
 renderer, and the JSON report shape.
 """
 
+import hashlib
 import json
 import sys
 import types
@@ -156,6 +157,51 @@ class TestFasterWhisperLRUCache(unittest.TestCase):
 class TestWhisperXModelCache(unittest.TestCase):
     """whisperx 主模型/对齐模型必须跨转录调用复用，不再每次重载。"""
 
+    def test_prompt_changes_model_cache_identity(self):
+        from mediascribe.transcribers import whisperx as wx
+
+        wx.clear_model_cache()
+        self.addCleanup(wx.clear_model_cache)
+        fake_whisperx = mock.MagicMock()
+        first_model = mock.Mock()
+        second_model = mock.Mock()
+        fake_whisperx.load_model.side_effect = [first_model, second_model]
+
+        first = wx._get_cached_model(fake_whisperx, "small", "cpu", "zh", "terms one")
+        reused = wx._get_cached_model(fake_whisperx, "small", "cpu", "zh", "terms one")
+        second = wx._get_cached_model(fake_whisperx, "small", "cpu", "zh", "terms two")
+
+        self.assertIs(first, reused)
+        self.assertIs(second, second_model)
+        self.assertEqual(fake_whisperx.load_model.call_count, 2)
+        self.assertEqual(
+            fake_whisperx.load_model.call_args_list[0].kwargs["asr_options"],
+            {"initial_prompt": "terms one"},
+        )
+        self.assertEqual(
+            fake_whisperx.load_model.call_args_list[1].kwargs["asr_options"],
+            {"initial_prompt": "terms two"},
+        )
+        self.assertEqual(
+            set(wx._MODEL_CACHE),
+            {
+                (
+                    "small",
+                    "cpu",
+                    "int8",
+                    "zh",
+                    hashlib.sha256(b"terms one").hexdigest(),
+                ),
+                (
+                    "small",
+                    "cpu",
+                    "int8",
+                    "zh",
+                    hashlib.sha256(b"terms two").hexdigest(),
+                ),
+            },
+        )
+
     def test_models_reused_across_calls(self):
         from mediascribe.transcribers import whisperx as wx
 
@@ -176,7 +222,7 @@ class TestWhisperXModelCache(unittest.TestCase):
             "language": "zh",
         }
 
-        tx = wx.WhisperXTranscriber(model="small", device="cpu")
+        tx = wx.WhisperXTranscriber(model="small", device="cpu", allow_model_download=True)
         with mock.patch.dict(sys.modules, {"whisperx": fake_whisperx}):
             r1 = tx.transcribe(Path("a.wav"), language="zh")
             r2 = tx.transcribe(Path("b.wav"), language="zh")
@@ -222,7 +268,9 @@ class TestWhisperXDiarizeCache(unittest.TestCase):
         fake_whisperx.DiarizationPipeline = fake_diarize_cls
         fake_whisperx.assign_word_speakers.side_effect = lambda ds, res: res
 
-        tx = wx.WhisperXTranscriber(model="small", device="cpu", hf_token="tok", diarization=True)
+        tx = wx.WhisperXTranscriber(
+            model="small", device="cpu", hf_token="tok", diarization=True, allow_model_download=True
+        )
         with mock.patch.dict(sys.modules, {"whisperx": fake_whisperx}):
             r1 = tx.transcribe(Path("a.wav"), language="zh")
             r2 = tx.transcribe(Path("b.wav"), language="zh")

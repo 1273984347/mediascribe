@@ -5,6 +5,82 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Historical status notes (2026-11-26)
+
+Release entries below are preserved as history.  Where an old entry conflicts
+with current behavior, these notes and the linked current documentation take
+precedence:
+
+* **VAD / chunk cache — limited Python API:** `ChunkedTranscriber` supports
+  opt-in `webrtcvad` splitting, but is not wired into ordinary CLI / Web / MCP
+  transcription.  `PersistentChunkCache` exists but is not connected to that
+  wrapper or those entry points.  See [Long videos](docs/chunking.md).
+* **Download cache — two different scopes:** `DownloadCache` is single-run;
+  `PersistentDownloadCache` is cross-run and pipeline-wired only with
+  `MEDIASCRIBE_DOWNLOAD_CACHE=1`. `transcribe` / `batch` accept `--cache-dir`
+  or JSON `cache_dir`; `python -m mediascribe cache info` and
+  `cache clear --yes` inspect or clear indexed entries while preserving model
+  weights, learned terms, events, workspace files, and the cache root.
+  See [Performance](docs/performance.md).
+* **Profile — current interface:** use `python -m mediascribe profile
+  <timings.jsonl>` or `python -m mediascribe.profile_cli`; supported options
+  are `--top`, `--by-stage`, `--since`, and `--json`.  Python callers use
+  keyword-only `Pipeline(profile=..., profile_log=...)`.  Old claims about
+  `--watch`, `--format`, `--tz-aware`, or CSV output are superseded.
+* **OTel — removed:** the old `observability.py` mini-SDK and `otel` extra
+  were removed on 2026-10-03.  The current local event / metrics subsystem is
+  not an OpenTelemetry SDK or exporter; v3.0 / v3.3 OTel entries are historical.
+* **Durable Web jobs — current interface:** job state is event-sourced in
+  SQLite with materialized snapshots and segment checkpoints. REST/WS share
+  idempotent cancellation, measured progress respects `progress_known`, and
+  interrupted faster-whisper jobs require an explicit `POST /api/jobs/{id}/resume`.
+  See [Web UI](docs/web-ui.md).
+* **Factory / default engine — no fallback chain:** the factory constructs one
+  requested engine.  Automatic selection prefers installed `faster-whisper`
+  and falls back to `whisper`; `whisperx` is opt-in.  Resource-driven selection
+  lives in `runtime_guard`.  Older default-Whisper / fallback-chain entries
+  below are historical.  See [Engines](docs/engines.md).
+
+## [Unreleased] - 2026-11-27
+
+### Added
+
+- Durable Web checkpoint/resume for `whisper`, `whisperx`, and `whisper-cpp`
+  alongside the existing `faster-whisper` segment mode. Window engines use
+  fixed 60-second windows with 2-second overlap and at-least-once semantics.
+- Independent durable window and segment cursors, so completed silent windows
+  advance recovery. The final clamped window ends the schedule without a
+  redundant tail window.
+- WhisperX ASR-then-align window commits, aligned word persistence, and
+  complete-result diarization reruns; whisper.cpp accepts only exit-code-0,
+  complete valid JSON results.
+- A real faster-whisper interruption/resume gate that kills the original worker
+  after durable segment commits, reopens SQLite, explicitly resumes in a fresh
+  worker, and archives attempt/event/artifact/RTF/RSS/VRAM evidence. Resource
+  shortages produce a blocked report without starting ASR.
+
+### Fixed
+
+- Resumed faster-whisper artifacts now include durable prefix segments as well
+  as accepted suffix segments. Resumed Markdown no longer contains only the
+  suffix produced after the resume point.
+- The exact-118-second window schedule no longer generates a fully covered
+  third window that conflicts with the already-final durable cursor.
+
+### Security
+
+- Checkpoints do not persist cookies, Hugging Face tokens, API keys, or other
+  secrets. WhisperX resume requiring runtime authorization fails before a new
+  attempt is created when that authorization is unavailable.
+
+### Verification limits
+
+- Mock adapter/API tests and real Chromium browser flows passed for all four
+  engines; these are not real-model inference evidence. Qualified-runner
+  faster-whisper resume, US-014, US-016, and repeat=3 benchmark evidence remain
+  open. See [Web UI](docs/web-ui.md#post-apijobsjob_idresume) and
+  [Engines](docs/engines.md#durable-web-checkpoint-behavior).
+
 ## [3.4.0a1] - 2026-10-29
 
 ### Changed (2026-10-29 拍板五项:#1-#5 批次 + #8 边界文档化)
@@ -20,6 +96,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **删除 factory 回退链死代码**(`DEFAULT_FALLBACK_CHAIN`/`get_transcriber_with_fallback`/
   `list_available_engines`/内存压力换序):产品零调用,且「可用内存<4096」口径与
   runtime_guard 的「总内存<8192」矛盾。引擎切换决策单点收敛到 runtime_guard。
+  **Current status (2026-11-26):** this removal still applies; older
+  fallback-chain test / behavior entries below are historical.
 - **bench shell 脚手架标注 ARCHIVED** + 删除空的 `scripts/benchmark_corpus/`。
 - **DNS rebinding 两阶段切换记录为已知边界**(`web/validation.py` docstring):
   完整缓解需 pinned-IP transport,单用户本地工具判定不值得;各下载器另有主机名断言。
@@ -441,6 +519,8 @@ HTML**（双击即开，无需服务端、无需构建）。
   (`openai>=1.0.0`) for `video2text.llm_post_process`; included in `all`.
 - **`otel` extra** (P2-12): `opentelemetry-sdk>=1.20` for the optional
   OpenTelemetry export backend in `video2text.observability`.
+  **Historical / superseded (2026-11-26):** this module and extra were removed
+  on 2026-10-03; do not treat them as a current observability interface.
 - **`make lint` / `make format`** (P1-4): now run `ruff check .` /
   `ruff format` instead of the uninstallable flake8+black combo; dead
   `BLACK`/`ISORT`/`FLAKE8` variables removed; `test-i18n`/`test-cross`/
@@ -601,6 +681,15 @@ HTML**（双击即开，无需服务端、无需构建）。
 > behind a single `--mode` switch and stay disabled-by-default at the
 > CLI / Web level.  No breaking API changes.  Test count jumps from
 > **473 → 612 passed (+139 new)**, 9 skipped, 0 failed, ruff clean.
+>
+> **Historical / superseded (2026-11-26):** the VAD wrapper and
+> `PersistentChunkCache` remain Python-level building blocks, not ordinary
+> CLI / Web / MCP features.  The profile CLI now supports `--top`,
+> `--by-stage`, `--since`, and `--json`; the old `--format` / `--tz-aware` /
+> CSV description below is superseded.  Web progress is six stage identifiers
+> with boundary callbacks, and cancellation is per job at safe points.  See
+> [Long videos](docs/chunking.md), [Performance](docs/performance.md), and
+> [Web UI](docs/web-ui.md).
 
 ### Added
 - **VAD-based long-video chunking**
@@ -900,6 +989,8 @@ coverage report -m (video2text scope)   # 75% overall, all v3.2.0a modules ≥ 8
   that records to an in-memory `OBSERVABILITY` dict.  One call
   (`install_opentelemetry_exporter`) upgrades to the real
   `opentelemetry-sdk` when available.
+  **Historical / superseded (2026-11-26):** this module and its tests were
+  removed on 2026-10-03; the entry records what v3.0 shipped at the time.
 - **Browser extension** (`extension/`): Chrome / Edge Manifest v3
   popup that POSTs the active tab URL to a self-hosted Web UI.
   Bundled icons (16/48/128), options page, service worker.
@@ -949,6 +1040,8 @@ coverage report -m (video2text scope)   # 75% overall, all v3.2.0a modules ≥ 8
 
 ### Changed
 - Default transcription engine: OpenAI Whisper
+  **Historical / superseded (2026-11-26):** current automatic selection
+  prefers installed `faster-whisper`, then falls back to `whisper`.
 - Output format unified to `.md` (Markdown)
 
 ## [2.0.0] - 2026-04-20

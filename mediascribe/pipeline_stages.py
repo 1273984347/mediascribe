@@ -46,6 +46,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -53,7 +54,8 @@ from pathlib import Path
 from typing import Any, Callable, ClassVar, Dict, List, Optional
 
 from .audio_utils import extract_audio
-from .cache import PersistentDownloadCache
+from .cache import PersistentDownloadCache, persistent_cache_dir
+from .checkpoint import CheckpointCapability, CheckpointCursor, CheckpointSession
 from .config import Settings
 from .downloaders import (
     DouyinDownloader,
@@ -69,6 +71,8 @@ from .inputs import parse_source, safe_stem
 from .models import DownloadResult, SourceRef, TranscriptResult
 from .runtime_guard import ResourcePressureError, RuntimeMonitor
 from .transcribers import Transcriber
+from .transcribers.base import SegmentCallback
+from .zh_normalize import simplified_initial_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -96,13 +100,23 @@ def _download_cache_enabled() -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
-def _get_download_cache() -> Optional[PersistentDownloadCache]:
+def _get_download_cache(
+    settings: Optional[Settings] = None,
+) -> Optional[PersistentDownloadCache]:
     """返回进程级下载缓存单例;环境开关未启用时返回 ``None``。"""
     global _download_cache_singleton
     if not _download_cache_enabled():
         return None
+    override = settings.cache_dir if settings is not None else None
+    base = persistent_cache_dir(override=override)
+    if (
+        _download_cache_singleton is not None
+        and _download_cache_singleton.base.resolve() != base.resolve()
+    ):
+        _download_cache_singleton.close()
+        _download_cache_singleton = None
     if _download_cache_singleton is None:
-        _download_cache_singleton = PersistentDownloadCache()
+        _download_cache_singleton = PersistentDownloadCache(base=base)
     return _download_cache_singleton
 
 
@@ -115,6 +129,28 @@ def _reset_download_cache() -> None:
 # ---------------------------------------------------------------------------
 # v3.2.0e: 取消异常 — stage 内部检测到 cancel_event 时抛
 # ---------------------------------------------------------------------------
+class TranscriptionResultError(RuntimeError):
+    """A transcription did not produce a valid, persistent result."""
+
+    code = "RESULT_INVALID"
+
+
+class TranscriptionEmptyError(TranscriptionResultError):
+    code = "TRANSCRIPTION_EMPTY"
+
+
+class NoSpeechError(TranscriptionResultError):
+    code = "NO_SPEECH"
+
+
+class ResultValidationError(TranscriptionResultError):
+    code = "RESULT_INVALID"
+
+
+class ResultWriteError(TranscriptionResultError):
+    code = "RESULT_WRITE_FAILED"
+
+
 class PipelineCancelled(Exception):
     """``PipelineContext.cancel_event`` 被置位时 stage 抛此异常。
 
@@ -122,6 +158,24 @@ class PipelineCancelled(Exception):
     ``_FailedResult(src, exc)`` (不区分取消/失败)。调用方可用
     ``isinstance(r.exc, PipelineCancelled)`` 区分取消 vs 失败语义。
     """
+
+
+def validate_transcript_result(result: TranscriptResult, markdown: str) -> None:
+    """Reject empty artifacts and selection metadata that disagrees with the result."""
+    body = markdown
+    for heading in ("## 转录内容", "## Transcript"):
+        if heading in markdown:
+            body = markdown.split(heading, 1)[1]
+            break
+    if not body.strip():
+        raise ResultValidationError(t("RESULT_INVALID", reason="empty transcript body"))
+    metadata = result.metadata or {}
+    if not result.engine or not result.model:
+        raise ResultValidationError(t("RESULT_INVALID", reason="missing engine or model"))
+    if metadata.get("engine") != result.engine:
+        raise ResultValidationError(t("RESULT_INVALID", reason="engine metadata mismatch"))
+    if metadata.get("model") != result.model:
+        raise ResultValidationError(t("RESULT_INVALID", reason="model metadata mismatch"))
 
 
 @dataclass
@@ -157,6 +211,7 @@ class PipelineContext:
     bilingual: bool = False
     # v3.4.0: Markdown 正文段落是否带 [mm:ss] 时间戳前缀 (CLI --timestamps)
     timestamps: bool = False
+    started_at: float = field(default_factory=time.monotonic)
 
     # 阶段累加
     source: Optional[SourceRef] = None
@@ -178,8 +233,23 @@ class PipelineContext:
     # 控制
     cancel_event: Optional[threading.Event] = field(default=None)
     progress_cb: Optional[Callable[[str, float], None]] = field(default=None)
+    segment_cb: Optional[SegmentCallback] = field(default=None)
+    resume_start: Optional[float] = field(default=None)
+    resume_audio_path: Optional[Path] = field(default=None)
+    audio_path_cb: Optional[Callable[[Path], None]] = field(default=None)
+    decode_params_cb: Optional[Callable[[Dict[str, Any]], None]] = field(default=None)
+    checkpoint_capability: Optional[CheckpointCapability] = field(default=None)
+    checkpoint_cursor: Optional[CheckpointCursor] = field(default=None)
+    prior_segments_cb: Optional[Callable[[], list[dict[str, Any]]]] = field(default=None)
+    checkpoint_window_started_cb: Optional[Callable[[int, float, float], None]] = field(
+        default=None
+    )
+    checkpoint_window_committed_cb: Optional[Callable[[int, float, float, str | None], None]] = (
+        field(default=None)
+    )
     # v3.2.0e+ 资源守卫：降档 / 过载的**人类可读**说明，随转写稿 metadata 落盘
     resource_notices: List[str] = field(default_factory=list)
+    resource_degrade_reasons: List[str] = field(default_factory=list)
 
     def emit_progress(self, stage: str, percent: float) -> None:
         """调 ``progress_cb``,保护性捕获所有异常以避免污染 stage。"""
@@ -334,7 +404,7 @@ class DownloadStage(Stage):
             ctx.base_name = ctx.source.display_name
             return ctx
 
-        cache = _get_download_cache()
+        cache = _get_download_cache(ctx.settings)
         url = ctx.source.url
         # P2-5: 持久化下载缓存 — 命中直接复用,跳过网络
         if cache is not None and url:
@@ -351,7 +421,12 @@ class DownloadStage(Stage):
                 return ctx
 
         downloader = self._resolve_downloader(ctx.source)
-        downloaded = downloader.download(ctx.source, ctx.settings)
+
+        def _progress(downloaded: int, total: int) -> None:
+            if total > 0:
+                ctx.emit_progress("download", downloaded * 100.0 / total)
+
+        downloaded = downloader.download(ctx.source, ctx.settings, progress=_progress)
         ctx.raise_if_cancelled()  # 下载完成后(可能耗时数十秒)
         # P2-5: 下载成功后回写缓存(失败不阻塞主流程)
         if cache is not None and url and downloaded.video_path is not None:
@@ -437,6 +512,8 @@ class ExtractAudioStage(Stage):
             if ctx.base_name is None:
                 ctx.base_name = ctx.source.display_name
             ctx.audio_path = ctx.source.path
+            if ctx.audio_path_cb is not None:
+                ctx.audio_path_cb(ctx.audio_path)
             return ctx
         if ctx.video_path is None:
             raise RuntimeError(
@@ -449,6 +526,8 @@ class ExtractAudioStage(Stage):
             raise RuntimeError(t("STAGE_EXTRACT_FAILED"))
         ctx.raise_if_cancelled()  # ffmpeg 后
         ctx.audio_path = audio
+        if ctx.audio_path_cb is not None:
+            ctx.audio_path_cb(ctx.audio_path)
         return ctx
 
 
@@ -478,9 +557,11 @@ class TranscribeStage(Stage):
         # 自动拼接领域 Prompt (用户未指定时)
         prompt = ctx.prompt
         if not prompt:
-            prompt = self._auto_prompt(ctx)
+            prompt = self.auto_prompt_for_source(ctx.source)
+        effective_prompt = simplified_initial_prompt(prompt, lang)
 
         # ---- GPU 显存预算闸门(P0-1,2026-11-20 评审修复) ----
+        ctx.emit_progress("model_prepare", 0.0)
         # CLI / batch / Web(同步+批量)/ MCP 四条入口最终都走本 stage,
         # 在转录调用点统一过闸 ⇒ 资源守恒是进程级不变量,与入口无关。
         # threading 原语实现,与 event loop 无关(AsyncPipeline 的
@@ -500,12 +581,53 @@ class TranscribeStage(Stage):
                 cancel_event=ctx.cancel_event,
                 on_notice=ctx.resource_notices.append,
             ) as monitor:
+                prepare = getattr(self._transcriber, "prepare", None)
+                if callable(prepare):
+                    prepare(language=lang, initial_prompt=effective_prompt)
+                if ctx.decode_params_cb is not None:
+                    ctx.decode_params_cb(
+                        self._transcriber.effective_decode_params(
+                            language=lang,
+                            initial_prompt=effective_prompt,
+                        )
+                    )
+                capability = ctx.checkpoint_capability
+                if capability is None:
+                    capability_hook = getattr(self._transcriber, "checkpoint_capability", None)
+                    if callable(capability_hook):
+                        capability = capability_hook()
+                checkpoint_session = None
+                prior_segments: list[dict[str, Any]] = []
+                if capability is not None:
+                    prior_segments = ctx.prior_segments_cb() if ctx.prior_segments_cb else []
+                    checkpoint_session = CheckpointSession(
+                        capability=capability,
+                        prior_segments=prior_segments,
+                        cursor=ctx.checkpoint_cursor,
+                        segment_cb=ctx.segment_cb,
+                        window_started_cb=ctx.checkpoint_window_started_cb,
+                        window_committed_cb=ctx.checkpoint_window_committed_cb,
+                    )
+                ctx.emit_progress("model_prepare", 100.0)
                 transcription = self._transcriber.transcribe(
                     ctx.audio_path,
                     prompt=prompt,
+                    initial_prompt=effective_prompt,
                     progress=True,
                     language=lang,
+                    segment_cb=ctx.segment_cb if checkpoint_session is None else None,
+                    checkpoint_session=checkpoint_session,
+                    resume_start=ctx.resume_start,
+                    cancel_event=ctx.cancel_event,
                 )
+                if checkpoint_session is not None:
+                    merged_segments = checkpoint_session.segments
+                    if merged_segments or prior_segments:
+                        transcription = dict(transcription)
+                        transcription["segments"] = merged_segments
+                        transcription["text"] = " ".join(
+                            str(segment.get("text") or "").strip() for segment in merged_segments
+                        ).strip()
         finally:
             if slot_mb:
                 ledger.release(slot_mb)
@@ -516,7 +638,15 @@ class TranscribeStage(Stage):
         ctx.raise_if_cancelled()  # ASR 后
         text = (transcription.get("text") or "").strip()
         if not text:
-            raise RuntimeError(t("STAGE_EMPTY_TRANSCRIPT"))
+            from .audio_utils import detect_speech_segments, vad_available
+
+            try:
+                silent = vad_available() and not detect_speech_segments(ctx.audio_path)
+            except (ImportError, OSError, ValueError):
+                silent = False
+            if silent:
+                raise NoSpeechError(t("RESULT_NO_SPEECH"))
+            raise TranscriptionEmptyError(t("STAGE_EMPTY_TRANSCRIPT"))
         ctx.transcription = transcription
         # 引擎名随转写结果一起带下去 —— markdown 的「转录引擎」字段需要它
         # (此前只有模型名, 导致该字段把 "small" 标成了引擎名)
@@ -529,11 +659,12 @@ class TranscribeStage(Stage):
 
     @staticmethod
     def _auto_prompt(ctx: PipelineContext) -> str | None:
-        """根据来源类型推断领域,合并学习术语,返回 prompt。
+        """Backward-compatible context wrapper for automatic source prompts."""
+        return TranscribeStage.auto_prompt_for_source(ctx.source)
 
-        领域模板 + 学习术语自然语言句子合并为完整 prompt。
-        Whisper 对自然语言 prompt 效果最好。
-        """
+    @staticmethod
+    def auto_prompt_for_source(source: SourceRef | None) -> str | None:
+        """Build the same automatic domain prompt used by transcription and resume."""
         try:
             from .post_process import get_prompt_template
         except Exception:
@@ -543,7 +674,6 @@ class TranscribeStage(Stage):
         except Exception:
             get_prompt_terms = None  # type: ignore
 
-        source = ctx.source
         domain = "general"
         if source is not None:
             kind_to_domain: dict[str, str] = {
@@ -623,17 +753,20 @@ class AssembleStage(Stage):
         )
         ctx.raise_if_cancelled()  # LLM 后处理后(可能阻塞)
 
-        transcript_path, metadata_path, metadata = self._write_outputs(
-            ctx,
-            ctx.source,
-            ctx.transcription,
-            base_name,
-            text,
-            halluc_removed,
-            repeated_pairs,
-            llm_status,
-            llm_model,
-        )
+        try:
+            transcript_path, metadata_path, metadata = self._write_outputs(
+                ctx,
+                ctx.source,
+                ctx.transcription,
+                base_name,
+                text,
+                halluc_removed,
+                repeated_pairs,
+                llm_status,
+                llm_model,
+            )
+        except OSError as exc:
+            raise ResultWriteError(t("RESULT_WRITE_FAILED", reason=str(exc))) from exc
 
         ctx.transcript_path = transcript_path
         ctx.metadata_path = metadata_path
@@ -641,8 +774,8 @@ class AssembleStage(Stage):
         ctx.result = TranscriptResult(
             source=ctx.source,
             engine=metadata["engine"],
-            model=str(ctx.transcription.get("model", "")),
-            text=ctx.text,
+            model=str(ctx.transcription.get("model") or ctx.settings.model or ""),
+            text=text,
             audio_path=ctx.audio_path,
             transcript_path=transcript_path,
             video_path=ctx.video_path,
@@ -651,6 +784,7 @@ class AssembleStage(Stage):
             segments=ctx.transcription.get("segments"),
             language=ctx.transcription.get("language"),
             speaker_diarization=ctx.transcription.get("speaker_diarization", False),
+            duration_seconds=round(max(0.0, time.monotonic() - ctx.started_at), 3),
         )
         return ctx
 
@@ -706,6 +840,8 @@ class AssembleStage(Stage):
             )
         else:
             markdown = self._build_markdown(base_name, text, ctx.transcription, ctx.downloaded)
+        if not markdown.strip():
+            raise ResultValidationError(t("RESULT_INVALID", reason="empty markdown"))
         extra = f"; 幻觉重复收敛 {halluc_removed} 句" if halluc_removed else ""
         return self._inject_status_banner(markdown, llm_status, llm_model, extra_note=extra)
 
@@ -729,6 +865,11 @@ class AssembleStage(Stage):
         markdown = self._render_markdown(
             ctx, base_name, text, halluc_removed, llm_status, llm_model
         )
+        if not markdown.strip():
+            raise ResultValidationError(t("RESULT_INVALID", reason="empty markdown"))
+        reported_engine = transcription.get("engine")
+        if reported_engine and reported_engine != self._transcriber_name(ctx):
+            raise ResultValidationError(t("RESULT_INVALID", reason="engine metadata mismatch"))
         # v3.2.0e+: 原子写避免半写污染（markdown 通常 5-200KB）
         _atomic_write_text(transcript_path, markdown, encoding="utf-8")
 
@@ -755,6 +896,17 @@ class AssembleStage(Stage):
             "repeated_pairs_suspect": repeated_pairs[:10],
             # 资源守卫的降档/过载说明 —— 让用户知道「这次为什么用了小模型」
             "resource_notices": list(ctx.resource_notices),
+            "resource_degrade_reasons": list(ctx.resource_degrade_reasons),
+            "selection_requested": {
+                "engine": ctx.settings.requested_engine,
+                "model": ctx.settings.requested_model,
+                "device": ctx.settings.requested_device,
+            },
+            "selection_effective": {
+                "engine": ctx.engine_name or ctx.settings.engine,
+                "model": transcription.get("model") or ctx.settings.model,
+                "device": ctx.settings.device,
+            },
             "generated_at": datetime.now().isoformat(),
         }
         _atomic_write_text(metadata_path, _json_dump(metadata), encoding="utf-8")

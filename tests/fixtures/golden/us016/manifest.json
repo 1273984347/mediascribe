@@ -1,0 +1,9 @@
+{
+  "schema": "mediascribe-hardware-corpus/v1",
+  "files": 1,
+  "duration_s": 179.837,
+  "audio_sha256": "c1f6c7c65f02c1edcb8dd4a3d97221db80fb8dc5668c5f885bd61b45b7855da8",
+  "reference_sha256": "090f7770677436b7ec1401edfaa206c096c8e5f7d6a60bd8f8d39ebc692ee265",
+  "generator": "output/reports/2026-11-26-us014-generate-corpus.py",
+  "caveat": "Synthetic speech; suitable for reproducible relative engine comparison, not natural-speech accuracy claims."
+}

@@ -21,6 +21,7 @@ from __future__ import annotations
 import contextlib
 import threading
 from collections import OrderedDict
+from importlib import metadata
 from pathlib import Path
 from typing import Any, Iterator, Optional, Tuple
 
@@ -32,6 +33,7 @@ try:
 except ImportError:  # pragma: no cover - bare orchestration install
     torch = None  # type: ignore[assignment]
 
+from ..checkpoint import CheckpointSession, run_windowed_transcription
 from ..gpu_budget import (
     ensure_resident_capacity,
     estimate_model_mb,
@@ -41,7 +43,7 @@ from ..gpu_budget import (
     unregister_resident,
 )
 from ..i18n import t
-from ..model_weights import missing_hint
+from ..model_weights import ModelDownloadError, ModelLoadError, check_weights, missing_hint
 from ..zh_normalize import simplified_initial_prompt
 from .base import Transcriber
 
@@ -130,14 +132,22 @@ def _get_cached_model(whisper_module: Any, model_name: str, device: str) -> Any:
                 # openai-whisper 的权重是单个 .pt 文件；缺失时它的报错是
                 # 「RuntimeError: Model {name} not found; available models = ...」
                 # —— 对用户没有可操作性。换成带预置指引的中文错误。
-                raise RuntimeError(
-                    t(
-                        "WHISPER_WEIGHTS_MISSING",
-                        model=model_name,
-                        exc=exc,
-                        hint=missing_hint("whisper", model_name),
-                    )
-                ) from exc
+                message = t(
+                    "WHISPER_WEIGHTS_MISSING",
+                    model=model_name,
+                    exc=exc,
+                    hint=missing_hint("whisper", model_name),
+                )
+                if check_weights("whisper", model_name).ok:
+                    raise ModelLoadError(
+                        t(
+                            "MODEL_LOAD_FAILED",
+                            engine="whisper",
+                            model=model_name,
+                            exc=exc,
+                        )
+                    ) from exc
+                raise ModelDownloadError(message) from exc
         register_resident("whisper", key, estimate_mb)
         _MODEL_CACHE[key] = model
         while len(_MODEL_CACHE) > _MODEL_CACHE_MAX:
@@ -175,12 +185,45 @@ class WhisperTranscriber(Transcriber):
         self.device = device
         self._model: Any = None
 
+    def prepare(self, **kwargs) -> Any:
+        return self._ensure_model()
+
+    def effective_decode_params(
+        self, *, language: str | None, initial_prompt: str | None
+    ) -> dict[str, Any]:
+        """Return the runtime and decode inputs that identify a resumable run."""
+        try:
+            package_version = metadata.version("openai-whisper")
+        except metadata.PackageNotFoundError:
+            package_version = "unknown"
+        capability = self.checkpoint_capability()
+        if capability is None or capability.mode != "window":
+            raise ValueError("whisper requires a window checkpoint capability")
+        device = self.device
+        if device is None or device == "auto":
+            import torch as _torch
+
+            device = "cuda" if _torch.cuda.is_available() else "cpu"
+        return {
+            "engine": self.name,
+            "package_version": package_version,
+            "model": self.model_name,
+            "device": device,
+            "language": language,
+            "initial_prompt": simplified_initial_prompt(initial_prompt, language),
+            "temperature": (0.0, 0.2, 0.4, 0.6, 0.8, 1.0),
+            "condition_on_previous_text": True,
+            "window_seconds": capability.window_seconds,
+            "overlap_seconds": capability.overlap_seconds,
+        }
+
     def transcribe(
         self,
         audio_path: Path,
         *,
         prompt: Optional[str] = None,
         progress: Optional[Any] = None,
+        checkpoint_session: Optional[CheckpointSession] = None,
         **kwargs,
     ) -> dict[str, Any]:
 
@@ -206,6 +249,36 @@ class WhisperTranscriber(Transcriber):
         effective_prompt = simplified_initial_prompt(prompt, language)
         if effective_prompt:
             options["initial_prompt"] = effective_prompt
+
+        if checkpoint_session is not None:
+            if checkpoint_session.capability.mode != "window":
+                raise ValueError("whisper requires a window checkpoint session")
+
+            detected_language = (
+                checkpoint_session.cursor.detected_language if checkpoint_session.cursor else None
+            )
+
+            def transcribe_window(window_path: Path, _window_duration: float) -> dict[str, Any]:
+                nonlocal detected_language
+                window_options = dict(options)
+                if detected_language:
+                    window_options["language"] = detected_language
+                result = model.transcribe(str(window_path), **window_options)
+                detected_language = detected_language or result.get("language")
+                return {
+                    "text": (result.get("text") or "").strip(),
+                    "segments": result.get("segments", []),
+                    "language": result.get("language"),
+                }
+
+            window_result = run_windowed_transcription(
+                audio_path,
+                capability=checkpoint_session.capability,
+                session=checkpoint_session,
+                transcribe_window=transcribe_window,
+                cancel_event=kwargs.get("cancel_event"),
+            )
+            return {**window_result, "model": self.model_name}
 
         result = model.transcribe(str(audio_path), **options)
 
@@ -236,4 +309,5 @@ class WhisperTranscriber(Transcriber):
 
         # torch 2.6+ 兼容补丁仅在加载窗口内临时生效; 实例走模块级缓存复用
         self._model = _get_cached_model(whisper, self.model_name, self.device)
+        print(t("MODEL_PREPARE_DONE", engine="whisper", model=self.model_name))
         return self._model

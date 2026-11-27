@@ -29,7 +29,7 @@ import uuid
 import weakref
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 # ---------------------------------------------------------------------------
 # Default cache directory
@@ -517,3 +517,135 @@ class PersistentChunkCache(_PersistentIndexCache):
             "max_entries": self._max_entries,
             "ttl_seconds": self._ttl,
         }
+
+
+def _cache_target(base: Path, filename: object, *, kind: str) -> Optional[Path]:
+    if not isinstance(filename, str) or not filename:
+        return None
+    if Path(filename).name != filename:
+        return None
+    stem = Path(filename).stem if kind == "downloads" else filename
+    if len(stem) != 64 or any(char not in "0123456789abcdef" for char in stem):
+        return None
+    target = base / filename
+    try:
+        resolved = target.resolve()
+    except (OSError, RuntimeError):
+        return None
+    base_resolved = base.resolve()
+    if (
+        target.is_symlink()
+        or resolved == base_resolved
+        or not resolved.is_relative_to(base_resolved)
+    ):
+        return None
+    return target
+
+
+def _inspect_index(base: Path, name: str, *, kind: str, wired: bool) -> dict[str, Any]:
+    index_path = _index_path(base, name)
+    if not index_path.exists():
+        return {
+            "base": str(base),
+            "status": "missing",
+            "entries": 0,
+            "bytes": 0,
+            "wired": wired,
+        }
+    try:
+        index: dict = json.loads(index_path.read_text(encoding="utf-8"))
+        if not isinstance(index, dict):
+            raise ValueError("cache index must be an object")
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {
+            "base": str(base),
+            "status": "invalid",
+            "entries": 0,
+            "bytes": 0,
+            "wired": wired,
+        }
+    total = 0
+    unsafe_entries = 0
+    for entry in index.values():
+        filename = entry.get("filename") if isinstance(entry, dict) else None
+        path = _cache_target(base, filename, kind=kind)
+        if path is None:
+            unsafe_entries += 1
+            continue
+        if path.is_file():
+            total += path.stat().st_size
+    return {
+        "base": str(base),
+        "status": "unsafe" if unsafe_entries else "ok",
+        "entries": len(index),
+        "unsafe_entries": unsafe_entries,
+        "bytes": total,
+        "wired": wired,
+    }
+
+
+def inspect_persistent_caches(override: Optional[Path] = None) -> dict[str, Any]:
+    root = persistent_cache_dir(override=override)
+    return {
+        "root": str(root),
+        "downloads": _inspect_index(root, "downloads", kind="downloads", wired=True),
+        "chunks": _inspect_index(root / "chunks", "chunks", kind="chunks", wired=False),
+    }
+
+
+def _clear_index(base: Path, name: str, *, kind: str) -> dict[str, Any]:
+    result: dict[str, Any] = {"base": str(base), "status": "missing", "removed": 0}
+    index_path = _index_path(base, name)
+    if not index_path.exists():
+        return result
+    try:
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+        if not isinstance(index, dict):
+            raise ValueError("cache index must be an object")
+    except (OSError, ValueError, json.JSONDecodeError):
+        result["status"] = "invalid"
+        return result
+
+    targets: list[Path] = []
+    for entry in index.values():
+        filename = entry.get("filename") if isinstance(entry, dict) else None
+        target = _cache_target(base, filename, kind=kind)
+        if target is None:
+            result["status"] = "unsafe"
+            return result
+        if target.exists() and (
+            (kind == "downloads" and not target.is_file())
+            or (kind == "chunks" and not target.is_dir())
+        ):
+            result["status"] = "unsafe"
+            return result
+        targets.append(target)
+
+    removed = 0
+    try:
+        for target in targets:
+            if not target.exists():
+                continue
+            if kind == "downloads":
+                target.unlink()
+            else:
+                shutil.rmtree(target)
+            removed += 1
+        _save_index(base, name, {})
+    except OSError as exc:
+        result["status"] = "error"
+        result["error"] = str(exc)
+        result["removed"] = removed
+        return result
+    result["status"] = "ok"
+    result["removed"] = removed
+    return result
+
+
+def clear_persistent_caches(override: Optional[Path] = None) -> dict[str, Any]:
+    root = persistent_cache_dir(override=override)
+    return {
+        "root": str(root),
+        "downloads": _clear_index(root, "downloads", kind="downloads"),
+        "chunks": _clear_index(root / "chunks", "chunks", kind="chunks"),
+    }

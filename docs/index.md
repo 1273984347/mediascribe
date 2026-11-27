@@ -2,7 +2,7 @@
 
 <img src="assets/compact/c1-video-to-text.jpg" alt="A video turning into clean Markdown transcript lines" width="520" />
 
-*A video becomes a clean Markdown transcript — no cloud service, no API key.*
+*Local ASR turns a video into a clean Markdown transcript; network access is only needed for URL downloads, model-weight acquisition, or an explicitly enabled LLM.*
 
 > Transcribe videos from 6 platforms (Bilibili, Douyin, YouTube, Xiaohongshu,
 > WeChat MP, TikTok) — plus local files — to Markdown using local Whisper models.
@@ -12,8 +12,14 @@ Markdown transcript.  It handles every step of the pipeline:
 
 1. **Detect** the platform from the URL.
 2. **Download** the source media (audio + video).
-3. **Transcribe** with one of four ASR engines (auto-fallback).
+3. **Transcribe** with `faster-whisper` + `small` by default.
 4. **Render** to a Markdown file with a metadata header and segmented body.
+
+ASR inference stays on your machine. URL fetching and missing model-weight
+downloads need network access; local files with pre-provisioned weights can run
+fully offline. Optional LLM post-processing is off by default and, when enabled,
+sends truncated transcript text plus the title and source URL to your configured
+OpenAI-compatible endpoint.
 
 The tool ships with four interfaces:
 
@@ -26,11 +32,11 @@ The tool ships with four interfaces:
 
 * **One tool, six platforms** — no need to remember which downloader
   to invoke per site.
-* **Engine fallback** — picks `whisperx` if installed, otherwise
-  `faster-whisper`, otherwise `whisper`, otherwise `whisper-cpp`.
-  No more "engine not found".
-* **Resource-aware** — on a memory-constrained host it prefers the
-  leanest engine and downgrades the model size instead of dying.
+* **Predictable engine default** — `faster-whisper` + `small`; if
+  faster-whisper is unavailable, `whisper` is the compatibility fallback with
+  a visible notice. WhisperX is opt-in, not an install-time priority.
+* **Resource-aware** — on a memory-constrained host it may adjust a
+  non-explicit engine/model choice and records the reason instead of dying.
 * **Bilingual output** — WeChat MP videos with subtitles can be
   rendered as original + English side-by-side.
 * **Honest about failure** — the JSON sidecar records every step
@@ -39,15 +45,22 @@ The tool ships with four interfaces:
 ## Quick start
 
 ```bash
-pip install "mediascribe[all]"
+pip install "mediascribe[faster-whisper]"
 
+# Online first use: explicitly authorize missing model weights
 python -m mediascribe transcribe \
   "https://www.youtube.com/watch?v=..." \
-  -e faster-whisper -m small -l en
+  --allow-model-download
+
+# Offline after pre-provisioning the engine's model cache
+python -m mediascribe doctor --offline
+python -m mediascribe transcribe "video.mp4"
 ```
 
-You will find the transcript at `output/transcripts/<title>.md`
-and a JSON sidecar at `output/metadata/<title>.json`.
+You will find the transcript at
+`output/transcripts/<title>-<timestamp>.md` and a JSON sidecar at
+`output/metadata/<title>-<timestamp>.json`. The Markdown body has no timestamp
+prefixes unless you pass `--timestamps`.
 
 ## Project layout
 
@@ -70,12 +83,29 @@ examples/plugins/             # third-party plugin samples
 
 | Item | Value |
 |------|-------|
-| Version | 3.3.0 |
+| Version | 3.4.0a1 |
 | License | MIT |
 | Python | 3.11 – 3.13 |
 | Tests | live CI badge (1000+ tests) |
 | Platforms | 6 (+ local files) |
-| Engines | 4 (auto-fallback) |
+| Engines | 4 (faster-whisper default; WhisperX opt-in) |
+
+## Local observability
+
+Inspect privacy-whitelisted local events and first-use metrics without uploading
+them:
+
+```bash
+python -m mediascribe events list
+python -m mediascribe events export --output output/events.json
+python -m mediascribe events metrics
+python -m mediascribe events clear
+```
+
+Events are retained locally for 90 days by default. `clear` keeps the install
+identity but removes event history. See
+[Getting started](getting-started.md#9-local-events-and-metrics) for metric
+denominators and post-clear behaviour.
 
 ## More
 

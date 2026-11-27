@@ -37,8 +37,10 @@ Differences vs the other engines (handled per 2026-10-23/24 measurements)
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import math
 import os
 import shutil
 import subprocess
@@ -46,7 +48,9 @@ import tempfile
 from pathlib import Path
 from typing import Any, List, Optional
 
+from ..checkpoint import CheckpointSession, run_windowed_transcription
 from ..i18n import t
+from ..model_weights import ModelNotReadyError, check_weights
 from ..zh_normalize import simplified_initial_prompt
 from .base import Transcriber
 
@@ -203,11 +207,16 @@ def _to_wav_16k(src: Path, dst: Path) -> bool:
 
 
 def _parse_offsets(value: Any) -> float:
-    """Convert whisper.cpp's ``offsets.from/to`` (milliseconds) to seconds."""
+    """Convert a finite, nonnegative whisper.cpp offset from milliseconds to seconds."""
+    if isinstance(value, bool):
+        raise ValueError("invalid whisper.cpp offset")
     try:
-        return float(value) / 1000.0
-    except (TypeError, ValueError):
-        return 0.0
+        seconds = float(value) / 1000.0
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid whisper.cpp offset") from exc
+    if not math.isfinite(seconds) or seconds < 0:
+        raise ValueError("invalid whisper.cpp offset")
+    return seconds
 
 
 class WhisperCppTranscriber(Transcriber):
@@ -263,6 +272,7 @@ class WhisperCppTranscriber(Transcriber):
         self._binary = binary
         self.vad = vad
         self.threads = threads
+        self._binary_hash_cache: dict[tuple[Path, int, int], str] = {}
 
     # -- 资源定位 ----------------------------------------------------------
     def _resolve_binary(self) -> Path:
@@ -282,7 +292,7 @@ class WhisperCppTranscriber(Transcriber):
     def _resolve_model(self) -> Path:
         found = find_model(self.model_name)
         if found is None:
-            raise RuntimeError(t("CPP_MODEL_NOT_FOUND", model=self.model_name, dir=models_dir()))
+            raise ModelNotReadyError(check_weights("whisper-cpp", self.model_name))
         return found
 
     def _resolve_threads(self) -> int:
@@ -296,6 +306,46 @@ class WhisperCppTranscriber(Transcriber):
             cores = (os.cpu_count() or 2) // 2
         return max(1, cores // 2)
 
+    def prepare(self, **kwargs) -> None:
+        self._resolve_binary()
+        self._resolve_model()
+
+    def _binary_sha256(self, binary: Path) -> str:
+        """Hash the resolved binary, reusing the result while its stat identity is stable."""
+        resolved = binary.resolve()
+        stat = resolved.stat()
+        key = (resolved, stat.st_size, stat.st_mtime_ns)
+        cached = self._binary_hash_cache.get(key)
+        if cached is not None:
+            return cached
+        digest = hashlib.sha256()
+        with resolved.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        fingerprint = digest.hexdigest()
+        self._binary_hash_cache[key] = fingerprint
+        return fingerprint
+
+    def effective_decode_params(
+        self, *, language: str | None, initial_prompt: str | None
+    ) -> dict[str, Any]:
+        """Return the runtime and decode inputs that identify a resumable run."""
+        capability = self.checkpoint_capability()
+        if capability is None or capability.mode != "window":
+            raise ValueError("whisper.cpp requires a window checkpoint capability")
+        return {
+            "engine": self.name,
+            "model": self.model_name,
+            "device": self.device,
+            "language": language,
+            "initial_prompt": simplified_initial_prompt(initial_prompt, language),
+            "vad": self.vad,
+            "threads": self._resolve_threads(),
+            "binary_sha256": self._binary_sha256(self._resolve_binary()),
+            "window_seconds": capability.window_seconds,
+            "overlap_seconds": capability.overlap_seconds,
+        }
+
     # -- 转录 --------------------------------------------------------------
     def transcribe(
         self,
@@ -303,14 +353,49 @@ class WhisperCppTranscriber(Transcriber):
         *,
         prompt: Optional[str] = None,
         progress: Optional[Any] = None,
+        checkpoint_session: Optional[CheckpointSession] = None,
         **kwargs,
     ) -> dict[str, Any]:
-        binary = self._resolve_binary()
-        model_file = self._resolve_model()
+        self._resolve_binary()
+        self._resolve_model()
         audio_path = Path(audio_path)
-
         language = kwargs.get("language")
         effective_prompt = simplified_initial_prompt(prompt, language)
+
+        if checkpoint_session is not None:
+            if checkpoint_session.capability.mode != "window":
+                raise ValueError("whisper.cpp requires a window checkpoint session")
+
+            detected_language = (
+                checkpoint_session.cursor.detected_language if checkpoint_session.cursor else None
+            )
+
+            def transcribe_window(window_path: Path, window_duration: float) -> dict[str, Any]:
+                nonlocal detected_language
+                with tempfile.TemporaryDirectory(prefix="mediascribe-cpp-window-") as directory:
+                    out_prefix = Path(directory) / "out"
+                    segments, window_language = self._run_binary_on_wav(
+                        window_path,
+                        out_prefix,
+                        detected_language or language,
+                        effective_prompt,
+                        window_duration=window_duration,
+                    )
+                detected_language = detected_language or window_language
+                return {
+                    "text": " ".join(s["text"] for s in segments),
+                    "segments": segments,
+                    "language": detected_language,
+                }
+
+            window_result = run_windowed_transcription(
+                audio_path,
+                capability=checkpoint_session.capability,
+                session=checkpoint_session,
+                transcribe_window=transcribe_window,
+                cancel_event=kwargs.get("cancel_event"),
+            )
+            return {**window_result, "model": self.model_name}
 
         tmp_dir = Path(tempfile.mkdtemp(prefix="mediascribe-cpp-"))
         wav_path = tmp_dir / "input.wav"
@@ -322,62 +407,105 @@ class WhisperCppTranscriber(Transcriber):
             if not _to_wav_16k(audio_path, wav_path):
                 raise RuntimeError(t("CPP_TRANSCODE_FAILED", path=audio_path))
 
-            cmd: List[str] = [
-                str(binary),
-                "-m",
-                str(model_file),
-                "-f",
-                str(wav_path),
-                "-t",
-                str(self._resolve_threads()),
-                "-oj",
-                "-of",
-                str(out_prefix),
-                "-nt",
-            ]
-            if language:
-                cmd += ["-l", language]
-            if effective_prompt:
-                cmd += ["--prompt", effective_prompt]
-            vad_model = find_vad_model() if self.vad else None
-            if self.vad and vad_model is None:
-                logger.warning(
-                    "whisper.cpp: 未找到 VAD 模型（%s），退回无 VAD 转写 —— "
-                    "噪声音频上可能出现明显幻觉",
-                    models_dir() / _VAD_MODEL_NAMES[0],
-                )
-            if vad_model is not None:
-                cmd += ["--vad", "--vad-model", str(vad_model)]
-
             if progress:
                 logger.info("whisper.cpp 转录中: %s", audio_path.name)
-
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=3600, check=False)
-            json_path = Path(str(out_prefix) + ".json")
-            if not json_path.exists():
-                tail = (proc.stderr or proc.stdout or "")[-800:]
-                # 0xC0000135 = STATUS_DLL_NOT_FOUND —— whisper.cpp 官方包是
-                # **动态链接**的，whisper-cli.exe 依赖同目录的 whisper.dll /
-                # ggml*.dll；只拷一个 exe 就会以这个退出码失败（实测踩到）。
-                if proc.returncode in (0xC0000135, -1073741515):
-                    raise RuntimeError(t("CPP_DLL_RUNTIME", parent=binary.parent))
-                raise RuntimeError(t("CPP_RUN_FAILED", code=proc.returncode, tail=tail))
-            data = json.loads(json_path.read_text(encoding="utf-8"))
-            items = data.get("transcription") or []
-            segments = [
-                {
-                    "text": (item.get("text") or "").strip(),
-                    "start": _parse_offsets((item.get("offsets") or {}).get("from")),
-                    "end": _parse_offsets((item.get("offsets") or {}).get("to")),
-                }
-                for item in items
-            ]
-            text = " ".join(str(s.get("text") or "") for s in segments).strip()
+            segments, detected_language = self._run_binary_on_wav(
+                wav_path,
+                out_prefix,
+                language,
+                effective_prompt,
+            )
             return {
-                "text": text,
+                "text": " ".join(s["text"] for s in segments).strip(),
                 "segments": segments,
-                "language": language,
+                "language": detected_language or language,
                 "model": self.model_name,
             }
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def _run_binary_on_wav(
+        self,
+        wav_path: Path,
+        out_prefix: Path,
+        language: Optional[str],
+        effective_prompt: Optional[str],
+        *,
+        window_duration: Optional[float] = None,
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """Run whisper.cpp on a canonical WAV and parse its complete JSON output."""
+        binary = self._resolve_binary()
+        model_file = self._resolve_model()
+        cmd: List[str] = [
+            str(binary),
+            "-m",
+            str(model_file),
+            "-f",
+            str(wav_path),
+            "-t",
+            str(self._resolve_threads()),
+            "-oj",
+            "-of",
+            str(out_prefix),
+            "-nt",
+        ]
+        if language:
+            cmd += ["-l", language]
+        if effective_prompt:
+            cmd += ["--prompt", effective_prompt]
+        vad_model = find_vad_model() if self.vad else None
+        if self.vad and vad_model is None:
+            logger.warning(
+                "whisper.cpp: 未找到 VAD 模型（%s），退回无 VAD 转写 —— 噪声音频上可能出现明显幻觉",
+                models_dir() / _VAD_MODEL_NAMES[0],
+            )
+        if vad_model is not None:
+            cmd += ["--vad", "--vad-model", str(vad_model)]
+
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=3600, check=False)
+        if proc.returncode != 0:
+            tail = (proc.stderr or proc.stdout or "")[-800:]
+            raise RuntimeError(t("CPP_RUN_FAILED", code=proc.returncode, tail=tail))
+        json_path = Path(str(out_prefix) + ".json")
+        if not json_path.is_file():
+            raise RuntimeError(
+                t("CPP_RUN_FAILED", code=proc.returncode, tail="missing JSON output")
+            )
+        data = json.loads(json_path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("whisper.cpp JSON output must be an object")
+        detected_language: str | None = None
+        if "result" in data:
+            result = data["result"]
+            if not isinstance(result, dict):
+                raise ValueError("whisper.cpp JSON result must be an object")
+            if "language" in result:
+                detected_language = result["language"]
+                if not isinstance(detected_language, str):
+                    raise ValueError("whisper.cpp detected language must be a string")
+        items = data.get("transcription")
+        if not isinstance(items, list):
+            raise ValueError("whisper.cpp JSON transcription must be a list")
+        if window_duration is not None and (
+            not math.isfinite(window_duration) or window_duration < 0
+        ):
+            raise ValueError("invalid whisper.cpp window duration")
+
+        segments: list[dict[str, Any]] = []
+        for item in items:
+            if not isinstance(item, dict):
+                raise ValueError("whisper.cpp JSON transcription item must be an object")
+            offsets = item.get("offsets")
+            if not isinstance(offsets, dict):
+                raise ValueError("invalid whisper.cpp offset object")
+            start = _parse_offsets(offsets.get("from"))
+            end = _parse_offsets(offsets.get("to"))
+            if end < start:
+                raise ValueError("invalid whisper.cpp offset order")
+            if window_duration is not None and end > window_duration + 0.05:
+                raise ValueError("whisper.cpp offset exceeds window duration")
+            text = item.get("text")
+            if not isinstance(text, str):
+                raise ValueError("whisper.cpp JSON transcription text must be a string")
+            segments.append({"text": text.strip(), "start": start, "end": end})
+        return segments, detected_language

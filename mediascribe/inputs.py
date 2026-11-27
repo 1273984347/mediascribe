@@ -5,10 +5,21 @@
 from __future__ import annotations
 
 import re
+import shutil
+import uuid
 from pathlib import Path
 
+from .i18n import t
 from .models import SourceRef
 from .url_utils import match_platform, normalize_bilibili_url, resolve_short_url
+
+
+class PreflightError(RuntimeError):
+    """A source or output problem detected before expensive work starts."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 def parse_source(raw_input: str) -> SourceRef:
@@ -90,6 +101,36 @@ def is_audio_file(path: Path) -> bool:
 def is_video_file(path: Path) -> bool:
     video_exts = {".mp4", ".mkv", ".avi", ".mov", ".flv", ".webm", ".m4v"}
     return path.suffix.lower() in video_exts
+
+
+def preflight_source(raw_input: str, settings, output: Path | None = None) -> SourceRef:
+    """Validate a source and output location before model loading or download."""
+    source = parse_source(raw_input)
+    if source.path is not None:
+        if (
+            not source.path.exists()
+            or not source.path.is_file()
+            or not (is_audio_file(source.path) or is_video_file(source.path))
+        ):
+            raise PreflightError(
+                "INPUT_INVALID",
+                t("PREFLIGHT_INPUT_INVALID", input=raw_input[:160]),
+            )
+        if source.kind == "video" and shutil.which("ffmpeg") is None:
+            raise PreflightError("FFMPEG_MISSING", t("PREFLIGHT_FFMPEG_MISSING"))
+
+    output_path = Path(output) if output is not None else settings.transcripts_dir / "preflight.md"
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        probe = output_path.parent / f".mediascribe-preflight-{uuid.uuid4().hex}"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+    except OSError:
+        raise PreflightError(
+            "OUTPUT_WRITE_FAILED",
+            t("PREFLIGHT_OUTPUT_WRITE_FAILED", output=str(output_path.parent)),
+        ) from None
+    return source
 
 
 def safe_stem(name: str) -> str:

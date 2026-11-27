@@ -357,6 +357,9 @@ def plan(
     model: str,
     device: str = "auto",
     snap: Optional[HardwareSnapshot] = None,
+    *,
+    allow_engine_switch: bool = True,
+    allow_model_degrade: bool = True,
 ) -> DegradeDecision:
     """按当前资源算出**该用什么**引擎与档位。
 
@@ -380,7 +383,11 @@ def plan(
 
     # --- 规则 1：Apple Silicon ---
     if snap.is_apple_silicon and not _engine_uses_metal(engine):
-        if cpp_ok:
+        if not allow_engine_switch:
+            if "explicit-engine-protected" not in reasons:
+                notices.append(t("RUNTIME_EXPLICIT_ENGINE_PROTECTED", engine=engine))
+                reasons.append("explicit-engine-protected")
+        elif cpp_ok:
             new_engine = "whisper-cpp"
             notices.append(
                 t(
@@ -406,7 +413,11 @@ def plan(
         and snap.ram_total_mb
         and snap.ram_total_mb < MEMORY_PRESSURE_TOTAL_MB
     ):
-        if cpp_ok:
+        if not allow_engine_switch:
+            if "explicit-engine-protected" not in reasons:
+                notices.append(t("RUNTIME_EXPLICIT_ENGINE_PROTECTED", engine=engine))
+                reasons.append("explicit-engine-protected")
+        elif cpp_ok:
             notices.append(
                 t(
                     "RUNTIME_MEM_SWITCH",
@@ -458,6 +469,10 @@ def plan(
                 model=current_model,
                 need=need,
             )
+        if not allow_model_degrade:
+            notices.append(t("RUNTIME_EXPLICIT_MODEL_PROTECTED", model=current_model))
+            reasons.append("explicit-model-protected")
+            break
         nxt = _lower_model(current_model)
         if nxt is None:
             notices.append(t("RUNTIME_LADDER_FLOOR", reason=reason, model=current_model))

@@ -271,6 +271,56 @@ Environment variables:
         "zh": "配置文件路径 (JSON)",
     }
 
+    CLI_HELP_ENGINE = {
+        "en": (
+            "ASR engine (default: auto; prefers faster-whisper, falls back to whisper "
+            "with a notice)"
+        ),
+        "zh": "ASR 引擎（默认：自动；优先 faster-whisper，回退 whisper 时提示）",
+    }
+
+    CLI_HELP_OFFLINE = {
+        "en": "Declare that this machine is offline; missing models become blocking",
+        "zh": "声明当前机器离线；缺失模型将作为阻塞项",
+    }
+
+    CLI_HELP_ALLOW_MODEL_DOWNLOAD = {
+        "en": "Allow downloading missing model weights (no transcription content is uploaded)",
+        "zh": "允许下载缺失的模型权重（不会上传转录内容）",
+    }
+
+    CLI_HELP_CACHE_DIR = {
+        "en": "Persistent download cache directory (default: MEDIASCRIBE_CACHE_DIR or platform cache)",
+        "zh": "持久下载缓存目录（默认：MEDIASCRIBE_CACHE_DIR 或平台缓存目录）",
+    }
+
+    CLI_SELECTION_PLAN = {
+        "en": (
+            "Selection plan: input={input}; output={output}; "
+            "engine {requested_engine}→{effective_engine} ({engine_mode}); "
+            "model {requested_model}→{effective_model}; "
+            "device {requested_device}→{effective_device}"
+        ),
+        "zh": (
+            "选择计划：输入={input}；输出={output}；"
+            "引擎 {requested_engine}→{effective_engine}（{engine_mode}）；"
+            "模型 {requested_model}→{effective_model}；"
+            "设备 {requested_device}→{effective_device}"
+        ),
+    }
+    CLI_CONFIG_INVALID = {
+        "en": "CONFIG_INVALID: {error}",
+        "zh": "CONFIG_INVALID：{error}",
+    }
+    CLI_ENGINE_UNAVAILABLE = {
+        "en": "ENGINE_UNAVAILABLE: {engine} is not available. {hint}",
+        "zh": "ENGINE_UNAVAILABLE：{engine} 不可用。{hint}",
+    }
+    CLI_DEVICE_UNAVAILABLE = {
+        "en": "DEVICE_UNAVAILABLE: requested device {device} is not available",
+        "zh": "DEVICE_UNAVAILABLE：请求的设备 {device} 不可用",
+    }
+
     CLI_HELP_LOG_LEVEL = {
         "en": "Log level",
         "zh": "日志级别",
@@ -303,11 +353,6 @@ Environment variables:
     CLI_HELP_JSON = {
         "en": "Output structured JSON to stdout (for AI agents / scripting)",
         "zh": "向 stdout 输出结构化 JSON（供 AI Agent / 脚本使用）",
-    }
-
-    CLI_HELP_DRY_RUN = {
-        "en": "Resolve URLs and plan only; do not download or transcribe",
-        "zh": "仅解析 URL 并制定计划，不下载也不转录",
     }
 
     CLI_HELP_PLATFORM = {
@@ -703,6 +748,74 @@ Environment variables:
         "zh": "[片段 {idx}]",
     }
 
+    # ==================== Input preflight ====================
+    PREFLIGHT_INPUT_INVALID = {
+        "en": "INPUT_INVALID: local input is missing or not a supported audio/video file: {input}",
+        "zh": "INPUT_INVALID：本地输入不存在或不是受支持的音视频文件：{input}",
+    }
+    PREFLIGHT_FFMPEG_MISSING = {
+        "en": "FFMPEG_MISSING: local video input requires ffmpeg on PATH",
+        "zh": "FFMPEG_MISSING：本地视频输入需要 PATH 中的 ffmpeg",
+    }
+    PREFLIGHT_OUTPUT_WRITE_FAILED = {
+        "en": "OUTPUT_WRITE_FAILED: output directory is not writable: {output}",
+        "zh": "OUTPUT_WRITE_FAILED：输出目录不可写：{output}",
+    }
+    MODEL_DOWNLOAD_NOTICE = {
+        "en": (
+            "Model weights are missing; download is authorized. "
+            "Only model files will be downloaded; transcription content stays local."
+        ),
+        "zh": "模型权重缺失，已授权下载；仅下载模型文件，转录内容不会上传。",
+    }
+    MODEL_LOAD_FAILED = {
+        "en": "MODEL_LOAD_FAILED: {engine}/{model} weights exist but could not be loaded: {exc}",
+        "zh": "MODEL_LOAD_FAILED：{engine}/{model} 权重存在但加载失败：{exc}",
+    }
+    MODEL_PREPARE_START = {
+        "en": "Preparing model {engine}/{model}; download progress is indeterminate",
+        "zh": "正在准备模型 {engine}/{model}；下载进度暂无法确定",
+    }
+    MODEL_PREPARE_DONE = {
+        "en": "Model {engine}/{model} is ready",
+        "zh": "模型 {engine}/{model} 已就绪",
+    }
+
+    # ==================== Default engine resolution ====================
+    RUNTIME_EXPLICIT_ENGINE_PROTECTED = {
+        "en": "Explicit engine {engine} is protected; keeping it instead of switching engines",
+        "zh": "显式引擎 {engine} 受保护，保留原引擎而不切换",
+    }
+    RUNTIME_EXPLICIT_MODEL_PROTECTED = {
+        "en": "Explicit model {model} is protected; keeping it instead of degrading the model tier",
+        "zh": "显式模型 {model} 受保护，保留原档位而不降档",
+    }
+    RUNTIME_EXPLICIT_DEVICE_PROTECTED = {
+        "en": "Explicit device {device} is protected; keeping it instead of changing devices",
+        "zh": "显式设备 {device} 受保护，保留原设备而不切换",
+    }
+
+    ENGINE_FALLBACK_WHISPER = {
+        "en": (
+            "faster-whisper is not installed; using whisper as the compatible fallback. "
+            "Install faster-whisper for the recommended first-run experience."
+        ),
+        "zh": (
+            "未安装 faster-whisper，当前使用兼容回退引擎 whisper。"
+            "安装 faster-whisper 可获得推荐的首用体验。"
+        ),
+    }
+    ENGINE_UNAVAILABLE = {
+        "en": (
+            "ENGINE_UNAVAILABLE: no supported ASR engine is installed. "
+            "Install faster-whisper (recommended) or whisper, then retry."
+        ),
+        "zh": (
+            "ENGINE_UNAVAILABLE：未安装可用的 ASR 引擎。"
+            "请安装 faster-whisper（推荐）或 whisper 后重试。"
+        ),
+    }
+
     # ==================== Runtime guard (runtime_guard) ====================
     RUNTIME_APPLE_SWITCH = {
         "en": (
@@ -938,6 +1051,14 @@ Environment variables:
             "ggml-{model}.bin 放到 {dir}/\n"
             "  （可用 MEDIASCRIBE_WHISPER_CPP_MODELS 环境变量改目录）"
         ),
+    }
+    WEIGHTS_HINT_WHISPERX_ALIGN = {
+        "en": "Pre-provision the WhisperX alignment model or explicitly authorize its download.",
+        "zh": "请预置 WhisperX 对齐模型，或显式授权下载该模型。",
+    }
+    WEIGHTS_HINT_WHISPERX_DIARIZE = {
+        "en": "Pre-provision the WhisperX diarization pipeline or explicitly authorize its download.",
+        "zh": "请预置 WhisperX 说话人分离管线，或显式授权下载该模型。",
     }
     WEIGHTS_UNKNOWN_ENGINE = {
         "en": "(unknown engine)",
@@ -1180,6 +1301,154 @@ Environment variables:
         "en": "⚠️ Cross-check failed (main transcript unaffected): {etype}: {e}",
         "zh": "⚠️ 交叉校对失败(不影响主稿): {etype}: {e}",
     }
+    RECOVERY_INPUT_INVALID = {
+        "en": "The input or source is missing, unsupported, or unsafe. Correct it before running again.",
+        "zh": "输入或来源不存在、格式不受支持或未通过安全检查，请修正后重试。",
+    }
+    MCP_SOURCE_REQUIRED = {
+        "en": "transcribe_video requires 'source' (URL or local path)",
+        "zh": "transcribe_video 需要 'source'（URL 或本地路径）",
+    }
+    RECOVERY_FFMPEG_MISSING = {
+        "en": "FFmpeg is required to process this input but was not found.",
+        "zh": "处理该输入需要 FFmpeg，但系统中未找到。",
+    }
+    RECOVERY_ENGINE_UNAVAILABLE = {
+        "en": "No usable speech recognition engine is installed.",
+        "zh": "当前没有可用的语音识别引擎。",
+    }
+    RECOVERY_MODEL_NOT_READY = {
+        "en": "The selected model weights are not available locally.",
+        "zh": "所选模型的权重尚未在本地准备好。",
+    }
+    RECOVERY_MODEL_DOWNLOAD_FAILED = {
+        "en": "The authorized model download did not complete. Your input and selections are unchanged.",
+        "zh": "已授权的模型下载未完成，输入和选择已保留。",
+    }
+    RECOVERY_DEVICE_UNAVAILABLE = {
+        "en": "The explicitly selected compute device {device} is unavailable.",
+        "zh": "显式选择的计算设备 {device} 当前不可用。",
+    }
+    RECOVERY_DOWNLOAD_TRANSIENT = {
+        "en": "The media download was interrupted by a temporary network or server failure.",
+        "zh": "媒体下载因临时网络或服务器故障中断。",
+    }
+    RECOVERY_DOWNLOAD_BOT_WALL = {
+        "en": "The source rejected automated access. Retrying immediately is unlikely to help.",
+        "zh": "来源拒绝了自动访问，立即重试通常无效。",
+    }
+    RECOVERY_DOWNLOAD_GONE = {
+        "en": "The media is no longer available at this address.",
+        "zh": "该地址的媒体已不存在或已被删除。",
+    }
+    RECOVERY_DOWNLOAD_FATAL = {
+        "en": "The media could not be downloaded because the request or source is invalid.",
+        "zh": "媒体无法下载，请求或来源可能无效。",
+    }
+    RECOVERY_TRANSCRIPTION_EMPTY = {
+        "en": "No transcript text was produced. Check the audio or try another model.",
+        "zh": "本次未生成转录文本，请检查音频或尝试其他模型。",
+    }
+    RECOVERY_OUTPUT_WRITE_FAILED = {
+        "en": "The result could not be written to the selected output location.",
+        "zh": "结果无法写入所选输出位置。",
+    }
+    RECOVERY_CANCELLED = {
+        "en": "The task was cancelled before a result was completed.",
+        "zh": "任务在完成前已取消。",
+    }
+    RECOVERY_UNKNOWN = {
+        "en": "The task failed unexpectedly. Local diagnostics can help identify the cause.",
+        "zh": "任务意外失败，可查看本地诊断信息定位原因。",
+    }
+    RECOVERY_NO_SPEECH = {
+        "en": "No speech was detected. Choose an input that contains audible speech.",
+        "zh": "未检测到语音，请选择包含可听语音的输入。",
+    }
+    RECOVERY_MODEL_LOAD_FAILED = {
+        "en": "Model weights exist but could not be loaded. Re-prepare or verify the model files.",
+        "zh": "模型权重存在但无法加载，请重新准备或检查模型文件。",
+    }
+    RECOVERY_RESULT_INVALID = {
+        "en": "The generated result failed consistency checks and was not delivered.",
+        "zh": "生成结果未通过一致性校验，因此没有交付。",
+    }
+    RECOVERY_RESOURCE_PRESSURE = {
+        "en": "Transcription stopped because resource usage crossed the safety limit.",
+        "zh": "转录因资源使用超过安全限制而停止。",
+    }
+    RECOVERY_SCOPE_INPUT = {"en": "input", "zh": "输入"}
+    RECOVERY_SCOPE_ENVIRONMENT = {"en": "environment", "zh": "环境"}
+    RECOVERY_SCOPE_MODEL = {"en": "model", "zh": "模型"}
+    RECOVERY_SCOPE_DEVICE = {"en": "device", "zh": "设备"}
+    RECOVERY_SCOPE_DOWNLOAD = {"en": "download", "zh": "下载"}
+    RECOVERY_SCOPE_TRANSCRIPTION = {"en": "transcription", "zh": "转录"}
+    RECOVERY_SCOPE_OUTPUT = {"en": "output", "zh": "输出"}
+    RECOVERY_SCOPE_TASK = {"en": "task", "zh": "任务"}
+    RECOVERY_SCOPE_UNKNOWN = {"en": "unknown", "zh": "未知"}
+    RECOVERY_ACTION_RETRY = {
+        "en": "Retry with the same input and selections",
+        "zh": "保留输入和选择重试",
+    }
+    RECOVERY_ACTION_EDIT_INPUT = {"en": "Correct or replace the input", "zh": "修正或更换输入"}
+    RECOVERY_ACTION_INSTALL_FFMPEG = {
+        "en": "Install FFmpeg, then run doctor",
+        "zh": "安装 FFmpeg，然后运行 doctor",
+    }
+    RECOVERY_ACTION_INSTALL_ENGINE = {
+        "en": "Install the recommended ASR engine",
+        "zh": "安装推荐的语音识别引擎",
+    }
+    RECOVERY_ACTION_PREPARE_MODEL = {
+        "en": "Prepare model weights or explicitly authorize download",
+        "zh": "预置模型权重或明确授权下载",
+    }
+    RECOVERY_ACTION_CHOOSE_DEVICE = {
+        "en": "Choose an available device or use CPU",
+        "zh": "选择可用设备或改用 CPU",
+    }
+    RECOVERY_ACTION_CHANGE_OUTPUT = {
+        "en": "Choose a writable output directory",
+        "zh": "选择可写的输出目录",
+    }
+    RECOVERY_ACTION_RESUBMIT = {
+        "en": "Submit the task again when ready",
+        "zh": "准备好后重新提交任务",
+    }
+    RECOVERY_ACTION_SUPPORT = {
+        "en": "Inspect local diagnostics or contact support with a redacted report",
+        "zh": "查看本地诊断，或提交脱敏报告寻求支持",
+    }
+    RECOVERY_ACTION_SLOW_DOWN = {
+        "en": "Slow down and verify access to the source",
+        "zh": "降低频率并确认来源访问方式",
+    }
+    RECOVERY_ACTION_RUN_DOCTOR = {
+        "en": "Run python -m mediascribe doctor",
+        "zh": "运行 python -m mediascribe doctor",
+    }
+    RECOVERY_ACTION_LOWER_MODEL = {
+        "en": "Close resource-heavy programs or choose a smaller model",
+        "zh": "关闭占用资源的程序或选择更小的模型",
+    }
+    RECOVERY_RETRY_UNAVAILABLE = {
+        "en": "This task cannot be retried now. Follow its recovery actions or submit it again.",
+        "zh": "当前不能重试该任务，请按恢复操作处理或重新提交。",
+    }
+    RECOVERY_HEADER = {"en": "{code}: {reason}", "zh": "{code}：{reason}"}
+    RECOVERY_SCOPE_LABEL = {"en": "Scope: {scope}", "zh": "影响范围：{scope}"}
+    RECOVERY_RETRY_LABEL = {"en": "Retryable: {value}", "zh": "可重试：{value}"}
+    RECOVERY_YES = {"en": "yes", "zh": "是"}
+    RECOVERY_NO = {"en": "no", "zh": "否"}
+    RECOVERY_ACTIONS_LABEL = {"en": "Next actions:", "zh": "下一步操作："}
+    CLI_STRUCTURED_ERROR = {
+        "en": "{code}: {error}",
+        "zh": "{code}：{error}",
+    }
+    CLI_RESULT_SUMMARY = {
+        "en": "Input: {input} | Engine: {engine} | Model: {model} | Elapsed: {duration}s | Output: {path}",
+        "zh": "输入：{input} | 引擎：{engine} | 模型：{model} | 耗时：{duration} 秒 | 输出：{path}",
+    }
     CLI_NEXT_STEPS_TITLE = {
         "en": "\n💡 Next steps (optional):",
         "zh": "\n💡 下一步（可选）：",
@@ -1281,6 +1550,7 @@ Environment variables:
             "  learn        ASR term auto-learning (improves with use)\n"
             "  profile      render a performance profile report\n"
             "  doctor       environment self-check (ffmpeg / GPU / engines / model caches)\n"
+            "  cache info   inspect persistent download/chunk caches\n"
             "\n"
             "Full help: python -m mediascribe --help\n"
         ),
@@ -1299,6 +1569,7 @@ Environment variables:
             "  learn        ASR 术语自动学习（越用越准）\n"
             "  profile      渲染性能 profile 报告\n"
             "  doctor       环境自检（ffmpeg / GPU / 引擎 / 模型缓存）\n"
+            "  cache info   查看持久下载/分块缓存占用\n"
             "\n"
             "详细帮助：python -m mediascribe --help\n"
         ),
@@ -1310,12 +1581,52 @@ Environment variables:
     CLI_AVAILABLE_CMDS = {
         "en": (
             "Available commands: transcribe / batch / archive / learn / profile / "
-            "doctor / verify\nTry 'python -m mediascribe --help'"
+            "doctor / verify / events / cache\nTry 'python -m mediascribe --help'"
         ),
         "zh": (
-            "可用命令: transcribe / batch / archive / learn / profile / doctor / verify\n"
+            "可用命令: transcribe / batch / archive / learn / profile / doctor / verify / events / cache\n"
             "Try 'python -m mediascribe --help'"
         ),
+    }
+    CACHE_INFO_ROOT = {
+        "en": "Persistent cache root: {path}",
+        "zh": "持久缓存根目录: {path}",
+    }
+    CACHE_INFO_ENABLED = {
+        "en": "Persistent download cache: {state}",
+        "zh": "持久下载缓存: {state}",
+    }
+    CACHE_INFO_ENTRY = {
+        "en": "{kind}: status={status}, entries={entries}, bytes={bytes}, wired={wired}",
+        "zh": "{kind}: 状态={status}, 条目={entries}, 字节={bytes}, 已接入={wired}",
+    }
+    CACHE_CLEAR_CONFIRM_REQUIRED = {
+        "en": "Refusing to clear persistent caches without --yes.",
+        "zh": "未指定 --yes，拒绝清除持久缓存。",
+    }
+    CACHE_CLEAR_ENTRY = {
+        "en": "{kind}: status={status}, removed={removed}",
+        "zh": "{kind}: 状态={status}, 已删除={removed}",
+    }
+    CACHE_CLEAR_SUMMARY = {
+        "en": "Cache clear finished. Model weights, learned terms, events, and workspace files were not changed.",
+        "zh": "缓存清除完成。模型权重、学习术语、本地事件和工作区文件均未改变。",
+    }
+    EVENTS_LIST_EMPTY = {
+        "en": "No local events are retained.",
+        "zh": "当前没有保留的本地事件。",
+    }
+    EVENTS_LIST_ITEM = {
+        "en": "{ts}  {event}  surface={surface}  properties={properties}",
+        "zh": "{ts}  {event}  入口={surface}  属性={properties}",
+    }
+    EVENTS_EXPORTED = {
+        "en": "Exported {count} local events to {path}",
+        "zh": "已导出 {count} 条本地事件到 {path}",
+    }
+    EVENTS_CLEARED = {
+        "en": "Cleared {count} local events. Tasks and transcripts were not changed.",
+        "zh": "已清除 {count} 条本地事件；任务和转录结果未改变。",
     }
     CLI_VERIFY_FAILED = {
         "en": "❌ third-sample verification failed: {etype}: {e}",
@@ -1584,6 +1895,18 @@ Environment variables:
         "en": "transcription result is empty",
         "zh": "转录结果为空",
     }
+    RESULT_NO_SPEECH = {
+        "en": "no speech was detected in this input; check the audio or choose another input",
+        "zh": "未检测到语音，请检查音频或更换输入",
+    }
+    RESULT_INVALID = {
+        "en": "transcription result failed validation: {reason}",
+        "zh": "转录结果校验失败：{reason}",
+    }
+    RESULT_WRITE_FAILED = {
+        "en": "could not persist the transcription result: {reason}",
+        "zh": "无法写入转录结果：{reason}",
+    }
     WHISPER_WEIGHTS_MISSING = {
         "en": "weights for model {model!r} are not pre-staged: {exc}\n{hint}",
         "zh": "模型 {model!r} 的权重未预置：{exc}\n{hint}",
@@ -1599,6 +1922,10 @@ Environment variables:
     FW_WEIGHTS_MISSING = {
         "en": "weights for model {model!r} are not pre-staged and the online download failed: {exc}\n{hint}",
         "zh": "模型 {model!r} 的权重未预置，且联网下载失败：{exc}\n{hint}",
+    }
+    WX_WEIGHTS_MISSING = {
+        "en": "WhisperX weights for model {model!r} are not pre-staged and the online download failed: {exc}\n{hint}",
+        "zh": "WhisperX 模型 {model!r} 的权重未预置，且联网下载失败：{exc}\n{hint}",
     }
     FW_NOT_INSTALLED = {
         "en": "faster-whisper is not installed; run: pip install faster-whisper",
@@ -1660,6 +1987,10 @@ Environment variables:
         "en": "\n📌 model cache",
         "zh": "\n📌 模型缓存",
     }
+    DOCTOR_MODEL_CACHE_EMPTY = {
+        "en": "empty — pre-stage weights or explicitly authorize a model download",
+        "zh": "空 — 请预置权重或显式授权下载模型",
+    }
     DOCTOR_SECTION_WEIGHTS = {
         "en": "\n📌 pre-staged weights (offline-required)",
         "zh": "\n📌 权重预置（离线必需）",
@@ -1684,13 +2015,29 @@ Environment variables:
         "en": "✅ check complete — all critical dependencies ready",
         "zh": "✅ 自检完成 — 关键依赖就绪",
     }
+    DOCTOR_READY_WITH_WARNINGS = {
+        "en": "⚠️ check complete — ready with warnings",
+        "zh": "⚠️ 自检完成 — 可运行，但有警告",
+    }
+    DOCTOR_STATUS = {
+        "en": "Readiness: {status} (blockers: {blockers}; warnings: {warnings})",
+        "zh": "就绪状态：{status}（阻塞：{blockers}；警告：{warnings}）",
+    }
     DOCTOR_ENGINE_SKIP = {
         "en": "  ⏭️ {engine} — engine not installed, skipping weight check",
         "zh": "  ⏭️ {engine} — 引擎未安装，跳过权重检查",
     }
     DOCTOR_CRITICAL_MISSING = {
-        "en": "❌ critical dependency missing (ffmpeg) — fix it before running transcription",
-        "zh": "❌ 自检发现关键缺失（ffmpeg）— 请先修复再运行转录",
+        "en": "❌ critical dependency missing — fix blockers before running transcription",
+        "zh": "❌ 自检发现关键缺失 — 请先修复阻塞项再运行转录",
+    }
+    READINESS_ACTION_ENGINE = {
+        "en": 'Install an ASR engine: pip install "mediascribe[faster-whisper]"',
+        "zh": '安装 ASR 引擎：pip install "mediascribe[faster-whisper]"',
+    }
+    READINESS_ACTION_MODEL = {
+        "en": "Enable model download or pre-stage the missing model weights",
+        "zh": "允许下载模型，或预置缺失的模型权重",
     }
 
     # ==================== WhisperX progress / Web models ====================

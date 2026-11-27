@@ -32,6 +32,7 @@ _ENV_FIELDS = {
     "LANGUAGE": ("language", str),
     "MODEL": ("whisper_model", str),
     "ENGINE": ("engine", str),
+    "ALLOW_MODEL_DOWNLOAD": ("allow_model_download", bool),
     "OUTPUT_DIR": ("output_dir", str),
     "KEEP_AUDIO": ("keep_audio", bool),
     "LOG_LEVEL": ("log_level", str),
@@ -60,11 +61,12 @@ class BatchConfig:
 
     # 转录配置
     language: str = "zh"
-    whisper_model: str = "small"
+    whisper_model: Optional[str] = None
     # P1-1(2026-11-20 架构评审): 批处理线新增引擎维度。None = 跟随
     # default_engine() 安装探测(faster-whisper 优先,未装回退 whisper);
     # 显式 "whisper"/"faster-whisper"/"whisperx"/"whisper-cpp" 强制指定。
     engine: Optional[str] = None
+    allow_model_download: bool = False
 
     # 输出配置
     output_dir: str = "output"
@@ -162,6 +164,10 @@ class BatchConfig:
             self.output_dir = args.output_dir
         if getattr(args, "keep_audio", False):
             self.keep_audio = True
+        if getattr(args, "engine", None):
+            self.engine = args.engine
+        if getattr(args, "allow_model_download", False):
+            self.allow_model_download = True
         if getattr(args, "log_level", None):
             self.log_level = args.log_level
         return self

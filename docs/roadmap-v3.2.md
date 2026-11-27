@@ -1,5 +1,18 @@
 # MediaScribe v3.2.0 — Planning Draft
 
+!!! warning "Historical / Superseded"
+    This planning draft is retained for historical context.  Its milestones,
+    targets, and proposed interfaces are not current product commitments.
+    For current behavior use [Long videos](chunking.md),
+    [Performance](performance.md), [Web UI](web-ui.md),
+    [Benchmarking](benchmarking.md), and [Engines](engines.md).  The
+    implementation entry points are
+    [`ChunkedTranscriber`](https://github.com/1273984347/mediascribe/blob/main/mediascribe/transcribers/chunked.py),
+    [`cache.py`](https://github.com/1273984347/mediascribe/blob/main/mediascribe/cache.py),
+    [`profile_cli.py`](https://github.com/1273984347/mediascribe/blob/main/mediascribe/profile_cli.py),
+    [`config.py`](https://github.com/1273984347/mediascribe/blob/main/mediascribe/config.py), and
+    [`progress.py`](https://github.com/1273984347/mediascribe/blob/main/mediascribe/progress.py).
+
 > Status: **draft for community review**.  Last updated 2026-06-06.
 >
 > v3.1.0 just shipped (547 tests / 97 % coverage).  This document
@@ -31,6 +44,11 @@ None.  v3.1.0 already meets all declared v3.1.0 goals.  v3.2.0 is a
 * Update [docs/chunking.md](chunking.md) — remove "No VAD-based
   splitting" from Limitations
 
+> **Current status (2026-11-26):** Python callers can opt into
+> `ChunkedTranscriber(use_vad=True)` with `webrtcvad`; fixed windows remain
+> the fallback and VAD is off by default.  This wrapper is not wired into
+> ordinary CLI / Web / MCP transcription.  See [Long videos](chunking.md).
+
 ### 2. Persistent chunk + download cache
 **Effort** M · **Impact** High
 
@@ -43,6 +61,16 @@ None.  v3.1.0 already meets all declared v3.1.0 goals.  v3.2.0 is a
 * Update [docs/performance.md](performance.md) and
   [docs/chunking.md](chunking.md) — remove "not persistent" notes
 
+> **Current status (2026-11-26):** `DownloadCache` is still single-run.
+> `PersistentDownloadCache` is a separate cross-run cache wired into the
+> pipeline only with `MEDIASCRIBE_DOWNLOAD_CACHE=1`; `--cache-dir` and the JSON
+> `cache_dir` key select its root for `transcribe` / `batch`.
+> `python -m mediascribe cache info` and `cache clear --yes` manage indexed
+> download/chunk entries without deleting model weights or other user data.
+> `PersistentChunkCache` still is not connected to `ChunkedTranscriber` or
+> ordinary CLI / Web / MCP transcription. See [Performance](performance.md)
+> and [Long videos](chunking.md).
+
 ### 3. Profile CLI 透出
 **Effort** S · **Impact** Medium
 
@@ -52,6 +80,15 @@ None.  v3.1.0 already meets all declared v3.1.0 goals.  v3.2.0 is a
 * Supports `--top N`, `--by-stage`, `--since YYYY-MM-DD` filters
 * Optionally `python -m mediascribe.profile_cli --watch` for live tailing
 * Adds docs section in [docs/performance.md](performance.md)
+
+> **Current status (2026-11-26):** the supported commands are
+> `python -m mediascribe profile <timings.jsonl>` and
+> `python -m mediascribe.profile_cli <timings.jsonl>`.  Actual options are
+> `--top N`, `--by-stage <substring>`, `--since YYYY-MM-DD`, and `--json`.
+> There is no `--watch`.  Python callers use keyword-only
+> `Pipeline(profile=True, profile_log=Path(...))`; ordinary CLI / Web / MCP
+> entry points do not expose those parameters.  See
+> [Performance](performance.md).
 
 ### 4. CI matrix split (lint / unit / integration)
 **Effort** S · **Impact** Medium
@@ -77,6 +114,13 @@ None.  v3.1.0 already meets all declared v3.1.0 goals.  v3.2.0 is a
 * Detect via `importlib.util.find_spec("whisperx")`
 * Add `--prefer-engine` flag for explicit override
 * Tests: default selection + override
+
+> **Current status (2026-11-26):** WhisperX was **not** made the default.
+> Automatic selection prefers installed `faster-whisper` and falls back to
+> `whisper`; `whisperx` remains opt-in.  The factory has no fallback chain,
+> and there is no `--prefer-engine` flag.  Resource-driven changes are
+> handled by `runtime_guard`, while explicit engine choices are protected.
+> See [Engines](engines.md).
 
 ### 6. Plugin registry CLI
 **Effort** S · **Impact** Low / Medium
@@ -109,6 +153,24 @@ None.  v3.1.0 already meets all declared v3.1.0 goals.  v3.2.0 is a
 * `POST /api/jobs/<job_id>/cancel` flips a flag the pipeline watches
   between stages
 * Updates [docs/web-ui.md](web-ui.md)
+
+> **Current status (2026-11-26):** the progress contract has six identifiers:
+> `preflight`, `model_prepare`, `download`, `extract_audio`, `transcribe`,
+> `assemble`.  Current callbacks report stage boundaries, not real
+> intra-stage percentages; clients must honor `progress_known`.  REST / WS
+> cancellation is per job (`cancel_requested` → safe-point terminal
+> `cancelled`), and sibling jobs continue.  See [Web UI](web-ui.md).
+
+> **Current status (2026-11-27):** Durable Web jobs now checkpoint all four
+> ASR engines. `faster-whisper` commits accepted segments during decoding;
+> `whisper`, `whisperx`, and `whisper-cpp` commit complete fixed 60-second
+> windows with 2-second overlap, at-least-once. WhisperX commits after alignment
+> and reruns diarization over the complete resumed result. Resume is explicit,
+> uses an independent window cursor (so silence advances recovery), retains the
+> durable prefix, and never persists runtime secrets. Real Chromium mock-ASR
+> resume passed for all four engines. Real faster-whisper resume, US-014,
+> US-016, and repeat=3 benchmark evidence remain open on qualified runners.
+> See [Web UI](web-ui.md) and [Engines](engines.md#durable-web-checkpoint-behavior).
 
 ### 9. Lightweight transcript diff (CLI)
 **Effort** S · **Impact** Low

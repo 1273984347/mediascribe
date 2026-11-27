@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import statistics
 import sys
 from collections import Counter
@@ -49,6 +50,21 @@ def median(values: List[float]) -> Optional[float]:
     return round(statistics.median(vals), 4) if vals else None
 
 
+def percentile(values: List[float], quantile: float) -> Optional[float]:
+    numbers = sorted(float(value) for value in values if value is not None)
+    if not numbers:
+        return None
+    if len(numbers) == 1:
+        return round(numbers[0], 4)
+    position = (len(numbers) - 1) * quantile
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return round(numbers[lower], 4)
+    fraction = position - lower
+    return round(numbers[lower] + (numbers[upper] - numbers[lower]) * fraction, 4)
+
+
 def summarize(results_path: Path) -> Dict[str, Any]:
     data = json.loads(results_path.read_text(encoding="utf-8"))
     runs = data.get("runs", [])
@@ -76,7 +92,13 @@ def summarize(results_path: Path) -> Dict[str, Any]:
                 "n_total": len(rs),
                 "n_ok": len(ok),
                 "rtf_median": median([r.get("real_time_factor") for r in ok]),
+                "rtf_p50": percentile([r.get("real_time_factor") for r in ok], 0.50),
+                "rtf_p90": percentile([r.get("real_time_factor") for r in ok], 0.90),
                 "err_median": median([r.get("error_rate_pct") for r in ok]),
+                "err_p50_pct": percentile([r.get("error_rate_pct") for r in ok], 0.50),
+                "err_p90_pct": percentile([r.get("error_rate_pct") for r in ok], 0.90),
+                "wall_clock_p50_s": percentile([r.get("wall_clock_s") for r in ok], 0.50),
+                "wall_clock_p90_s": percentile([r.get("wall_clock_s") for r in ok], 0.90),
                 "err_min": min([r["error_rate_pct"] for r in ok], default=None),
                 "err_max": max([r["error_rate_pct"] for r in ok], default=None),
                 "peak_vram_mb": max([r.get("sampled_peak_vram_mb") or 0 for r in ok], default=0),

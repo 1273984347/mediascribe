@@ -1,17 +1,19 @@
 """
-WhisperX 转录器 - 真正参考 WhisperX 的实现流程
+WhisperX transcription with alignment and optional speaker diarization.
 
-模块级模型缓存：主模型按 ``(model_name, device, compute_type)``、对齐模型按
-``(language_code, device)``、说话人分离管线按 ``(hf_token, device)`` 复用实例，
-同一转录器连转 N 个音频不再重复加载（模型加载约 5-10s/次）。
-``clear_model_cache()`` 可手动释放显存（含对齐模型与分离管线）。
+The module-level ASR cache is keyed by model, device, compute type, language,
+and a SHA-256 prompt fingerprint so different prompts never share decode state.
+Alignment and diarization pipelines are cached separately. Use
+``clear_model_cache()`` to release all resident models.
 """
 
 from __future__ import annotations
 
 import gc
+import hashlib
 import threading
 from collections import OrderedDict
+from importlib import metadata
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -22,6 +24,7 @@ try:
 except ImportError:  # pragma: no cover - bare orchestration install
     torch = None  # type: ignore[assignment]
 
+from ..checkpoint import CheckpointSession, run_windowed_transcription
 from ..gpu_budget import (
     ensure_resident_capacity,
     estimate_model_mb,
@@ -31,13 +34,21 @@ from ..gpu_budget import (
     unregister_resident,
 )
 from ..i18n import t
+from ..model_weights import (
+    ModelDownloadError,
+    ModelLoadError,
+    ModelNotReadyError,
+    WeightStatus,
+    check_weights,
+    missing_hint,
+)
 from ..zh_normalize import simplified_initial_prompt
 from .base import Transcriber
 
 # ---------------------------------------------------------------------------
 # 模型缓存 — 主模型与对齐模型分别缓存，避免每次转录都重新加载
 # ---------------------------------------------------------------------------
-_MODEL_CACHE: "OrderedDict[Tuple[str, str, str, Optional[str]], Any]" = OrderedDict()
+_MODEL_CACHE: "OrderedDict[Tuple[str, str, str, Optional[str], str], Any]" = OrderedDict()
 _ALIGN_MODEL_CACHE: Dict[Tuple[str, str], Any] = {}
 _DIARIZE_CACHE: Dict[Tuple[str, str], Any] = {}
 _MODEL_CACHE_LOCK = threading.Lock()
@@ -47,18 +58,22 @@ _MODEL_CACHE_LOCK = threading.Lock()
 _MODEL_CACHE_MAX = 2
 
 
-def _get_cached_model(whisperx: Any, model_name: str, device: str, language: Optional[str]) -> Any:
-    """取或加载 WhisperX 主模型（LRU，容量 2，键含 language）。
+def _get_cached_model(
+    whisperx: Any,
+    model_name: str,
+    device: str,
+    language: Optional[str],
+    initial_prompt: Optional[str] = None,
+) -> Any:
+    """Return a prompt-aware ASR model from the thread-safe two-entry LRU cache.
 
-    线程安全：双检锁，并发加载同一模型时只有一个会真正加载。
-
-    ``language`` 必须参与缓存键：它会被固定进 WhisperX 管线实例
-    （``load_model(language=...)`` 后 transcribe 不再自动检测），键里漏掉
-    会让后提交的语言静默复用先提交语言的模型（2026-10-29 审查 P1-3，
-    Web 混语言场景产出垃圾转写稿）。
+    ``language`` and ``initial_prompt`` are fixed into the WhisperX pipeline, so
+    both participate in cache identity. Prompts are hashed rather than retained
+    in the key.
     """
     compute_type = "int8" if device == "cpu" else "float16"
-    key = (model_name, device, compute_type, language)
+    prompt_key = hashlib.sha256((initial_prompt or "").encode("utf-8")).hexdigest()
+    key = (model_name, device, compute_type, language, prompt_key)
     with _MODEL_CACHE_LOCK:
         cached = _MODEL_CACHE.get(key)
         if cached is not None:
@@ -70,12 +85,31 @@ def _get_cached_model(whisperx: Any, model_name: str, device: str, language: Opt
         register_family_clear("whisperx", clear_model_cache)
         estimate_mb = estimate_model_mb("whisperx", model_name, device)
         ensure_resident_capacity("whisperx", estimate_mb)
-        model = whisperx.load_model(
-            model_name,
-            device,
-            compute_type=compute_type,
-            language=language,
-        )
+        try:
+            model = whisperx.load_model(
+                model_name,
+                device,
+                compute_type=compute_type,
+                language=language,
+                asr_options={"initial_prompt": initial_prompt},
+            )
+        except Exception as exc:
+            message = t(
+                "WX_WEIGHTS_MISSING",
+                model=model_name,
+                exc=exc,
+                hint=missing_hint("whisperx", model_name),
+            )
+            if check_weights("whisperx", model_name).ok:
+                raise ModelLoadError(
+                    t(
+                        "MODEL_LOAD_FAILED",
+                        engine="whisperx",
+                        model=model_name,
+                        exc=exc,
+                    )
+                ) from exc
+            raise ModelDownloadError(message) from exc
         register_resident("whisperx", ("main", key), estimate_mb)
         _MODEL_CACHE[key] = model
         while len(_MODEL_CACHE) > _MODEL_CACHE_MAX:
@@ -87,7 +121,25 @@ def _get_cached_model(whisperx: Any, model_name: str, device: str, language: Opt
         return model
 
 
-def _get_cached_align_model(whisperx: Any, language_code: str, device: str) -> Tuple[Any, Any]:
+def _missing_auxiliary_weight(model: str, hint_key: str) -> ModelNotReadyError:
+    return ModelNotReadyError(
+        WeightStatus(
+            engine="whisperx",
+            model=model,
+            ok=False,
+            location="WhisperX auxiliary model cache",
+            hint=t(hint_key),
+        )
+    )
+
+
+def _get_cached_align_model(
+    whisperx: Any,
+    language_code: str,
+    device: str,
+    *,
+    allow_model_download: bool = False,
+) -> Tuple[Any, Any]:
     """取或加载 word-level 对齐模型（按 ``(language_code, device)`` 缓存）。
 
     返回 ``(align_model, meta)``。
@@ -101,6 +153,8 @@ def _get_cached_align_model(whisperx: Any, language_code: str, device: str) -> T
         cached2: Optional[Tuple[Any, Any]] = _ALIGN_MODEL_CACHE.get(key)
         if cached2 is not None:
             return cached2
+        if not allow_model_download:
+            raise _missing_auxiliary_weight(f"align-{language_code}", "WEIGHTS_HINT_WHISPERX_ALIGN")
         align_model, meta = whisperx.load_align_model(
             language_code=language_code,
             device=device,
@@ -113,7 +167,13 @@ def _get_cached_align_model(whisperx: Any, language_code: str, device: str) -> T
         return align_model, meta
 
 
-def _get_cached_diarize_pipeline(whisperx: Any, token: str, device: str) -> Any:
+def _get_cached_diarize_pipeline(
+    whisperx: Any,
+    token: str,
+    device: str,
+    *,
+    allow_model_download: bool = False,
+) -> Any:
     """取或加载说话人分离管线（按 ``(token, device)`` 缓存, 双检锁）。
 
     pyannote 管线构建（权重加载 + HF 授权）为秒级开销, 此前每次
@@ -130,6 +190,8 @@ def _get_cached_diarize_pipeline(whisperx: Any, token: str, device: str) -> Any:
         cached2 = _DIARIZE_CACHE.get(key)
         if cached2 is not None:
             return cached2
+        if not allow_model_download:
+            raise _missing_auxiliary_weight("diarization", "WEIGHTS_HINT_WHISPERX_DIARIZE")
         pipeline = whisperx.DiarizationPipeline(token=token, device=device)
         # P1-4: diarize 管线入跨引擎驻留账(此前该缓存无上限、不入账)
         register_resident(
@@ -162,12 +224,56 @@ class WhisperXTranscriber(Transcriber):
         device: Optional[str] = None,
         hf_token: Optional[str] = None,
         diarization: bool = False,
+        allow_model_download: bool = False,
     ):
         self.model_name = model
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.hf_token = hf_token
         self.diarization = diarization
+        self.allow_model_download = allow_model_download
         self._model: Any = None
+
+    def prepare(self, **kwargs) -> Any:
+        import whisperx
+
+        return _get_cached_model(
+            whisperx,
+            self.model_name,
+            self.device,
+            kwargs.get("language"),
+            kwargs.get("initial_prompt"),
+        )
+
+    def effective_decode_params(
+        self, *, language: str | None, initial_prompt: str | None
+    ) -> dict[str, Any]:
+        """Return runtime and decode inputs that identify a resumable run."""
+        try:
+            package_version = metadata.version("whisperx")
+        except metadata.PackageNotFoundError:
+            package_version = "unknown"
+        capability = self.checkpoint_capability()
+        if capability is None or capability.mode != "window":
+            raise ValueError("whisperx requires a window checkpoint capability")
+        return {
+            "engine": self.name,
+            "package_version": package_version,
+            "model": self.model_name,
+            "device": self.device,
+            "compute_type": "int8" if self.device == "cpu" else "float16",
+            "language": language,
+            "initial_prompt": simplified_initial_prompt(initial_prompt, language),
+            "batch_size": 16,
+            "vad_method": "pyannote",
+            "vad_options": {
+                "chunk_size": 30,
+                "vad_onset": 0.500,
+                "vad_offset": 0.363,
+            },
+            "diarization": bool(self.diarization and self.hf_token),
+            "window_seconds": capability.window_seconds,
+            "overlap_seconds": capability.overlap_seconds,
+        }
 
     def transcribe(
         self,
@@ -175,6 +281,7 @@ class WhisperXTranscriber(Transcriber):
         *,
         prompt: Optional[str] = None,
         progress: Optional[Any] = None,
+        checkpoint_session: Optional[CheckpointSession] = None,
         **kwargs,
     ) -> dict[str, Any]:
         try:
@@ -183,52 +290,115 @@ class WhisperXTranscriber(Transcriber):
             raise RuntimeError(t("WX_NOT_INSTALLED")) from e
 
         language = kwargs.get("language")
+        effective_prompt = simplified_initial_prompt(prompt, language)
 
         if progress:
             print(t("WX_LOADING_MODEL"))
 
-        # 第 1 步：转录 + VAD（模型走模块级缓存，连转 N 个音频只加载一次）
-        model = _get_cached_model(whisperx, self.model_name, self.device, language)
+        # WhisperX 3.8.6 accepts initial_prompt through load_model(asr_options=...),
+        # not through FasterWhisperPipeline.transcribe().
+        model = _get_cached_model(
+            whisperx,
+            self.model_name,
+            self.device,
+            language,
+            effective_prompt,
+        )
 
-        audio = whisperx.load_audio(str(audio_path))
-        # 中文默认注入简体引导 prompt（跨平台有效的「源头」防线）。
-        # whisperx 未注入时输出**繁体**（2026-10-23 同源对比实测）。
-        transcribe_kwargs: dict[str, Any] = {"batch_size": 16}
-        effective_prompt = simplified_initial_prompt(prompt, language)
-        if effective_prompt:
-            transcribe_kwargs["initial_prompt"] = effective_prompt
-        result = model.transcribe(audio, **transcribe_kwargs)
+        if checkpoint_session is not None:
+            if checkpoint_session.capability.mode != "window":
+                raise ValueError("whisperx requires a window checkpoint session")
 
-        # 第 2 步：Word-level 对齐（对齐模型同样走缓存）
-        if result["segments"]:
-            if progress:
-                print(t("WX_ALIGNING"))
-
-            align_model, meta = _get_cached_align_model(
-                whisperx,
-                result["language"],
-                self.device,
+            detected_language = (
+                checkpoint_session.cursor.detected_language if checkpoint_session.cursor else None
             )
 
-            result = whisperx.align(
-                result["segments"],
-                align_model,
-                meta,
-                audio,
-                self.device,
-            )
+            def transcribe_window(window_path: Path, _window_duration: float) -> dict[str, Any]:
+                nonlocal detected_language
+                audio = whisperx.load_audio(str(window_path))
+                result: dict[str, Any] = model.transcribe(
+                    audio,
+                    batch_size=16,
+                    language=detected_language or language,
+                )
+                asr_language = result["language"]
+                detected_language = detected_language or asr_language
+                if result["segments"]:
+                    if progress:
+                        print(t("WX_ALIGNING"))
 
-        # 第 3 步：说话人分离（可选）
+                    align_model, meta = _get_cached_align_model(
+                        whisperx,
+                        asr_language,
+                        self.device,
+                        allow_model_download=self.allow_model_download,
+                    )
+                    result = whisperx.align(
+                        result["segments"], align_model, meta, audio, self.device
+                    )
+                    # WhisperX align() drops language; retain the ASR identity for
+                    # checkpoint commits and the final transcription result.
+                    result["language"] = asr_language
+                return result
+
+            window_result = run_windowed_transcription(
+                audio_path,
+                capability=checkpoint_session.capability,
+                session=checkpoint_session,
+                transcribe_window=transcribe_window,
+                cancel_event=kwargs.get("cancel_event"),
+            )
+            result = {
+                "segments": window_result["segments"],
+                "language": window_result["language"],
+                "word_segments": [
+                    word
+                    for segment in window_result["segments"]
+                    for word in segment.get("words", [])
+                ],
+            }
+        else:
+            audio = whisperx.load_audio(str(audio_path))
+            result = model.transcribe(audio, batch_size=16)
+
+            # Word-level alignment uses its own language/device cache.
+            if result["segments"]:
+                if progress:
+                    print(t("WX_ALIGNING"))
+
+                align_model, meta = _get_cached_align_model(
+                    whisperx,
+                    result["language"],
+                    self.device,
+                    allow_model_download=self.allow_model_download,
+                )
+
+                result = whisperx.align(
+                    result["segments"],
+                    align_model,
+                    meta,
+                    audio,
+                    self.device,
+                )
+
+        # Diarization always runs once over the complete result and original audio.
         speaker_diarization = False
         if self.diarization and self.hf_token:
             if progress:
                 print(t("WX_DIARIZING"))
 
             try:
-                diarize_model = _get_cached_diarize_pipeline(whisperx, self.hf_token, self.device)
+                diarize_model = _get_cached_diarize_pipeline(
+                    whisperx,
+                    self.hf_token,
+                    self.device,
+                    allow_model_download=self.allow_model_download,
+                )
                 diarize_segments = diarize_model(str(audio_path))
                 result = whisperx.assign_word_speakers(diarize_segments, result)
                 speaker_diarization = True
+            except ModelNotReadyError:
+                raise
             except Exception as e:
                 print(t("WX_DIARIZE_FAILED", e=e))
 

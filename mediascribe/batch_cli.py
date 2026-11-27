@@ -36,7 +36,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 # --lang 预解析器: i18n 字典生效前抢读语言参数, 才能本地化 argparse 输出。
 _LANG_PRE_PARSER = argparse.ArgumentParser(add_help=False)
@@ -44,6 +44,7 @@ _LANG_PRE_PARSER.add_argument("--lang", default=None, choices=["en", "zh"])
 
 
 def build_parser(i18n_t) -> argparse.ArgumentParser:
+    from mediascribe.config import _VALID_ENGINES
     from mediascribe.url_utils import _PLATFORM_FINGERPRINTS
 
     """Build argument parser with i18n-aware help text.
@@ -65,6 +66,18 @@ def build_parser(i18n_t) -> argparse.ArgumentParser:
     parser.add_argument("--retries", type=int, default=None, help=t("CLI_HELP_RETRIES"))
     parser.add_argument("--output-dir", default=None, help=t("CLI_HELP_OUTPUT_DIR"))
     parser.add_argument("--keep-audio", action="store_true", help=t("CLI_HELP_KEEP_AUDIO"))
+    parser.add_argument(
+        "--engine",
+        choices=list(_VALID_ENGINES),
+        default=None,
+        help=t("CLI_HELP_ENGINE"),
+    )
+    parser.add_argument(
+        "--allow-model-download",
+        action="store_true",
+        default=False,
+        help=t("CLI_HELP_ALLOW_MODEL_DOWNLOAD"),
+    )
     parser.add_argument("--config", metavar="FILE", help=t("CLI_HELP_CONFIG"))
     parser.add_argument("--log-level", default=None, choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     parser.add_argument("--no-cache", action="store_true", help=t("CLI_HELP_NO_CACHE"))
@@ -75,11 +88,6 @@ def build_parser(i18n_t) -> argparse.ArgumentParser:
         "--json",
         action="store_true",
         help=t("CLI_HELP_JSON"),
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help=t("CLI_HELP_DRY_RUN"),
     )
     parser.add_argument(
         "--bilingual-json",
@@ -338,7 +346,16 @@ class _ResultRecorder:
     喂给 :class:`~mediascribe.agent_output.AgentOutput`。
     """
 
-    def __init__(self, tracker, cache, log, t, agent_out=None, workers: int = 1):
+    def __init__(
+        self,
+        tracker,
+        cache,
+        log,
+        t,
+        agent_out=None,
+        workers: int = 1,
+        events: Optional[Any] = None,
+    ):
         self.results: List[Dict] = []
         self.tracker = tracker
         self.cache = cache
@@ -346,6 +363,7 @@ class _ResultRecorder:
         self.t = t
         self.agent_out = agent_out
         self.workers = workers
+        self.events = events
         self._lock = threading.Lock()
         self._bot_wall_streak = 0  # P1-5: 连续风控命中次数 → 指数退避
 
@@ -385,6 +403,25 @@ class _ResultRecorder:
                 success=result["status"] == "success",
                 failure_class=result.get("failure_class"),
             )
+            if result.get("status") in {"success", "failed"} and self.events is not None:
+                try:
+                    error_code = result.get("error_code")
+                    terminal = (
+                        "success"
+                        if result["status"] == "success"
+                        else ("no_speech" if error_code == "NO_SPEECH" else "failed")
+                    )
+                    self.events.record_finished(
+                        result=terminal,
+                        stage=result.get("stage"),
+                        error_code=error_code,
+                    )
+                except Exception:  # pragma: no cover - telemetry must not affect batch
+                    import logging
+
+                    logging.getLogger(__name__).debug(
+                        "batch terminal event recording failed", exc_info=True
+                    )
             if result.get("failure_class") == "bot_wall":
                 self._bot_wall_streak += 1
                 backoff = min(60.0, 2.0**self._bot_wall_streak)
@@ -445,7 +482,33 @@ def main(argv: Optional[List[str]] = None) -> int:
     # 1.4b 初始化 Agent 输出（--json 模式）
     agent_out = _init_agent_output(args, config)
 
-    # 1.4c 平台过滤器（--platform）
+    # 1.4c 引擎预检：无可用引擎时在发现/下载媒体前失败。
+    from mediascribe.config import EngineUnavailableError, Settings
+    from mediascribe.model_weights import ModelNotReadyError, ensure_model_ready
+
+    try:
+        engine_settings = Settings(model=config.whisper_model, engine=config.engine)
+        if engine_settings.model != "auto":
+            ensure_model_ready(
+                engine_settings.engine,
+                engine_settings.model,
+                allow_download=config.allow_model_download,
+            )
+    except (EngineUnavailableError, ModelNotReadyError) as exc:
+        from mediascribe.recovery import format_recovery, recovery_for_exception
+
+        recovery = recovery_for_exception(exc)
+        if agent_out is not None:
+            agent_out.add_error(recovery["code"], recovery["reason"], recovery=recovery)
+            agent_out.finish(False)
+            agent_out.emit()
+        else:
+            log.error(format_recovery(exc))
+        return 1
+    if engine_settings.engine_notice:
+        log.warning(engine_settings.engine_notice)
+
+    # 1.4d 平台过滤器（--platform）
     platform_filter = _platform_filter_from_args(args, t)
 
     # 1.5 保存配置
@@ -533,7 +596,24 @@ def main(argv: Optional[List[str]] = None) -> int:
         # 进度跟踪（desc 经 i18n 注入，P2-15）
         tracker = ProgressTracker(total=len(videos), desc=t("INFO_PROGRESS_DESC"))
         workers = max(1, int(getattr(config, "workers", 1) or 1))
-        recorder = _ResultRecorder(tracker, cache, log, t, agent_out=agent_out, workers=workers)
+        from mediascribe.events import EventRecorder
+
+        batch_events = EventRecorder(surface="batch")
+        recorder = _ResultRecorder(
+            tracker,
+            cache,
+            log,
+            t,
+            agent_out=agent_out,
+            workers=workers,
+            events=batch_events,
+        )
+        try:
+            batch_events.record_first_run()
+        except Exception:  # pragma: no cover - telemetry must not affect batch
+            import logging
+
+            logging.getLogger(__name__).debug("batch first-run event failed", exc_info=True)
 
         # P1-7: 转录池透传 BatchConfig（whisper_model / language 生效）
         def _transcribe_with_config(audio_path):
@@ -607,12 +687,12 @@ def main(argv: Optional[List[str]] = None) -> int:
             agent_out.emit()
         return 130
     except Exception as e:
-        log.error(f"💥 {t('ERROR_UNHANDLED', error=e)}")
-        import traceback
+        from mediascribe.recovery import format_recovery, recovery_for_exception
 
-        log.error(traceback.format_exc())
+        recovery = recovery_for_exception(e)
+        log.error(format_recovery(e))
         if agent_out is not None:
-            agent_out.add_error("unhandled", str(e))
+            agent_out.add_error(recovery["code"], recovery["reason"], recovery=recovery)
             agent_out.finish(ok=False)
             agent_out.emit()
         return 1
@@ -709,6 +789,9 @@ def process_single_video_safe(
             from mediascribe.downloaders.download_errors import classify_exception
 
             cls_err = classify_exception(exc)
+            from mediascribe.recovery import recovery_for_exception
+
+            recovery = recovery_for_exception(cls_err)
             log.error(i18n_t("ERROR_VIDEO_DOWNLOAD", index=index, total=total, id=video_id))
             return {
                 "video_id": video_id,
@@ -717,6 +800,8 @@ def process_single_video_safe(
                 "status": "failed",
                 "stage": "download",
                 "failure_class": cls_err.category,
+                "error_code": recovery["code"],
+                "recovery": recovery,
                 "error": str(exc),
             }
         if not ok:
@@ -752,6 +837,9 @@ def process_single_video_safe(
             }
 
     except Exception as e:
+        from mediascribe.recovery import recovery_for_exception
+
+        recovery = recovery_for_exception(e)
         log.error(i18n_t("ERROR_VIDEO_EXCEPTION", index=index, total=total, id=video_id, error=e))
         return {
             "video_id": video_id,
@@ -759,6 +847,8 @@ def process_single_video_safe(
             "platform": platform,
             "status": "failed",
             "stage": "exception",
+            "error_code": recovery["code"],
+            "recovery": recovery,
             "error": str(e),
         }
 

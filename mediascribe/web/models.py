@@ -7,9 +7,9 @@ pydantic 是可选依赖 —— 缺失时本模块只导出占位类, 保证 imp
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from ..config import _VALID_ENGINES, default_engine
+from ..config import _VALID_ENGINES
 from ..i18n import t
 
 try:
@@ -24,16 +24,14 @@ if _PYDANTIC_AVAILABLE:
 
     class TranscribeRequest(BaseModel):
         urls: List[str] = Field(..., min_length=1, max_length=20)
-        # P1-2(2026-11-20 评审): 默认引擎跟随安装探测(faster-whisper 优先),
-        # 不再硬编码最慢的 torch whisper;显式传入仍优先。
-        # P2-9: pattern 由 config._VALID_ENGINES 构造 —— 名单单一真源,
-        # 一致性由 test_engine_consistency 的行为断言(逐引擎接受+未知拒绝)钉死
-        engine: str = Field(
-            default_factory=default_engine,
+        # None = 自动推荐；由 Settings 在 pipeline 构建时统一解析。
+        # 显式传入仍优先，pattern 继续由 _VALID_ENGINES 单一真源构造。
+        engine: Optional[str] = Field(
+            default=None,
             pattern="^(" + "|".join(_VALID_ENGINES) + ")$",
         )
-        model: str = Field(
-            "small",
+        model: Optional[str] = Field(
+            default=None,
             pattern="^(tiny|base|small|medium|large|large-v1|large-v2|large-v3|distil-large-v2|distil-large-v3)$",
         )
         language: Optional[str] = None
@@ -41,6 +39,7 @@ if _PYDANTIC_AVAILABLE:
         wechat_cookies: Optional[str] = None
         save_images: bool = False
         bilingual: bool = False
+        allow_model_download: bool = False
 
         @field_validator("urls")
         @classmethod
@@ -82,12 +81,19 @@ if _PYDANTIC_AVAILABLE:
         markdown: Optional[str] = None
         title: Optional[str] = None
         error: Optional[str] = None
+        error_code: Optional[str] = None
+        recovery: Optional[Dict[str, Any]] = None
         wechat_mp_status: Optional[str] = None
         ocr_success: int = 0
         ocr_total: int = 0
 
     class TranscribeResponse(BaseModel):
         results: List[TranscribeItem]
+
+    class ArtifactEventRequest(BaseModel):
+        event: Literal["artifact_opened"]
+        action: Literal["open", "copy", "download"] = "open"
+        model_config = {"extra": "forbid"}
 
 else:
 
@@ -98,4 +104,7 @@ else:
         """占位 —— pydantic 未安装时供 import 不报错。"""
 
     class TranscribeResponse:  # type: ignore[no-redef]
+        """占位 —— pydantic 未安装时供 import 不报错。"""
+
+    class ArtifactEventRequest:  # type: ignore[no-redef]
         """占位 —— pydantic 未安装时供 import 不报错。"""

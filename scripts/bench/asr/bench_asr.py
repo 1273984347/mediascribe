@@ -44,6 +44,8 @@ MediaScribe 是**完全离线**产品，用户机器从「无独显老笔记本�
 from __future__ import annotations
 
 import argparse
+import hashlib
+import importlib.metadata
 import json
 import os
 import platform
@@ -883,13 +885,123 @@ def _sample_gpu_usage() -> Tuple[int, int, int]:
         return (0, 0, 0)
 
 
-def _round_file(out_dir: Path, item: PlanItem, wav_name: str) -> Path:
-    """一轮结果的落盘路径（主进程与 worker 共用同一命名规则）。"""
+def _round_file(
+    out_dir: Path,
+    item: PlanItem,
+    wav_name: str,
+    *,
+    repeat_index: int = 1,
+) -> Path:
+    """一轮结果的落盘路径；repeat>1 时独立命名，避免覆盖。"""
+    suffix = "" if repeat_index == 1 else f"__r{repeat_index:02d}"
     return (
         out_dir
         / "rounds"
-        / (f"{item.engine}_{item.model}_{item.device}_{item.precision}_{Path(wav_name).stem}.json")
+        / (
+            f"{item.engine}_{item.model}_{item.device}_{item.precision}_"
+            f"{Path(wav_name).stem}{suffix}.json"
+        )
     )
+
+
+def validate_repeat(value: int) -> int:
+    try:
+        repeat = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("repeat must be a positive integer") from exc
+    if repeat < 1:
+        raise ValueError("repeat must be a positive integer")
+    return repeat
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def corpus_fingerprint(corpus_dir: Path) -> Dict[str, Any]:
+    corpus_dir = Path(corpus_dir)
+    golden_manifest = corpus_dir / "manifest.json"
+    if golden_manifest.is_file():
+        data = json.loads(golden_manifest.read_text(encoding="utf-8"))
+        if isinstance(data.get("files"), int):
+            audio = corpus_dir / "us014_zh_3min.wav"
+            reference = corpus_dir / "us014_zh_3min.json"
+            audio_hash = _sha256(audio)
+            reference_hash = _sha256(reference)
+            if audio_hash != data.get("audio_sha256") or reference_hash != data.get(
+                "reference_sha256"
+            ):
+                raise ValueError("golden corpus hash mismatch")
+            return {
+                "schema": data.get("schema"),
+                "audio_sha256": audio_hash,
+                "reference_sha256": reference_hash,
+                "manifest_sha256": _sha256(golden_manifest),
+            }
+    manifest = corpus_dir / "corpus_real.json"
+    digest = hashlib.sha256()
+    if manifest.is_file():
+        digest.update(manifest.read_bytes())
+    for path in sorted(list(corpus_dir.glob("*.wav")) + list(corpus_dir.glob("*.json"))):
+        if path == manifest:
+            continue
+        digest.update(path.name.encode("utf-8"))
+        digest.update(path.read_bytes())
+    return {"schema": "mediascribe-benchmark-corpus/ad-hoc", "corpus_sha256": digest.hexdigest()}
+
+
+def round_is_reusable(
+    cached: Dict[str, Any],
+    *,
+    item: PlanItem,
+    wav_name: str,
+    repeat_index: int,
+    corpus_fingerprint: Dict[str, Any],
+) -> bool:
+    expected = {
+        "engine": item.engine,
+        "model": item.model,
+        "device": item.device,
+        "precision": item.precision,
+        "file": wav_name,
+        "repeat_index": repeat_index,
+    }
+    if any(cached.get(key) != value for key, value in expected.items()):
+        return False
+    if cached.get("error") or cached.get("abort_reason"):
+        return False
+    if cached.get("real_time_factor") is None or cached.get("error_rate_pct") is None:
+        return False
+    if cached.get("corpus_fingerprint") != corpus_fingerprint:
+        audio_hash = corpus_fingerprint.get("audio_sha256")
+        if not audio_hash or cached.get("corpus_audio_sha256") != audio_hash:
+            return False
+    return True
+
+
+def current_commit() -> str:
+    if os.environ.get("GITHUB_SHA"):
+        return str(os.environ["GITHUB_SHA"])
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"], cwd=REPO_ROOT, text=True
+        ).strip()
+    except Exception:
+        return "unknown"
+
+
+def engine_versions() -> Dict[str, str]:
+    versions: Dict[str, str] = {}
+    for distribution in ("faster-whisper", "openai-whisper", "whispercpp"):
+        try:
+            versions[distribution] = importlib.metadata.version(distribution)
+        except importlib.metadata.PackageNotFoundError:
+            continue
+    return versions
 
 
 def _eta(run_times: List[float], remaining: int) -> Optional[float]:
@@ -941,6 +1053,9 @@ def run_round(
     out_dir: Path,
     rtf_hist: Optional[Dict[str, List[float]]] = None,
     heartbeat_s: float = 5.0,
+    *,
+    repeat_index: int = 1,
+    corpus_fingerprint: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """跑一轮并在过程中采样显存/内存/温度。
 
@@ -951,7 +1066,7 @@ def run_round(
     2. **过载检测**：系统级水位越界 ⇒ 安全中止（温和终止优先）。
     3. **采样**：记录峰值显存 / 峰值内存 / 峰值温度。
     """
-    res_file = _round_file(out_dir, item, wav_name)
+    res_file = _round_file(out_dir, item, wav_name, repeat_index=repeat_index)
     res_file.parent.mkdir(parents=True, exist_ok=True)
 
     cmd = [
@@ -1076,6 +1191,9 @@ def run_round(
             "file": wav_name,
             "error": abort_reason or f"worker 退出码 {proc.returncode}，无结果文件",
         }
+    payload["repeat_index"] = repeat_index
+    payload["corpus_fingerprint"] = dict(corpus_fingerprint or {})
+    payload["corpus_audio_sha256"] = (corpus_fingerprint or {}).get("audio_sha256")
     payload["sampled_peak_vram_mb"] = peak_vram
     payload["sampled_peak_rss_mb"] = peak_rss
     payload["sampled_peak_gpu_temp_c"] = peak_temp
@@ -1099,13 +1217,30 @@ def run_round(
 
 
 def load_corpus(corpus_dir: Path) -> List[Dict[str, Any]]:
+    corpus_dir = Path(corpus_dir)
+    golden_manifest = corpus_dir / "manifest.json"
+    if golden_manifest.is_file():
+        data = json.loads(golden_manifest.read_text(encoding="utf-8"))
+        if isinstance(data.get("files"), int):
+            corpus_fingerprint(corpus_dir)
+            reference_path = corpus_dir / "us014_zh_3min.json"
+            reference = json.loads(reference_path.read_text(encoding="utf-8"))
+            return [
+                {
+                    "name": "us014_zh_3min.wav",
+                    "language": reference.get("language", "unknown"),
+                    "duration_s": reference.get("duration_s"),
+                    "reference": reference_path.name,
+                    "manifest_verified": True,
+                }
+            ]
     manifest = corpus_dir / "corpus_real.json"
     if manifest.exists():
         data = json.loads(manifest.read_text(encoding="utf-8"))
         return list(data.get("files", []))
     # 兜底：扫 wav
     return [
-        {"name": w.name, "language": "unknown", "duration_s": None}
+        {"name": w.name, "language": "unknown", "duration_s": None, "manifest_verified": False}
         for w in sorted(corpus_dir.glob("*.wav"))
     ]
 
@@ -1118,6 +1253,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--models", default="small,medium,large-v3")
     p.add_argument("--devices", default="cuda,cpu")
     p.add_argument("--files", default="", help="逗号分隔的语料文件名；空=全部")
+    p.add_argument("--repeat", type=int, default=1, help="每个组合重复轮数（默认 1）")
     p.add_argument("--enable-float16", action="store_true", help="显存≥12GB 时额外跑 float16 对比")
     p.add_argument("--max-gpu-temp-c", type=int, default=82, help="GPU 软阈值：超过则等待降温")
     p.add_argument("--hard-gpu-temp-c", type=int, default=92, help="GPU 硬阈值：超过则紧急停止")
@@ -1151,7 +1287,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.worker:
         return run_worker(args)
 
+    try:
+        repeat = validate_repeat(args.repeat)
+    except ValueError as exc:
+        p.error(str(exc))
     corpus_dir = args.corpus
+    fingerprint = corpus_fingerprint(corpus_dir)
     out_dir = args.out
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "rounds").mkdir(parents=True, exist_ok=True)
@@ -1195,7 +1336,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     results: List[Dict[str, Any]] = []
     rtf_hist: Dict[str, List[float]] = {}
     run_times: List[float] = []
-    total = sum(1 for it in plan if it.enabled) * len(files)
+    total = sum(1 for it in plan if it.enabled) * len(files) * repeat
     done = 0
     resumed = 0
     started = time.perf_counter()
@@ -1203,27 +1344,65 @@ def main(argv: Optional[List[str]] = None) -> int:
     for it in plan:
         if not it.enabled:
             continue
-        for fm in files:
-            wav = fm.get("name")
-            if not wav:
-                continue
-            done += 1
-            label = f"[{done}/{total}] {it.engine}/{it.model}/{it.device}/{it.precision} {wav}"
+        for repeat_index in range(1, repeat + 1):
+            for fm in files:
+                wav = fm.get("name")
+                if not wav:
+                    continue
+                done += 1
+                label = (
+                    f"[{done}/{total}] {it.engine}/{it.model}/{it.device}/{it.precision} "
+                    f"{wav} r{repeat_index}/{repeat}"
+                )
 
-            # --- 断点续跑：已有完整结果就跳过 ---
-            res_file = _round_file(out_dir, it, wav)
-            if not args.force and res_file.exists():
-                try:
-                    cached = json.loads(res_file.read_text(encoding="utf-8"))
-                except Exception:
-                    cached = {}
-                if cached and not cached.get("abort_reason"):
-                    results.append(cached)
-                    resumed += 1
-                    rt = cached.get("real_time_factor")
-                    if rt:
-                        rtf_hist.setdefault(it.key(), []).append(float(rt))
-                    print(f"{label}\n  [skip] 已有结果，续跑跳过（RTF={rt}）", flush=True)
+                # --- 断点续跑：仅复用身份匹配且成功的轮次 ---
+                res_file = _round_file(out_dir, it, wav, repeat_index=repeat_index)
+                if not args.force and res_file.exists():
+                    try:
+                        cached = json.loads(res_file.read_text(encoding="utf-8"))
+                    except Exception:
+                        cached = {}
+                    if round_is_reusable(
+                        cached,
+                        item=it,
+                        wav_name=wav,
+                        repeat_index=repeat_index,
+                        corpus_fingerprint=fingerprint,
+                    ):
+                        results.append(cached)
+                        resumed += 1
+                        rt = cached.get("real_time_factor")
+                        if rt:
+                            rtf_hist.setdefault(it.key(), []).append(float(rt))
+                        print(f"{label}\n  [skip] 已有结果，续跑跳过（RTF={rt}）", flush=True)
+                        _write_progress(
+                            out_dir,
+                            done=done,
+                            total=total,
+                            current=label,
+                            eta_seconds=_eta(run_times, total - done),
+                            prof=prof,
+                            guard=guard,
+                        )
+                        continue
+
+                print(f"\n--- {label} ---", flush=True)
+                ok, why = guard.wait_for_capacity(it, out_dir, max_wait_s=args.wait_seconds)
+                if not ok:
+                    print(f"  [guard] 熔断：{why}")
+                    results.append(
+                        {
+                            "engine": it.engine,
+                            "model": it.model,
+                            "device": it.device,
+                            "precision": it.precision,
+                            "file": wav,
+                            "repeat_index": repeat_index,
+                            "corpus_fingerprint": fingerprint,
+                            "corpus_audio_sha256": fingerprint.get("audio_sha256"),
+                            "error": f"护栏熔断: {why}",
+                        }
+                    )
                     _write_progress(
                         out_dir,
                         done=done,
@@ -1235,20 +1414,32 @@ def main(argv: Optional[List[str]] = None) -> int:
                     )
                     continue
 
-            print(f"\n--- {label} ---", flush=True)
-            ok, why = guard.wait_for_capacity(it, out_dir, max_wait_s=args.wait_seconds)
-            if not ok:
-                print(f"  [guard] 熔断：{why}")
-                results.append(
-                    {
-                        "engine": it.engine,
-                        "model": it.model,
-                        "device": it.device,
-                        "precision": it.precision,
-                        "file": wav,
-                        "error": f"护栏熔断: {why}",
-                    }
+                payload = run_round(
+                    it,
+                    wav,
+                    corpus_dir,
+                    guard,
+                    out_dir,
+                    rtf_hist=rtf_hist,
+                    heartbeat_s=args.heartbeat_s,
+                    repeat_index=repeat_index,
+                    corpus_fingerprint=fingerprint,
                 )
+                elapsed = float(payload.get("driver_wall_clock_s") or 0.0)
+                if elapsed:
+                    run_times.append(elapsed)
+                rt = payload.get("real_time_factor")
+                if rt and not payload.get("error"):
+                    rtf_hist.setdefault(it.key(), []).append(float(rt))
+                err = payload.get("error")
+                er = payload.get("error_rate_pct")
+                print(
+                    f"  RTF={rt}  错误率={er}%  峰值显存={payload.get('sampled_peak_vram_mb')}MiB"
+                    f"  峰值内存={payload.get('sampled_peak_rss_mb')}MiB"
+                    f"  温度={payload.get('sampled_peak_gpu_temp_c')}℃"
+                    + (f"  ERROR: {err}" if err else "")
+                )
+                results.append(payload)
                 _write_progress(
                     out_dir,
                     done=done,
@@ -1258,42 +1449,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                     prof=prof,
                     guard=guard,
                 )
-                continue
-
-            payload = run_round(
-                it,
-                wav,
-                corpus_dir,
-                guard,
-                out_dir,
-                rtf_hist=rtf_hist,
-                heartbeat_s=args.heartbeat_s,
-            )
-            elapsed = float(payload.get("driver_wall_clock_s") or 0.0)
-            if elapsed:
-                run_times.append(elapsed)
-            rt = payload.get("real_time_factor")
-            if rt and not payload.get("error"):
-                rtf_hist.setdefault(it.key(), []).append(float(rt))
-            err = payload.get("error")
-            er = payload.get("error_rate_pct")
-            print(
-                f"  RTF={rt}  错误率={er}%  峰值显存={payload.get('sampled_peak_vram_mb')}MiB"
-                f"  峰值内存={payload.get('sampled_peak_rss_mb')}MiB"
-                f"  温度={payload.get('sampled_peak_gpu_temp_c')}℃"
-                + (f"  ERROR: {err}" if err else "")
-            )
-            results.append(payload)
-            _write_progress(
-                out_dir,
-                done=done,
-                total=total,
-                current=label,
-                eta_seconds=_eta(run_times, total - done),
-                prof=prof,
-                guard=guard,
-            )
-            guard.cooldown(args.cooldown_s)
+                guard.cooldown(args.cooldown_s)
 
     wall_total = time.perf_counter() - started
     summary = {
@@ -1312,11 +1468,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         "plan": [asdict(i) for i in plan],
         "runs": results,
         "meta": {
+            "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "commit": current_commit(),
+            "repeat": repeat,
+            "corpus": str(corpus_dir),
+            "corpus_fingerprint": fingerprint,
+            "engine_versions": engine_versions(),
             "rounds_total": total,
             "rounds_resumed": resumed,
             "rounds_executed": len(results) - resumed,
             "wall_clock_s": round(wall_total, 2),
-            "corpus": str(corpus_dir),
         },
     }
     out_json = out_dir / "results.json"

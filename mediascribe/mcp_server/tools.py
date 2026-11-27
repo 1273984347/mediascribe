@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
+from ..config import _VALID_ENGINES
 from ..models import TranscriptResult  # noqa: F401  (re-exported for type hints)
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -41,7 +42,20 @@ TOOL_LIST = [
                 "whisper_model": {
                     "type": "string",
                     "enum": ["tiny", "base", "small", "medium", "large"],
-                    "default": "small",
+                    "description": "Optional model tier; omit for automatic default small.",
+                },
+                "engine": {
+                    "type": "string",
+                    "enum": list(_VALID_ENGINES),
+                    "description": (
+                        "Optional ASR engine. Omit for automatic selection: "
+                        "faster-whisper is preferred, whisper is the compatible fallback."
+                    ),
+                },
+                "allow_model_download": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Allow downloading missing model weights when needed.",
                 },
                 "output_dir": {
                     "type": "string",
@@ -77,6 +91,19 @@ TOOL_LIST = [
                 "language": {
                     "type": "string",
                     "default": "zh",
+                },
+                "engine": {
+                    "type": "string",
+                    "enum": list(_VALID_ENGINES),
+                    "description": (
+                        "Optional ASR engine. Omit for automatic selection: "
+                        "faster-whisper is preferred, whisper is the compatible fallback."
+                    ),
+                },
+                "allow_model_download": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Allow downloading missing model weights when needed.",
                 },
                 "output_dir": {
                     "type": "string",
@@ -212,7 +239,20 @@ TOOL_LIST = [
                 "whisper_model": {
                     "type": "string",
                     "enum": ["tiny", "base", "small", "medium", "large"],
-                    "default": "small",
+                    "description": "Optional model tier; omit for automatic default small.",
+                },
+                "engine": {
+                    "type": "string",
+                    "enum": list(_VALID_ENGINES),
+                    "description": (
+                        "Optional ASR engine. Omit for automatic selection: "
+                        "faster-whisper is preferred, whisper is the compatible fallback."
+                    ),
+                },
+                "allow_model_download": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Allow downloading missing model weights when needed.",
                 },
                 "output_dir": {
                     "type": "string",
@@ -411,11 +451,13 @@ def _tool_transcribe_video(args: Dict[str, Any]) -> Dict[str, Any]:
     that API.
     """
     from mediascribe.config import Settings
+    from mediascribe.i18n import t
+    from mediascribe.inputs import PreflightError, preflight_source
     from mediascribe.pipeline import Pipeline
 
     source_input = args.get("source") or args.get("url") or args.get("path")
     if not source_input:
-        raise ValueError("transcribe_video requires 'source' (URL or local path)")
+        raise PreflightError("INPUT_INVALID", t("MCP_SOURCE_REQUIRED"))
 
     # SEC-003 (2026-11-02 审计): URL 源过域名白名单, 与 Web 层同标准 —
     # 防止 drive-by 调用把任意 URL 塞给 yt-dlp 抓取
@@ -429,18 +471,20 @@ def _tool_transcribe_video(args: Dict[str, Any]) -> Dict[str, Any]:
     # The MCP tool is opinionated about defaults that may be different from
     # what the CLI uses.  Build a minimal Settings that honours the args
     # the caller passed through, falling back to safe defaults.
-    model = args.get("whisper_model") or args.get("model") or "small"
-    # P1-2(2026-11-20 评审): 默认引擎跟随安装探测(faster-whisper 优先),
-    # 不再硬编码最慢的 torch whisper;MCP 调用方显式传 engine 仍优先。
-    from mediascribe.config import default_engine
-
-    engine = args.get("engine") or default_engine()
+    model = args.get("whisper_model") or args.get("model")
+    engine = args.get("engine")
     language = args.get("language")
     settings = Settings(
         workspace_root=Path(args.get("output_dir", "output")).resolve(),
         model=model,
         engine=engine,
+        allow_model_download=bool(args.get("allow_model_download", False)),
         language=None if language in (None, "auto", "") else language,
+    )
+    preflight_source(
+        source_input,
+        settings,
+        Path(args.get("output_dir", "output")).resolve(),
     )
     pipeline = Pipeline(settings=settings)
     result: TranscriptResult = pipeline.transcribe(
@@ -456,6 +500,7 @@ def _tool_transcribe_video(args: Dict[str, Any]) -> Dict[str, Any]:
         "engine": result.engine,
         "model": result.model,
         "language": language or "auto",
+        "notices": list(getattr(pipeline, "_resource_notices", [])),
     }
 
 
@@ -513,6 +558,10 @@ def _tool_batch_transcribe_creator(args: Dict[str, Any]) -> Dict[str, Any]:
     child_env = dict(os.environ)
     if args.get("language"):
         child_env["MEDIASCRIBE_BATCH_LANGUAGE"] = str(args["language"])
+    if args.get("engine"):
+        child_env["MEDIASCRIBE_BATCH_ENGINE"] = str(args["engine"])
+    if args.get("allow_model_download"):
+        child_env["MEDIASCRIBE_BATCH_ALLOW_MODEL_DOWNLOAD"] = "1"
     if args.get("output_dir"):
         cmd.extend(["--output-dir", args["output_dir"]])
 
@@ -626,7 +675,7 @@ def _tool_transcribe_wechat_mp(args: Dict[str, Any]) -> Dict[str, Any]:
     agents: {url, mode, transcript_path, audio_path, error}.
     """
     from mediascribe.config import Settings
-    from mediascribe.inputs import parse_source
+    from mediascribe.inputs import parse_source, preflight_source
     from mediascribe.pipeline import Pipeline
 
     url = args.get("url", "").strip()
@@ -644,7 +693,7 @@ def _tool_transcribe_wechat_mp(args: Dict[str, Any]) -> Dict[str, Any]:
 
     cookies = args.get("cookies") or None
     cookies_file = args.get("cookies_file") or None
-    whisper_model = args.get("whisper_model", "small")
+    whisper_model = args.get("whisper_model")
     output_dir = args.get("output_dir", "output")
     ocr_engine = args.get("ocr_engine", "auto")
     ocr_lang = args.get("ocr_lang", "chi_sim+eng")
@@ -653,11 +702,14 @@ def _tool_transcribe_wechat_mp(args: Dict[str, Any]) -> Dict[str, Any]:
     settings = Settings(
         workspace_root=Path(output_dir).expanduser(),
         model=whisper_model,
+        engine=args.get("engine"),
+        allow_model_download=bool(args.get("allow_model_download", False)),
         wechat_cookies=cookies,
         wechat_cookies_file=Path(cookies_file).expanduser() if cookies_file else None,
     )
 
     try:
+        preflight_source(url, settings, Path(output_dir).expanduser())
         result = Pipeline(settings=settings).transcribe(
             url,
             ocr_engine=ocr_engine,
@@ -679,6 +731,7 @@ def _tool_transcribe_wechat_mp(args: Dict[str, Any]) -> Dict[str, Any]:
             "ok": False,
             "url": url,
             "error": f"{type(exc).__name__}: {exc}",
+            "error_code": getattr(exc, "code", None),
         }
 
 

@@ -58,13 +58,28 @@ ENV_VARS: Dict[str, Entry] = {
     "MEDIASCRIBE_ZH_SIMPLIFY": _e("Normalize traditional → simplified Chinese", "繁体归一为简体"),
     "MEDIASCRIBE_CLEANUP_MEDIA": _e("Delete media after transcription", "转录后删除媒体文件"),
     "MEDIASCRIBE_CLEANUP_FORCE": _e("Bypass the reversible-cleanup gate", "绕过可逆清理门控"),
-    "MEDIASCRIBE_CACHE_DIR": _e("Download/model cache root", "下载/模型缓存根目录"),
+    "MEDIASCRIBE_CACHE_DIR": _e(
+        "Persistent download/chunk cache root (not ASR weights)",
+        "持久下载/分块缓存根目录（不含 ASR 模型权重）",
+    ),
     "MEDIASCRIBE_DOWNLOAD_CACHE": _e(
         "Enable persistent download cache (0/1)", "启用持久下载缓存（0/1）"
     ),
     "MEDIASCRIBE_CUSTOM_TERMS": _e("Custom terms file for post-processing", "后处理自定义术语表"),
     "MEDIASCRIBE_LEARNED_TERMS": _e(
         "Learned-terms library path (learn.py)", "learn.py 学习术语库路径"
+    ),
+    "MEDIASCRIBE_APP_DATA": _e(
+        "Override user-level application data directory", "覆盖用户级应用数据目录"
+    ),
+    "MEDIASCRIBE_EVENT_DB": _e("Override local-only event database path", "覆盖本地事件数据库路径"),
+    "MEDIASCRIBE_EVENT_RETENTION_DAYS": _e(
+        "Local event retention days (default 90; 0 disables and clears)",
+        "本地事件保留天数（默认 90；0 表示停止保留并清空）",
+    ),
+    "MEDIASCRIBE_INTERNAL_TEST": _e(
+        "Mark local recordings as internal tests and skip automatic first-use events",
+        "将本地记录标记为内部测试并跳过自动首用事件",
     ),
     # ---- GPU / 资源 ----
     "MEDIASCRIBE_VRAM_BUDGET_MB": _e("Override GPU VRAM budget (MB)", "覆盖显存预算（MB）"),
@@ -91,6 +106,10 @@ ENV_VARS: Dict[str, Entry] = {
     "MEDIASCRIBE_BATCH_MODEL": _e("Batch: whisper model size", "批处理：模型档位"),
     "MEDIASCRIBE_BATCH_ENGINE": _e(
         "Batch: ASR engine (default = install probe)", "批处理：ASR 引擎（默认安装探测）"
+    ),
+    "MEDIASCRIBE_BATCH_ALLOW_MODEL_DOWNLOAD": _e(
+        "Batch: allow downloading missing model weights (0/1)",
+        "批处理：允许下载缺失模型权重（0/1）",
     ),
     "MEDIASCRIBE_BATCH_OUTPUT_DIR": _e("Batch: output directory", "批处理：输出目录"),
     "MEDIASCRIBE_BATCH_KEEP_AUDIO": _e(

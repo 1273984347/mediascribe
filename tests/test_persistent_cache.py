@@ -9,6 +9,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
@@ -607,3 +609,187 @@ class TestChunkCacheMaxEntries(unittest.TestCase):
         self.assertEqual(info["entries"], 2, "max_entries=2 应只留 2 条")
         self.assertIsNone(cache.get(src, {"i": 0}), "最旧的 i=0 应被驱逐")
         self.assertIsNotNone(cache.get(src, {"i": 2}))
+
+
+class TestPersistentCacheInspection:
+    def test_reports_existing_entries_without_creating_missing_root(self, tmp_path: Path):
+        from mediascribe import cache
+
+        root = tmp_path / "cache"
+        source = tmp_path / "source.bin"
+        source.write_bytes(b"abc")
+        downloads = cache.PersistentDownloadCache(base=root)
+        downloads.put("https://example.test/media", source, suffix=".bin")
+        downloads.close()
+
+        snapshot = cache.inspect_persistent_caches(override=root)
+
+        assert snapshot["downloads"]["entries"] == 1
+        assert snapshot["downloads"]["bytes"] == 3
+        assert snapshot["downloads"]["wired"] is True
+        assert snapshot["chunks"]["entries"] == 0
+        assert snapshot["chunks"]["wired"] is False
+
+        missing = tmp_path / "missing"
+        cache.inspect_persistent_caches(override=missing)
+        assert not missing.exists()
+
+    def test_marks_corrupt_index_without_deleting_files(self, tmp_path: Path):
+        import json
+
+        from mediascribe import cache
+
+        root = tmp_path / "cache"
+        root.mkdir()
+        (root / "downloads.index.json").write_text("{broken", encoding="utf-8")
+        orphan = root / "orphan.bin"
+        orphan.write_bytes(b"keep")
+
+        snapshot = cache.inspect_persistent_caches(override=root)
+
+        assert snapshot["downloads"]["status"] == "invalid"
+        assert snapshot["downloads"]["entries"] == 0
+        assert orphan.read_bytes() == b"keep"
+
+    def test_marks_index_entries_that_escape_cache_root(self, tmp_path: Path):
+        import json
+
+        from mediascribe import cache
+
+        root = tmp_path / "cache"
+        root.mkdir()
+        outside = tmp_path / "outside.bin"
+        outside.write_bytes(b"keep")
+        (root / "downloads.index.json").write_text(
+            json.dumps({"bad": {"filename": "../outside.bin", "size": 4}}),
+            encoding="utf-8",
+        )
+
+        snapshot = cache.inspect_persistent_caches(override=root)
+
+        assert snapshot["downloads"]["status"] == "unsafe"
+        assert snapshot["downloads"]["bytes"] == 0
+        assert outside.read_bytes() == b"keep"
+
+    def test_clear_removes_only_indexed_cache_entries(self, tmp_path: Path):
+        from mediascribe import cache
+
+        root = tmp_path / "cache"
+        source = tmp_path / "source.bin"
+        source.write_bytes(b"media")
+        downloads = cache.PersistentDownloadCache(base=root)
+        downloaded = downloads.put("https://example.test/media", source, suffix=".bin")
+        downloads.close()
+
+        chunks_dir = tmp_path / "chunks-source"
+        chunks_dir.mkdir()
+        (chunks_dir / "000.wav").write_bytes(b"chunk")
+        chunks = cache.PersistentChunkCache(base=root / "chunks")
+        chunk_entry = chunks.put(source, {"chunk_seconds": 60}, chunks_dir)
+        chunks.close()
+
+        learned_terms = root / "learned_terms.json"
+        learned_terms.write_bytes(b"keep")
+        weights = root / "whisper-cpp" / "ggml-tiny.bin"
+        weights.parent.mkdir()
+        weights.write_bytes(b"keep")
+        orphan = root / "orphan.bin"
+        orphan.write_bytes(b"keep")
+
+        result = cache.clear_persistent_caches(override=root)
+
+        assert result["downloads"]["status"] == "ok"
+        assert result["downloads"]["removed"] == 1
+        assert result["chunks"]["status"] == "ok"
+        assert result["chunks"]["removed"] == 1
+        assert not downloaded.exists()
+        assert not chunk_entry.exists()
+        assert learned_terms.read_bytes() == b"keep"
+        assert weights.read_bytes() == b"keep"
+        assert orphan.read_bytes() == b"keep"
+        assert root.is_dir()
+
+    def test_clear_skips_entire_cache_when_index_is_corrupt(self, tmp_path: Path):
+        from mediascribe import cache
+
+        root = tmp_path / "cache"
+        root.mkdir()
+        (root / "downloads.index.json").write_text("{broken", encoding="utf-8")
+        cached = root / "cached.bin"
+        cached.write_bytes(b"keep")
+
+        result = cache.clear_persistent_caches(override=root)
+
+        assert result["downloads"]["status"] == "invalid"
+        assert result["downloads"]["removed"] == 0
+        assert cached.read_bytes() == b"keep"
+
+    def test_clear_skips_entire_cache_when_any_index_entry_is_unsafe(self, tmp_path: Path):
+        import json
+
+        from mediascribe import cache
+
+        root = tmp_path / "cache"
+        root.mkdir()
+        inside = root / "inside.bin"
+        inside.write_bytes(b"keep")
+        outside = tmp_path / "outside.bin"
+        outside.write_bytes(b"keep")
+        (root / "downloads.index.json").write_text(
+            json.dumps(
+                {
+                    "inside": {"filename": "inside.bin"},
+                    "outside": {"filename": "../outside.bin"},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        result = cache.clear_persistent_caches(override=root)
+
+        assert result["downloads"]["status"] == "unsafe"
+        assert result["downloads"]["removed"] == 0
+        assert inside.read_bytes() == b"keep"
+        assert outside.read_bytes() == b"keep"
+
+    @pytest.mark.parametrize("asset", ["learned_terms.json", "whisper-cpp/ggml-tiny.bin"])
+    def test_clear_rejects_download_index_reference_to_protected_asset(
+        self, tmp_path: Path, asset: str
+    ):
+        import json
+
+        from mediascribe import cache
+
+        root = tmp_path / "cache"
+        protected = root / asset
+        protected.parent.mkdir(parents=True)
+        protected.write_bytes(b"keep")
+        (root / "downloads.index.json").write_text(
+            json.dumps({"bad": {"filename": asset}}), encoding="utf-8"
+        )
+
+        result = cache.clear_persistent_caches(override=root)
+
+        assert result["downloads"]["status"] == "unsafe"
+        assert result["downloads"]["removed"] == 0
+        assert protected.read_bytes() == b"keep"
+
+    def test_clear_rejects_chunk_index_reference_to_cache_root(self, tmp_path: Path):
+        import json
+
+        from mediascribe import cache
+
+        root = tmp_path / "cache"
+        chunks_root = root / "chunks"
+        chunks_root.mkdir(parents=True)
+        protected = chunks_root / "keep.bin"
+        protected.write_bytes(b"keep")
+        (chunks_root / "chunks.index.json").write_text(
+            json.dumps({"bad": {"filename": "."}}), encoding="utf-8"
+        )
+
+        result = cache.clear_persistent_caches(override=root)
+
+        assert result["chunks"]["status"] == "unsafe"
+        assert result["chunks"]["removed"] == 0
+        assert protected.read_bytes() == b"keep"

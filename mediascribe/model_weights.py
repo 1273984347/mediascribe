@@ -54,6 +54,28 @@ ENGINE_WHISPERX = "whisperx"
 ENGINE_WHISPER_CPP = "whisper-cpp"
 
 
+class ModelNotReadyError(RuntimeError):
+    """Required model weights are missing and download is not authorized."""
+
+    code = "MODEL_NOT_READY"
+
+    def __init__(self, status: "WeightStatus") -> None:
+        super().__init__(f"{self.code}: {status.message()}")
+        self.status = status
+
+
+class ModelDownloadError(RuntimeError):
+    """An authorized model download failed."""
+
+    code = "MODEL_DOWNLOAD_FAILED"
+
+
+class ModelLoadError(RuntimeError):
+    """Model weights exist but could not be loaded."""
+
+    code = "MODEL_LOAD_FAILED"
+
+
 @dataclass(frozen=True)
 class WeightSpec:
     """Weight specification for one (engine, model) pair."""
@@ -258,6 +280,16 @@ def check_weights(engine: str, model: str) -> WeightStatus:
         hint=spec.hint,
         detail=detail,
     )
+
+
+def ensure_model_ready(engine: str, model: str, *, allow_download: bool = False) -> WeightStatus:
+    """Return weight status or block before an unauthorized download."""
+    status = check_weights(engine, model)
+    if status.ok:
+        return status
+    if engine == ENGINE_WHISPER_CPP or not allow_download:
+        raise ModelNotReadyError(status)
+    return status
 
 
 def preflight_all() -> Dict[Tuple[str, str], WeightStatus]:

@@ -7,12 +7,38 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sqlite3
 import threading
 from pathlib import Path
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional, cast
+
+from mediascribe.web.job_control import JobControl
 
 logger = logging.getLogger(__name__)
+
+
+def _record_terminal_event(
+    events: Any,
+    *,
+    result: str,
+    task_id: Optional[str],
+    error_code: Any = None,
+    stage: Any = None,
+    engine: Any = None,
+    model: Any = None,
+) -> None:
+    if events is None or task_id is None:
+        return
+    try:
+        events.record_finished(
+            result=result,
+            task_id=task_id,
+            error_code=error_code,
+            stage=stage,
+            engine=engine,
+            model=model,
+        )
+    except Exception:
+        logger.debug("transcription_finished event recording failed", exc_info=True)
 
 
 def _store_job_result(
@@ -23,8 +49,9 @@ def _store_job_result(
     results_store: Dict[str, Dict[str, Any]],
     results_lock: "threading.Lock",
     registry: Any,
+    control: JobControl,
     vault: Any = None,
-    store: Any = None,
+    events: Any = None,
 ) -> None:
     """执行 ``runner()`` 并把结果安全写入 ``results_store``。
 
@@ -51,9 +78,13 @@ def _store_job_result(
     """
     try:
         result = runner()
-        md = ""
-        if out_path.exists():
+        from mediascribe.pipeline_stages import ResultWriteError, validate_transcript_result
+
+        try:
             md = out_path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            raise ResultWriteError(str(exc)) from exc
+        validate_transcript_result(result, md)
         engine = getattr(result, "engine", None)
         meta = getattr(result, "metadata", None) or {}
         title = meta.get("title")
@@ -65,6 +96,15 @@ def _store_job_result(
                 wiki_info = vault.archive_transcript(out_path, meta)
             except Exception as exc:  # pragma: no cover - defensive
                 logger.warning("wiki 归档失败 (job=%s): %r", job_id, exc)
+        control.finish(
+            job_id,
+            status="succeeded",
+            result={"out_path": str(out_path)},
+            engine=engine,
+            model=getattr(result, "model", None),
+            title=title,
+            out_path=out_path,
+        )
         # P3-1 + R6-fix: registry check is INSIDE the lock so a
         # concurrent /api/health purge (which also holds this lock,
         # see /api/health) cannot mutate the registry between the
@@ -72,41 +112,72 @@ def _store_job_result(
         # otherwise let the worker resurrect an orphan entry.
         with results_lock:
             if registry.get(job_id) is None:
-                # Job was purged while we were running; don't write.
                 return
             results_store[job_id] = {
                 "markdown": md,
                 "engine": engine,
+                "model": getattr(result, "model", None),
                 "title": title,
                 "url": url,
+                "input": getattr(getattr(result, "source", None), "display_name", url),
+                "duration_seconds": getattr(result, "duration_seconds", None),
+                "artifact_path": str(out_path),
+                "artifact": {
+                    "name": out_path.name,
+                    "url": f"/api/jobs/{job_id}/artifact",
+                },
                 "wiki": wiki_info,
             }
-        # P1-3(2026-11-20 评审): 终态写 SQLite 任务表 — 成果(out_path/
-        # engine/title)在重启与 1h purge 后仍可取回。放在 results_lock 外,
-        # SQLite 有自己的锁。
-        if store is not None:
-            try:
-                store.mark_terminal(
-                    job_id,
-                    finished=True,
-                    out_path=str(out_path),
-                    engine=engine,
-                    title=title,
-                )
-            except sqlite3.OperationalError:
-                # 预期内:workspace 已被清理(测试/停机) → mode=rw 连接失败,
-                # best-effort 持久层安静放弃,不刷日志。
-                logger.debug("job store gone before terminal write (job=%s)", job_id)
-            except Exception:  # pragma: no cover - defensive
-                logger.warning("job store terminal write failed (job=%s)", job_id, exc_info=True)
+        try:
+            control.store.delete_segments(job_id)
+        except Exception:
+            logger.warning(
+                "segment cleanup failed after durable success (job=%s)", job_id, exc_info=True
+            )
+        _record_terminal_event(
+            events,
+            result="success",
+            task_id=job_id,
+            engine=engine,
+            model=getattr(result, "model", None),
+        )
     except Exception as exc:  # pragma: no cover - defensive
-        # ``with_progress`` already marks the job as failed via
-        # ``job.fail(...)``; we just record the failure here so the
-        # REST ``/api/jobs/{id}/result`` endpoint can surface it.
+        from mediascribe.pipeline_stages import NoSpeechError, PipelineCancelled
+        from mediascribe.progress import JobCancelled
+
+        snapshot = control.snapshot(job_id) or {}
+        if (
+            isinstance(exc, (JobCancelled, PipelineCancelled))
+            or snapshot.get("cancelled")
+            or snapshot.get("cancel_requested")
+        ):
+            control.finish(job_id, status="cancelled")
+            _record_terminal_event(events, result="cancelled", task_id=job_id)
+            return
+        # ``with_progress`` only propagates failures; this runner commits the
+        # terminal state through ``JobControl`` below.
         # P3-1 + R6-fix: same TOCTOU-closing pattern on exception path.
         # P2-8: per-URL 错误信息保留给提交者(下载失败等用户输入错误),
         # 完整异常落服务端日志。
+        from mediascribe.recovery import recovery_for_exception
+
         logger.exception("job %s failed (url=%s)", job_id, url[:200])
+        failed_job = registry.get(job_id)
+        if failed_job is None:
+            return
+        recovery = getattr(failed_job, "recovery", None) or recovery_for_exception(exc)
+        status = (
+            "no_speech"
+            if isinstance(exc, NoSpeechError) or recovery["code"] == "NO_SPEECH"
+            else "failed"
+        )
+        control.finish(
+            job_id,
+            status=status,
+            error=recovery["reason"],
+            error_code=recovery["code"],
+            recovery=recovery,
+        )
         with results_lock:
             if registry.get(job_id) is None:
                 return
@@ -115,15 +186,16 @@ def _store_job_result(
                 "engine": None,
                 "title": None,
                 "url": url,
-                "error": f"{exc.__class__.__name__}: {exc}",
+                "error": recovery["reason"],
+                "error_code": recovery["code"],
+                "recovery": recovery,
             }
-        if store is not None:
-            try:
-                store.mark_terminal(job_id, finished=True, error=f"{exc.__class__.__name__}: {exc}")
-            except sqlite3.OperationalError:
-                logger.debug("job store gone before error write (job=%s)", job_id)
-            except Exception:  # pragma: no cover - defensive
-                logger.warning("job store error write failed (job=%s)", job_id, exc_info=True)
+        _record_terminal_event(
+            events,
+            result=status,
+            task_id=job_id,
+            error_code=recovery["code"],
+        )
 
 
 def _run_job_safely(
@@ -134,8 +206,9 @@ def _run_job_safely(
     results_store: Dict[str, Dict[str, Any]],
     results_lock: "threading.Lock",
     registry: Any,
+    control: JobControl,
     vault: Any = None,
-    store: Any = None,
+    events: Any = None,
 ) -> None:
     """遗留单任务提交路径的薄封装 — 委托 :func:`_store_job_result`。
 
@@ -150,8 +223,9 @@ def _run_job_safely(
         results_store,
         results_lock,
         registry,
+        control=control,
         vault=vault,
-        store=store,
+        events=events,
     )
 
 
@@ -166,7 +240,8 @@ def _run_batch_job(
     job_ids_by_src: Dict[str, str] | None = None,
     job_sources: Dict[str, str] | None = None,
     cancel_events: "Dict[str, threading.Event] | None" = None,
-    store: Any = None,
+    control: JobControl,
+    events: Any = None,
 ) -> None:
     """整批提交路径:在独立线程跑 ``AsyncPipeline.run_batch``。
 
@@ -204,30 +279,36 @@ def _run_batch_job(
             continue
         src = getattr(r, "source", None) or ""
         victim_jid = job_ids_by_src.get(src)
-        job = registry.get(victim_jid) if victim_jid else None
+        if victim_jid is None:
+            continue
+        job = registry.get(victim_jid)
         if job is None or getattr(job, "finished", False):
             continue
         exc = getattr(r, "exc", None)
         if isinstance(exc, PipelineCancelled):
-            job.cancel()
-            if store is not None:
-                try:
-                    store.mark_terminal(victim_jid, finished=True, cancelled=True)
-                except sqlite3.OperationalError:
-                    logger.debug("job store gone before cancel write (job=%s)", victim_jid)
-                except Exception:  # pragma: no cover - defensive
-                    logger.warning(
-                        "job store cancel write failed (job=%s)", victim_jid, exc_info=True
-                    )
+            control.finish(victim_jid, status="cancelled")
+            _record_terminal_event(events, result="cancelled", task_id=victim_jid)
         else:
-            msg = f"{type(exc).__name__}: {exc}"
-            job.fail(msg)
-            if store is not None:
-                try:
-                    store.mark_terminal(victim_jid, finished=True, error=msg)
-                except sqlite3.OperationalError:
-                    logger.debug("job store gone before fail write (job=%s)", victim_jid)
-                except Exception:  # pragma: no cover - defensive
-                    logger.warning(
-                        "job store fail write failed (job=%s)", victim_jid, exc_info=True
-                    )
+            from mediascribe.recovery import recovery_for_exception
+
+            recovery = recovery_for_exception(cast(BaseException, exc))
+            from mediascribe.pipeline_stages import NoSpeechError
+
+            status = (
+                "no_speech"
+                if isinstance(exc, NoSpeechError) or recovery["code"] == "NO_SPEECH"
+                else "failed"
+            )
+            control.finish(
+                victim_jid,
+                status=status,
+                error=recovery["reason"],
+                error_code=recovery["code"],
+                recovery=recovery,
+            )
+            _record_terminal_event(
+                events,
+                result=status,
+                task_id=victim_jid,
+                error_code=recovery["code"],
+            )
