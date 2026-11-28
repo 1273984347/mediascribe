@@ -298,8 +298,12 @@ class JobStore:
                 }
                 if mutable:
                     assignments = ", ".join(f"{key} = ?" for key in mutable)
+                    # The interpolated parts are column names only: they come
+                    # from the snapshot allow-list checked above (an unknown
+                    # key raises ValueError before we get here) and every value
+                    # is bound as a parameter -- no user input reaches the SQL.
                     cursor = conn.execute(
-                        f"UPDATE jobs SET {assignments}, updated_at = ? WHERE job_id = ?",
+                        f"UPDATE jobs SET {assignments}, updated_at = ? WHERE job_id = ?",  # nosec B608
                         (*mutable.values(), event.created_at, event.job_id),
                     )
                     job_exists = cursor.rowcount != 0
@@ -322,8 +326,10 @@ class JobStore:
                     }
                     columns = ", ".join(row)
                     placeholders = ", ".join("?" for _ in row)
+                    # Same as above: the column list is built from the fixed
+                    # allow-list, the values are bound as parameters.
                     conn.execute(
-                        f"INSERT INTO jobs ({columns}) VALUES ({placeholders})",
+                        f"INSERT INTO jobs ({columns}) VALUES ({placeholders})",  # nosec B608
                         tuple(row.values()),
                     )
 
