@@ -435,3 +435,38 @@ footer a:hover { color: var(--blue); text-decoration: underline; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---------------------------------------------------------------------
+   已结束任务的折叠容器(2026-11-28 P0-2)
+   <details> 收起时整块不占布局高度 ⇒ 首页不再被历史任务撑长。
+   --------------------------------------------------------------------- */
+.finished-group {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--raised);
+  padding: 10px 14px;
+}
+.finished-group > summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--fg-2);
+  list-style: none;
+  user-select: none;
+}
+.finished-group > summary::-webkit-details-marker { display: none; }
+.finished-group > summary::before { content: "\25B8 "; color: var(--fg-3); }
+.finished-group[open] > summary::before { content: "\25BE "; }
+.finished-group > summary:hover { color: var(--fg); }
+.finished-body {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+/* 收起时**必须**不占布局高度。
+   浏览器 UA 样式表里"details 收起 ⇒ 内容 display:none"的规则**优先级低于
+   作者样式** —— 上面的 .finished-body{display:grid} 会把它盖掉 ⇒ 收起
+   的容器照样撑出一屏空白。这里显式声明, 不依赖浏览器实现细节。 */
+.finished-group:not([open]) .finished-body { display: none; }
+.more-history {
+  justify-self: center;
+}

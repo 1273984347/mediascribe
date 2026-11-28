@@ -770,7 +770,7 @@ def test_frontend_resume_replaces_attempt_without_checkpoint_merge():
 
 def test_frontend_does_not_auto_resume_on_restore():
     source = (MODULES / "jobs.js").read_text(encoding="utf-8")
-    restore = source.split("async function restoreQueue()", 1)[1]
+    restore = source.split("async function restoreQueue(", 1)[1]
     assert "/resume" not in restore
 
 

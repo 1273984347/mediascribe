@@ -207,15 +207,35 @@ def _register_job_control_routes(app: "FastAPI") -> None:
         return job.to_dict()
 
     @app.get("/api/jobs", dependencies=[_depends(_require_api_token)])
-    def list_jobs() -> Dict[str, Any]:
-        """List live and persisted jobs newest first.
+    def list_jobs(limit: int = 50, offset: int = 0) -> Dict[str, Any]:
+        """List live and persisted jobs newest first (paged).
 
         The Web UI persists ``job_id`` in ``localStorage`` and calls this on
         page load to restore the queue. Durable history supplies terminal and
         interrupted snapshots after restart; live entries take precedence for
         active jobs. Each entry includes status, resume eligibility, and the
         checkpoint cursor needed to rebuild a card.
+
+        Args:
+            limit: Page size, clamped to ``1..200`` (out-of-range values
+                are pinned to the nearest bound instead of raising). Defaults
+                to 50 so a long history cannot stretch the first page load.
+            offset: number of already-consumed entries to skip. Used by the
+                UI's "load more history" button.
+
+        Returns:
+            ``{"jobs": [...], "total": int, "truncated": bool}`` — ``total``
+            counts every job visible to this query (independent of
+            ``limit``) and ``truncated`` reports whether entries remain
+            beyond this page.
+
+            Note: the durable history window caps the visible set at 200
+            entries (``JobStore.list``'s own limit, unchanged by this
+            parameter), so ``total`` never exceeds 200 for persisted jobs.
+            Live jobs are not subject to that cap.
         """
+        limit = max(1, min(200, limit))
+        offset = max(0, offset)
         registry = _job_registry(app)
         # ``ProgressRegistry`` 用 dict 存储 ⇒ ``list()`` 返回的就是**插入
         # 顺序**(= 创建顺序)。倒过来即「最新在前」。
@@ -310,7 +330,15 @@ def _register_job_control_routes(app: "FastAPI") -> None:
                         **_checkpoint_fields(row),
                     }
                 )
-        return {"jobs": entries}
+        # 先把两份列表合并去重后的**完整**集合算出来, 再切片 ——
+        # total 描述"一共匹配到多少条", 与 limit/offset 无关。
+        total = len(entries)
+        page = entries[offset : offset + limit]
+        return {
+            "jobs": page,
+            "total": total,
+            "truncated": total > len(page),
+        }
 
 
 def _register_submit_jobs_route(app: "FastAPI", workspace: Path, pipeline_factory) -> None:

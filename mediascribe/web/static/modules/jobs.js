@@ -38,6 +38,149 @@ const STAGE_LABELS = {
 //: 重连退避序列(毫秒) —— 指数级, 上限 15s。
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000];
 
+// ---------------------------------------------------------------------
+// 队列容器(2026-11-28 P0-2)
+// ---------------------------------------------------------------------
+// 首页历史上会一次渲染全部任务(实测 127 张卡 ⇒ 27 屏)⇒ 用户找不到当前
+// 正在跑的那一个。现在:
+//   * 进行中的任务 ⇒ 直接铺在 #results 顶部(永远展开);
+//   * 已结束的任务 ⇒ 收进一个默认收起的 <details> 折叠容器;
+//   * 历史太长时 ⇒ 「加载更多历史任务」按钮按页追加。
+//
+//: 已经恢复过的 job_id —— 翻页时用来跳过重复条目(不重复渲染、不覆盖
+//: 已有卡片)。服务端合并的是「内存 registry + SQLite 历史」, 两个来源
+//: 都会随新任务变动 ⇒ 相邻两页可能有交叠。
+const restoredJobIds = new Set();
+
+//: 已结束任务的折叠容器(<details>)、它的标题与内部卡片列表。
+let doneDetails = null;
+let doneSummary = null;
+let doneBody = null;
+//: 「加载更多历史任务」按钮(仅在服务端说还有更多时才出现)。
+let moreButton = null;
+//: 已经从服务端取回的条目数 —— 下一页的 offset。
+let historyOffset = 0;
+
+// ---------------------------------------------------------------------
+// 阶段链状态(2026-11-28 P0-1)
+// ---------------------------------------------------------------------
+// 实时路径(connectWs 里的 setStage)自己管节点状态; 但 restoreQueue 走的
+// 是**没有 WS** 的恢复路径 —— 以前只写了 chip / 阶段名 / 百分比, 从不写
+// 6 个阶段圆圈的状态类 ⇒ 刷新后卡片写着「完成 100%」而链上一个 ✓ 都没有。
+//
+// 统一成一个模块级函数, 两条路径共用同一套规则(实时路径已验证正确,
+// 这里不改它 —— 只让恢复路径把状态补齐)。
+//
+// mode:
+//   "done" ⇒ 6 个节点全部 done + "✓", 全部连接线填满。
+//   "fail" ⇒ stageIndex 之前 done + "✓"; stageIndex 处 "node fail"(无 ✓);
+//            之后回到 "node"(未开始)。
+//   "off"  ⇒ stageIndex 之前 done + "✓"; stageIndex 及其之后 "node off"。
+//
+// stageIndex 越界或缺失 ⇒ 按 0 处理。
+function applyChainState(card, opts) {
+  const mode = opts.mode;
+  let stageIndex = Number.isInteger(opts.stageIndex) ? opts.stageIndex : 0;
+  if (stageIndex < 0 || stageIndex >= STAGES.length) stageIndex = 0;
+  const nodes = card.querySelectorAll(".node");
+  const segs = card.querySelectorAll(".seg");
+  nodes.forEach((node, i) => {
+    const num = String(i + 1).padStart(2, "0");
+    if (mode === "done" || i < stageIndex) {
+      node.className = "node done";
+      node.textContent = "✓";
+    } else if (mode === "fail" && i === stageIndex) {
+      node.className = "node fail";
+      node.textContent = "×";
+    } else if (mode === "off") {
+      node.className = "node off";
+      node.textContent = num;
+    } else {
+      node.className = "node";
+      node.textContent = num;
+    }
+  });
+  // 连接线: 第 i 段代表**第 i 个阶段**的进度 ⇒ 源阶段下标 < stageIndex
+  // 的段填满, 其余清零。
+  segs.forEach((seg, i) => {
+    const fill = seg.querySelector("i");
+    if (!fill) return;
+    const filled = mode === "done" || i < stageIndex;
+    seg.className = filled ? "seg done" : "seg";
+    fill.className = "";
+    fill.style.width = filled ? "100%" : "0%";
+  });
+}
+
+//: 已结束任务的折叠容器 —— 动态创建(无需改 index.html)。
+//: <details> 收起时不占布局高度 ⇒ 首页不会因为历史任务变长。
+function ensureFinishedGroup() {
+  if (doneDetails) return doneDetails;
+  doneDetails = document.createElement("details");
+  doneDetails.id = "finished-group";
+  doneDetails.className = "finished-group";
+  doneDetails.hidden = true;
+  doneSummary = document.createElement("summary");
+  doneSummary.id = "finished-summary";
+  doneSummary.textContent = "已结束 (0)";
+  doneBody = document.createElement("div");
+  doneBody.id = "finished-body";
+  doneBody.className = "finished-body";
+  doneDetails.append(doneSummary, doneBody);
+  results.appendChild(doneDetails);
+  moreButton = document.createElement("button");
+  moreButton.type = "button";
+  moreButton.id = "more-history";
+  moreButton.className = "ghost more-history";
+  moreButton.textContent = "加载更多历史任务";
+  moreButton.hidden = true;
+  moreButton.addEventListener("click", loadMoreHistory);
+  results.appendChild(moreButton);
+  return doneDetails;
+}
+
+//: 「加载更多」按钮的三态 ——
+//:   "more"   ⇒ 还有下一页 ⇒ 按钮可点;
+//:   "all"    ⇒ 历史已全部加载 ⇒ 按钮置灰成「已全部加载」;
+//:   "hidden" ⇒ 本来就没有历史(无需出现按钮)。
+function updateMoreButton(state) {
+  if (!moreButton) return;
+  if (state === "more") {
+    moreButton.hidden = false;
+    moreButton.textContent = "加载更多历史任务";
+    moreButton.disabled = false;
+  } else if (state === "all") {
+    moreButton.hidden = false;
+    moreButton.textContent = "已全部加载";
+    moreButton.disabled = true;
+  } else {
+    moreButton.hidden = true;
+  }
+}
+
+//: 折叠容器标题的计数 + 空容器自动隐藏。
+function updateDoneSummary() {
+  if (!doneSummary || !doneBody) return;
+  const n = doneBody.querySelectorAll(".card").length;
+  doneSummary.textContent = `已结束 (${n})`;
+  doneDetails.hidden = n === 0;
+}
+
+//: 追加下一页历史任务(不重复、不覆盖已有卡片 —— renderJobCard 按 job_id 去重)。
+async function loadMoreHistory() {
+  if (!moreButton || moreButton.disabled) return;
+  moreButton.disabled = true;
+  try {
+    // restoreQueue() 用模块级 historyOffset 取下一页 —— 上一次调用已把它
+    // 推进到本页末尾, 所以这里再调一次就是「下一页」。
+    await restoreQueue();
+  } catch (err) {
+    setStatus("加载更多历史任务失败:" + err.message, true);
+  } finally {
+    if (moreButton && !moreButton.hidden) moreButton.disabled = false;
+  }
+}
+
 $("urls").addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
     e.preventDefault();
@@ -184,7 +327,16 @@ function renderJobCard(job, opts = {}) {
       <button type="button" data-copy style="display:none;">复制文稿</button>
       <button type="button" data-download style="display:none;">下载 .md</button>
     </div>`;
-  results.appendChild(card);
+  // 挂载位置:
+  //   * 显式给了 container ⇒ 放那里(已结束的卡片 ⇒ 折叠容器内部);
+  //   * 默认(进行中的卡片)⇒ 插在折叠容器**之前** ⇒ 正在跑的任务永远
+  //     排在 #results 顶部, 不会被历史区挤到屏幕外。
+  const host = opts.container || results;
+  if (host === results && doneDetails && doneDetails.parentNode === results) {
+    results.insertBefore(card, doneDetails);
+  } else {
+    host.appendChild(card);
+  }
   activeJobs.add(job.job_id);
   rememberJobId(job.job_id);
   updateMeters();
@@ -772,29 +924,64 @@ async function restoreQueue() {
   // 辅助, 服务端的 GET /api/jobs 才是事实源。若把 ids.length === 0 当作
   // 早退条件, 就会复现原缺陷的另一半: 换了浏览器/清了缓存后, 服务端明明
   // 还在跑任务, 页面却一片空白。所以这里无条件向服务端问一次。
+  //
+  // offset 用模块级 historyOffset —— 首屏为 0, 「加载更多」时由上一次
+  // 调用推进到本页末尾再取下一页(同一个 URL 形状 ⇒ 不会重复/覆盖卡片)。
+  const offset = historyOffset;
   let data;
   try {
-    const r = await fetch("/api/jobs", { headers: authHeaders() });
+    const r = await fetch("/api/jobs?limit=50&offset=" + offset, { headers: authHeaders() });
     if (!r.ok) return;
     data = await r.json();
   } catch (_) {
     return;
   }
   const jobs = Array.isArray(data.jobs) ? data.jobs : [];
+  // total 是服务端合并去重后的**完整**匹配数(与 limit 无关);
+  // truncated 表示"这一页比完整集合短" ⇒ 还有下一页。
+  const total = Number.isInteger(data.total) ? data.total : jobs.length;
+  const truncated = Boolean(data.truncated);
+  // 已消费条数 ⇒ 是否还有下一页(比单看 truncated 更准: 末页也可能比
+  // limit 短, 但那时已经到底了)。
+  const consumed = offset + jobs.length;
   if (jobs.length === 0) {
     // 服务端已无任务 —— 顺手清掉本地存储里的过期 job_id。
-    loadStoredJobIds().forEach(forgetJobId);
+    // 只在首屏(offset === 0)做: 翻页拿到空结果时, 不能把「还没加载
+    // 的历史 job_id」当成过期项清掉。
+    if (offset === 0) loadStoredJobIds().forEach(forgetJobId);
+    updateMoreButton(truncated ? "all" : "hidden");
     return;
   }
-  const known = new Set(jobs.map((j) => j.job_id));
-  // 服务端已不认识的 job(过期/已清理) —— 从本地存储里清掉, 不留垃圾。
-  loadStoredJobIds().filter((id) => !known.has(id)).forEach(forgetJobId);
+  if (offset === 0) {
+    const known = new Set(jobs.map((j) => j.job_id));
+    // 服务端已不认识的 job(过期/已清理) —— 从本地存储里清掉, 不留垃圾。
+    loadStoredJobIds().filter((id) => !known.has(id)).forEach(forgetJobId);
+  }
   emptyState.style.display = "none";
+  // 进行中的任务铺在 #results 顶部(永远展开); 已结束的收进折叠容器。
+  // 两类分开渲染 ⇒ 「正在跑的那个」永远在第一屏。
+  const running = [];
+  const settled = [];
   for (const job of jobs) {
+    const interrupted = job.status === "interrupted";
+    (job.finished || interrupted ? settled : running).push(job);
+  }
+  for (const job of running) {
+    if (restoredJobIds.has(job.job_id)) continue;
+    restoredJobIds.add(job.job_id);
+    renderJobCard(job, { skipWs: false });
+  }
+  ensureFinishedGroup();
+  for (const job of settled) {
     // 终态任务走 skipWs 路径 —— 不建 WS(服务端会对已结束任务发两次
     // snapshot, 导致文稿被渲染多份)。renderJobCard 内部已按 job_id 去重。
+    if (restoredJobIds.has(job.job_id)) continue;
+    restoredJobIds.add(job.job_id);
     const interrupted = job.status === "interrupted";
-    const card = renderJobCard(job, { skipWs: Boolean(job.finished) || interrupted });
+    const card = renderJobCard(job, {
+      skipWs: Boolean(job.finished) || interrupted,
+      container: doneBody,
+    });
     if (!card) continue;
     if (interrupted) {
       const chip = card.querySelector("[data-chip]");
@@ -807,6 +994,8 @@ async function restoreQueue() {
       stageLabel.textContent = "已中断";
       stageLabel.dataset.state = "off";
       pct.textContent = "—";
+      // P0-1: 恢复路径补链状态 —— 以前只写文字, 6 个阶段圆圈全灰。
+      applyChainState(card, { mode: "off", stageIndex: job.stage_index });
       resumeBtn.style.display = job.resumable ? "" : "none";
       if (job.resume_block_reason) {
         errEl.textContent = job.resume_block_reason;
@@ -833,6 +1022,7 @@ async function restoreQueue() {
         stageLabel.textContent = "已取消";
         stageLabel.dataset.state = "off";
         pct.textContent = "—";
+        applyChainState(card, { mode: "off", stageIndex: 0 });
         forgetJobId(job.job_id);
         continue;
       }
@@ -851,6 +1041,7 @@ async function restoreQueue() {
         stageLabel.textContent = job.error_code === "NO_SPEECH" ? "无语音" : "失败";
         stageLabel.dataset.state = "err";
         pct.textContent = "—";
+        applyChainState(card, { mode: "fail", stageIndex: job.stage_index });
         continue;
       }
       card.classList.add("ok");
@@ -859,10 +1050,16 @@ async function restoreQueue() {
       stageLabel.textContent = "完成";
       stageLabel.dataset.state = "ok";
       pct.textContent = "100%";
+      applyChainState(card, { mode: "done" });
       fetchResult(card, job);
     }
   }
   // 恢复出来的终态卡片也算「已结束」⇒ 刷新清空按钮的可用状态。
+  updateDoneSummary();
+  // 下一页的 offset = 已取回的条目数; 服务端说这一页短于完整集合
+  // ⇒ 还有更多可加载。
+  historyOffset = offset + jobs.length;
+  updateMoreButton(truncated ? (consumed >= total ? "all" : "more") : "hidden");
   refreshClearButton();
 }
 
@@ -882,9 +1079,18 @@ function cardExists(jobId) {
 // 2026-10-31 交互审查(按钮与状态反馈): 「清空已结束」原本永远可点, 但
 // 没有可清的东西时点了**毫无反应** —— 用户不知道是按钮坏了还是没东西可清。
 // 现在按实际可清数量启用/禁用。
+//
+// 2026-11-28(P0-2 折叠容器): 已结束的卡片现在收在折叠容器**内部**,
+// 但它仍是 #results 的后代 ⇒ querySelectorAll 照样找得到 ⇒ 折叠不影响
+// 清空逻辑。折叠容器里的卡片(ok/err/cancelled + interrupted)一并计入,
+// 否则「已结束 (N)」的计数会与「清空已结束 (N)」对不上。
 function finishedCards() {
   return [...results.querySelectorAll(".card")].filter(
-    (c) => c.classList.contains("ok") || c.classList.contains("err") || c.classList.contains("cancelled")
+    (c) =>
+      c.classList.contains("ok") ||
+      c.classList.contains("err") ||
+      c.classList.contains("cancelled") ||
+      (doneBody && doneBody.contains(c))
   );
 }
 
@@ -905,6 +1111,7 @@ $("clear-done").addEventListener("click", () => {
     c.remove();
   });
   if (!results.querySelector(".card")) emptyState.style.display = "";
+  updateDoneSummary();
   refreshClearButton();
 });
 

@@ -54,6 +54,69 @@ from mediascribe.web.ws_bridge import _JobEventBridge
 logger = logging.getLogger(__name__)
 
 
+def _find_source_tree_root(start: Path, home: Path) -> Optional[Path]:
+    """Return the nearest ancestor of ``start`` that holds ``pyproject.toml``.
+
+    The upward walk stops after ``home`` (or at the filesystem root), so
+    directories above the user's home are never inspected.
+    """
+    current = start
+    while True:
+        if (current / "pyproject.toml").is_file():
+            return current
+        if current == home:
+            return None
+        parent = current.parent
+        if parent == current:
+            return None
+        current = parent
+
+
+def resolve_default_workspace(
+    *,
+    env_value: Optional[str] = None,
+    cwd: Optional[Path] = None,
+    home: Optional[Path] = None,
+) -> Path:
+    """Resolve the default workspace directory of the web app.
+
+    Resolution order (highest priority first):
+
+    1. ``env_value`` -- by default the ``MEDIASCRIBE_WORKSPACE`` environment
+       variable.  A blank value counts as "not set".
+    2. Source-tree anchor: the nearest ancestor of ``cwd`` that contains a
+       ``pyproject.toml`` file; the workspace is ``<root>/web-workspace``.
+       This keeps the workspace stable no matter which directory the server
+       was started from, and keeps it inside the project the user is running.
+    3. Fallback: ``<home>/.mediascribe/workspace`` -- used when the process
+       runs outside any source tree.
+
+    Args:
+        env_value: Explicit environment value.  ``None`` reads
+            ``MEDIASCRIBE_WORKSPACE`` from the process environment; an empty
+            string means "no environment override".
+        cwd: Directory the source-tree search starts from (defaults to
+            ``Path.cwd()``).
+        home: Home directory used for the fallback and as the upper bound of
+            the upward walk (defaults to ``Path.home()``).
+
+    Returns:
+        The resolved workspace directory.
+    """
+    if env_value is None:
+        env_value = os.environ.get("MEDIASCRIBE_WORKSPACE", "")
+    env_ws = env_value.strip()
+    if env_ws:
+        return Path(env_ws)
+
+    start = Path.cwd() if cwd is None else Path(cwd)
+    home_dir = Path.home() if home is None else Path(home)
+    root = _find_source_tree_root(start, home_dir)
+    if root is not None:
+        return root / "web-workspace"
+    return home_dir / ".mediascribe" / "workspace"
+
+
 def _positive_int_env(*names: str, default: int) -> int:
     """按顺序取第一个非空且为正整数的 env;全无效时回退默认值。
 
@@ -226,9 +289,17 @@ def build_app(
 
     # 附加修复: Docker 镜像已设 ``MEDIASCRIBE_WORKSPACE=/workspace`` 且
     # compose 已挂卷, 但代码此前不读该变量, 导致容器内数据不落卷。
+    #
+    # P0-3(2026-11-28): 默认工作区不再依赖启动 cwd —— 旧实现用
+    # ``Path.cwd() / "web-workspace"``, 于是「从哪个目录启动」就决定了
+    # 数据落点(历史任务/文稿/cookie 会静默「消失」), 且 pytest 的 cwd 是
+    # 仓库根 ⇒ 测试任务会写进用户真实工作区。现改为三级锚定:
+    # env > 源码树(向上找 pyproject.toml) > home 兜底。
     if workspace is None:
-        env_ws = os.environ.get("MEDIASCRIBE_WORKSPACE", "").strip()
-        workspace = Path(env_ws) if env_ws else Path.cwd() / "web-workspace"
+        workspace = resolve_default_workspace()
+    # 工作区来源必须可观测 —— 只写日志, 绝不进任何 HTTP 响应
+    # (本机绝对路径属信息泄露面)。每次 build_app 打印一次。
+    logger.info("Web workspace resolved: %s", workspace.resolve())
 
     # P1-3(2026-11-20 评审): SQLite 任务表 — 任务态不再 100% 进程内存。
     # 启动时把上次进程遗留的 unfinished 任务标记为 interrupted(重启可观测,
